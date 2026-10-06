@@ -21,8 +21,6 @@ type GrantOptions struct {
 	Nonce                string
 	AuthCode             string
 	AuthCodeExpiresAt    int
-	DeviceCode           string
-	DeviceCodeExpiresAt  int
 	JWKThumbprint        string
 	ClientCertThumbprint string
 	Actor                *goidc.Actor
@@ -32,21 +30,19 @@ type GrantOptions struct {
 
 func NewGrant(ctx oidc.Context, c *goidc.Client, opts GrantOptions) (*goidc.Grant, error) {
 	grant := &goidc.Grant{
-		ID:                  ctx.GrantID(),
-		AuthCode:            opts.AuthCode,
-		AuthCodeExpiresAt:   opts.AuthCodeExpiresAt,
-		DeviceCode:          opts.DeviceCode,
-		DeviceCodeExpiresAt: opts.DeviceCodeExpiresAt,
-		Subject:             opts.Subject,
-		Username:            opts.Username,
-		ClientID:            opts.ClientID,
-		Actor:               opts.Actor,
-		Scopes:              opts.Scopes,
-		Store:               opts.Store,
-		JWKThumbprint:       opts.JWKThumbprint,
-		CertThumbprint:      opts.ClientCertThumbprint,
-		AuthParams:          opts.AuthParams,
-		CreatedAt:           timeutil.TimestampNow(),
+		ID:                ctx.GrantID(),
+		AuthCode:          opts.AuthCode,
+		AuthCodeExpiresAt: opts.AuthCodeExpiresAt,
+		Subject:           opts.Subject,
+		Username:          opts.Username,
+		ClientID:          opts.ClientID,
+		Actor:             opts.Actor,
+		Scopes:            opts.Scopes,
+		Store:             opts.Store,
+		JWKThumbprint:     opts.JWKThumbprint,
+		CertThumbprint:    opts.ClientCertThumbprint,
+		AuthParams:        opts.AuthParams,
+		CreatedAt:         timeutil.TimestampNow(),
 	}
 	if ctx.RAREnabled {
 		grant.AuthDetails = opts.AuthDetails
@@ -95,7 +91,6 @@ type request struct {
 	resources    goidc.Resources
 	authDetails  []goidc.AuthDetail
 	assertion    string
-	deviceCode   string
 	// audience is the logical name of the target service where the client
 	// intends to use the requested security token.
 	// Multiple audience values indicate the token is intended for multiple
@@ -126,7 +121,6 @@ func newRequest(r *http.Request) request {
 		codeVerifier:       r.PostFormValue("code_verifier"),
 		resources:          r.PostForm["resource"],
 		assertion:          r.PostFormValue("assertion"),
-		deviceCode:         r.PostFormValue("device_code"),
 		subjectToken:       r.PostFormValue("subject_token"),
 		subjectTokenType:   goidc.TokenTypeIdentifier(r.PostFormValue("subject_token_type")),
 		actorToken:         r.PostFormValue("actor_token"),

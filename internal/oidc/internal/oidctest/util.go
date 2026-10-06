@@ -204,9 +204,6 @@ func NewContext(tb testing.TB) oidc.Context {
 		JWTIDFunc: func(context.Context) string {
 			return uuid.NewString()
 		},
-		DeviceCodeFunc: func(context.Context) string {
-			return uuid.NewString()
-		},
 		IDTokenLifetimeSecs:      60,
 		SubIdentifierTypeDefault: goidc.SubIdentifierPublic,
 		SubIdentifierTypes: []goidc.SubIdentifierType{

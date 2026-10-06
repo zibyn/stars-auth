@@ -10,7 +10,6 @@ import (
 var _ goidc.AuthManager = &Manager{}
 var _ goidc.DCRManager = &Manager{}
 var _ goidc.PARManager = &Manager{}
-var _ goidc.DeviceAuthManager = &Manager{}
 var _ goidc.RefreshTokenManager = &Manager{}
 var _ goidc.GrantManager = &Manager{}
 var _ goidc.OpaqueTokenManager = &Manager{}
@@ -66,31 +65,9 @@ func (m *Manager) Session(_ context.Context, id string) (*goidc.AuthnSession, er
 	return as, nil
 }
 
-func (m *Manager) SessionByDeviceCode(_ context.Context, code string) (*goidc.AuthnSession, error) {
-	as, exists := m.firstSession(func(s *goidc.AuthnSession) bool {
-		return s.DeviceCode == code
-	})
-	if !exists {
-		return nil, goidc.ErrNotFound
-	}
-
-	return as, nil
-}
-
 func (m *Manager) SessionByPushedAuthReqID(_ context.Context, id string) (*goidc.AuthnSession, error) {
 	as, exists := m.firstSession(func(s *goidc.AuthnSession) bool {
 		return s.PushedAuthReqID == id
-	})
-	if !exists {
-		return nil, goidc.ErrNotFound
-	}
-
-	return as, nil
-}
-
-func (m *Manager) SessionByUserCode(_ context.Context, code string) (*goidc.AuthnSession, error) {
-	as, exists := m.firstSession(func(s *goidc.AuthnSession) bool {
-		return s.UserCode == code
 	})
 	if !exists {
 		return nil, goidc.ErrNotFound
@@ -193,19 +170,6 @@ func (m *Manager) GrantByRefreshToken(_ context.Context, tkn string) (*goidc.Gra
 
 	for _, g := range m.Grants {
 		if g.RefreshToken == tkn {
-			return g, nil
-		}
-	}
-
-	return nil, goidc.ErrNotFound
-}
-
-func (m *Manager) GrantByDeviceCode(_ context.Context, code string) (*goidc.Grant, error) {
-	m.grantMutex.RLock()
-	defer m.grantMutex.RUnlock()
-
-	for _, g := range m.Grants {
-		if g.DeviceCode == code {
 			return g, nil
 		}
 	}

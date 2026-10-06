@@ -36,7 +36,6 @@ type Configuration struct {
 	UserInfoClaimsFunc goidc.UserInfoClaimsFunc
 	TokenClaimsFunc    goidc.TokenClaimsFunc
 	AuthPolicies       []goidc.AuthnPolicy
-	DevicePolicies     []goidc.AuthnPolicy
 	Scopes             []goidc.Scope
 	OpenIDRequired     bool
 	GrantTypes         []goidc.GrantType
@@ -207,17 +206,6 @@ type Configuration struct {
 	LogoutPolicies              []goidc.LogoutPolicy
 	LogoutSessionIDFunc         goidc.RandomFunc
 	HandleDefaultPostLogoutFunc goidc.HandleDefaultPostLogoutFunc
-
-	DeviceAuthManager                        goidc.DeviceAuthManager
-	DeviceAuthEndpoint                       string
-	DeviceAuthVerificationEndpoint           string
-	DeviceAuthVerificationURICompleteEnabled bool
-	DeviceAuthLifetimeSecs                   int
-	DeviceAuthPollingIntervalSecs            int
-	DeviceCodeFunc                           goidc.RandomFunc
-	DeviceAuthGenerateUserCodeFunc           goidc.RandomFunc
-	DeviceAuthPromptUserCodeFunc             goidc.RenderFunc
-	DeviceAuthRenderConfirmationFunc         goidc.RenderFunc
 
 	TokenExchangeClientAuthnRequired bool
 	TokenExchangeHandleFunc          goidc.TokenExchangeHandleFunc

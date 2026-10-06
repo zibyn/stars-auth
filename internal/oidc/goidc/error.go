@@ -37,8 +37,6 @@ const (
 	ErrorCodeAuthPending              ErrorCode = "authorization_pending"
 	ErrorCodeSlowDown                 ErrorCode = "slow_down"
 	ErrorCodeExpiredToken             ErrorCode = "expired_token"
-	ErrorCodeMissingUserCode          ErrorCode = "missing_user_code"
-	ErrorCodeInvalidUserCode          ErrorCode = "invalid_user_code"
 	ErrorCodeInvalidBindingMessage    ErrorCode = "invalid_binding_message"
 	ErrorCodeUnknownUserID            ErrorCode = "unknown_user_id"
 	ErrorCodeTransactionFailed        ErrorCode = "transaction_failed"

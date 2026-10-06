@@ -78,48 +78,6 @@ func TestManagerSessions(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "load session by device code",
-			run: func(t *testing.T, manager *storage.Manager) {
-				// Given.
-				manager.Sessions["session_1"] = &goidc.AuthnSession{
-					ID:         "session_1",
-					DeviceCode: "device_code_1",
-				}
-
-				// When.
-				session, err := manager.SessionByDeviceCode(context.Background(), "device_code_1")
-
-				// Then.
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-				if session.ID != "session_1" {
-					t.Fatalf("session.ID = %q, want %q", session.ID, "session_1")
-				}
-			},
-		},
-		{
-			name: "load session by user code",
-			run: func(t *testing.T, manager *storage.Manager) {
-				// Given.
-				manager.Sessions["session_1"] = &goidc.AuthnSession{
-					ID:       "session_1",
-					UserCode: "user_code_1",
-				}
-
-				// When.
-				session, err := manager.SessionByUserCode(context.Background(), "user_code_1")
-
-				// Then.
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-				if session.ID != "session_1" {
-					t.Fatalf("session.ID = %q, want %q", session.ID, "session_1")
-				}
-			},
-		},
 	}
 
 	for _, test := range tests {
@@ -327,24 +285,6 @@ func TestManagerGrants(t *testing.T) {
 
 				// When.
 				grant, err := manager.GrantByRefreshToken(context.Background(), "refresh_token_1")
-
-				// Then.
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-				if grant.ID != "grant_1" {
-					t.Fatalf("grant.ID = %q, want %q", grant.ID, "grant_1")
-				}
-			},
-		},
-		{
-			name: "load grant by device code",
-			run: func(t *testing.T, manager *storage.Manager) {
-				// Given.
-				manager.Grants["grant_1"] = &goidc.Grant{ID: "grant_1", DeviceCode: "device_code_1"}
-
-				// When.
-				grant, err := manager.GrantByDeviceCode(context.Background(), "device_code_1")
 
 				// Then.
 				if err != nil {

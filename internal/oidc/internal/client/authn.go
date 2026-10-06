@@ -44,7 +44,6 @@ type AuthnContext string
 const (
 	AuthnContextToken              AuthnContext = "token"
 	AuthnContextPAR                AuthnContext = "par"
-	AuthnContextDeviceAuth         AuthnContext = "device_auth"
 	AuthnContextTokenIntrospection AuthnContext = "token_introspection"
 	AuthnContextTokenRevocation    AuthnContext = "token_revocation"
 )
@@ -311,7 +310,7 @@ func authenticateSecretJWT(ctx oidc.Context, c *goidc.Client, authnCtx AuthnCont
 func authnSigAlgs(c *goidc.Client, authnCtx AuthnContext, algs []goidc.SignatureAlgorithm) []goidc.SignatureAlgorithm {
 	var clientAlg goidc.SignatureAlgorithm
 	switch authnCtx {
-	case AuthnContextToken, AuthnContextPAR, AuthnContextDeviceAuth:
+	case AuthnContextToken, AuthnContextPAR:
 		clientAlg = c.TokenAuthnSigAlg
 	case AuthnContextTokenIntrospection:
 		clientAlg = c.TokenIntrospectionAuthnSigAlg

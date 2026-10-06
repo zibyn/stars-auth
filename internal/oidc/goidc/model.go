@@ -56,7 +56,6 @@ type Configuration struct {
 	TokenRevocationEndpoint           string                       `json:"revocation_endpoint,omitempty"`
 	TokenRevocationAuthnMethods       []AuthnMethod                `json:"revocation_endpoint_auth_methods_supported,omitempty"`
 	TokenRevocationAuthnSigAlgs       []SignatureAlgorithm         `json:"revocation_endpoint_auth_signing_alg_values_supported,omitempty"`
-	DeviceAuthorizationEndpoint       string                       `json:"device_authorization_endpoint,omitempty"`
 	MTLSAliases                       *struct {
 		TokenEndpoint              string `json:"token_endpoint"`
 		ParEndpoint                string `json:"pushed_authorization_request_endpoint,omitempty"`
@@ -119,24 +118,6 @@ type RefreshTokenManager interface {
 	GrantByRefreshToken(context.Context, string) (*Grant, error)
 }
 
-// DeviceAuthManager stores device authorization sessions and resolves grants by
-// device code.
-type DeviceAuthManager interface {
-	SaveSession(context.Context, *AuthnSession) error
-	// Session returns the device authorization session identified by id.
-	// It must return [ErrNotFound] when the session does not exist.
-	Session(context.Context, string) (*AuthnSession, error)
-	// SessionByUserCode returns the session associated with the user code.
-	// It must return [ErrNotFound] when the session does not exist.
-	SessionByUserCode(context.Context, string) (*AuthnSession, error)
-	// SessionByDeviceCode returns the session associated with the device code.
-	// It must return [ErrNotFound] when the session does not exist.
-	SessionByDeviceCode(context.Context, string) (*AuthnSession, error)
-	// GrantByDeviceCode returns the grant associated with the device code.
-	// It must return [ErrNotFound] when the grant does not exist.
-	GrantByDeviceCode(context.Context, string) (*Grant, error)
-}
-
 // OpaqueTokenManager stores and retrieves opaque access tokens.
 // It is only required when opaque tokens are enabled.
 type OpaqueTokenManager interface {
@@ -167,8 +148,7 @@ const (
 	GrantAuthorizationCode GrantType = "authorization_code"
 	GrantRefreshToken      GrantType = "refresh_token"
 	GrantImplicit          GrantType = "implicit"
-	GrantJWTBearer         GrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer" //nolint:gosec
-	GrantDeviceCode        GrantType = "urn:ietf:params:oauth:grant-type:device_code"
+	GrantJWTBearer         GrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer"     //nolint:gosec
 	GrantTokenExchange     GrantType = "urn:ietf:params:oauth:grant-type:token-exchange" //nolint:gosec
 )
 
@@ -684,7 +664,6 @@ type AuthorizationParameters struct {
 	IDTokenHint             string              `json:"id_token_hint,omitempty"`
 	ClientNotificationToken string              `json:"client_notification_token,omitempty"`
 	BindingMessage          string              `json:"binding_message,omitempty"`
-	UserCode                string              `json:"user_code,omitempty"`
 	RequestedExpiry         *int                `json:"requested_expiry,omitempty"`
 }
 

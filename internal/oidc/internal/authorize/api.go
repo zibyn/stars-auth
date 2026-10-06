@@ -32,22 +32,6 @@ func RegisterHandlers(router *http.ServeMux, config *oidc.Configuration, middlew
 			goidc.ApplyMiddlewares(oidc.Handler(config, handlerPAR), middlewares...))
 	}
 
-	if slices.Contains(config.GrantTypes, goidc.GrantDeviceCode) {
-		router.Handle("POST "+config.EndpointPrefix+config.DeviceAuthEndpoint,
-			goidc.ApplyMiddlewares(oidc.Handler(config, handlerInitDeviceAuth), middlewares...))
-
-		router.Handle("GET "+config.EndpointPrefix+config.DeviceAuthVerificationEndpoint,
-			goidc.ApplyMiddlewares(oidc.Handler(config, handlerInitDeviceVerification), middlewares...))
-
-		router.Handle("POST "+config.EndpointPrefix+config.DeviceAuthVerificationEndpoint+"/{callback}",
-			goidc.ApplyMiddlewares(oidc.Handler(config, handlerContinueDeviceVerification), middlewares...))
-		router.Handle("GET "+config.EndpointPrefix+config.DeviceAuthVerificationEndpoint+"/{callback}",
-			goidc.ApplyMiddlewares(oidc.Handler(config, handlerContinueDeviceVerification), middlewares...))
-		router.Handle("POST "+config.EndpointPrefix+config.DeviceAuthVerificationEndpoint+"/{callback}/{callback_path...}",
-			goidc.ApplyMiddlewares(oidc.Handler(config, handlerContinueDeviceVerification), middlewares...))
-		router.Handle("GET "+config.EndpointPrefix+config.DeviceAuthVerificationEndpoint+"/{callback}/{callback_path...}",
-			goidc.ApplyMiddlewares(oidc.Handler(config, handlerContinueDeviceVerification), middlewares...))
-	}
 }
 
 func handlerPAR(ctx oidc.Context) {
@@ -98,36 +82,5 @@ func handlerCallback(ctx oidc.Context) {
 
 	if err := ctx.RenderError(err); err != nil {
 		ctx.WriteError(err)
-	}
-}
-
-func handlerInitDeviceAuth(ctx oidc.Context) {
-	req := newFormRequest(ctx.Request)
-	resp, err := initDeviceAuth(ctx, req)
-	if err != nil {
-		ctx.WriteError(err)
-		return
-	}
-
-	if err := ctx.Write(resp, http.StatusOK); err != nil {
-		ctx.WriteError(err)
-	}
-}
-
-func handlerInitDeviceVerification(ctx oidc.Context) {
-	userCode := ctx.Request.URL.Query().Get("user_code")
-	if err := initDeviceAuthVerification(ctx, userCode); err != nil {
-		if renderErr := ctx.RenderError(err); renderErr != nil {
-			ctx.WriteError(renderErr)
-		}
-	}
-}
-
-func handlerContinueDeviceVerification(ctx oidc.Context) {
-	callbackID := ctx.Request.PathValue("callback")
-	if err := continueDeviceAuthVerification(ctx, callbackID); err != nil {
-		if renderErr := ctx.RenderError(err); renderErr != nil {
-			ctx.WriteError(renderErr)
-		}
 	}
 }

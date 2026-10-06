@@ -1,8 +1,6 @@
 package discovery
 
 import (
-	"slices"
-
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 )
@@ -130,10 +128,6 @@ func NewConfiguration(ctx oidc.Context) goidc.Configuration {
 
 	if ctx.PKCEEnabled {
 		config.CodeChallengeMethods = ctx.PKCEChallengeMethods
-	}
-
-	if slices.Contains(ctx.GrantTypes, goidc.GrantDeviceCode) {
-		config.DeviceAuthorizationEndpoint = ctx.BaseURL() + ctx.DeviceAuthEndpoint
 	}
 
 	if ctx.LogoutEnabled {

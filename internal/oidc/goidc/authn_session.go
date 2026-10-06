@@ -19,12 +19,6 @@ type AuthnSession struct {
 	// PushedAuthReqID is populated when the session is created from a pushed
 	// authorization request (PAR). It is the handle returned as request_uri.
 	PushedAuthReqID string `json:"pushed_auth_req_id,omitempty"`
-	// DeviceCode is populated when the session is created by the device
-	// authorization endpoint. It is later redeemed at the token endpoint.
-	DeviceCode string `json:"device_code,omitempty"`
-	// UserCode is populated for device authorization flows when a user-facing
-	// verification code is issued for manual entry at the verification endpoint.
-	UserCode string `json:"user_code,omitempty"`
 	// PolicyID is the id of the authentication policy used to authenticate
 	// the user.
 	PolicyID string `json:"policy_id,omitempty"`

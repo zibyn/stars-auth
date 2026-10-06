@@ -590,7 +590,6 @@ func TestTokenAndPolicyHooks(t *testing.T) {
 				ctx.JWTIDFunc = func(context.Context) string { return "jwt" }
 				ctx.AuthCodeFunc = func(context.Context) string { return "code" }
 				ctx.RefreshTokenFunc = func(context.Context) string { return "refresh" }
-				ctx.DeviceCodeFunc = func(context.Context) string { return "device" }
 				ctx.OpaqueTokenFunc = func(context.Context, *goidc.Grant) string { return "opaque_" + grant.ID }
 
 				if got := ctx.PARID(); got != "par" {
@@ -607,9 +606,6 @@ func TestTokenAndPolicyHooks(t *testing.T) {
 				}
 				if got := ctx.RefreshToken(); got != "refresh" {
 					t.Fatalf("RefreshToken() = %q, want %q", got, "refresh")
-				}
-				if got := ctx.DeviceCode(); got != "device" {
-					t.Fatalf("DeviceCode() = %q, want %q", got, "device")
 				}
 				if got := ctx.OpaqueTokenValue(grant); got != "opaque_grant_id" {
 					t.Fatalf("OpaqueTokenValue() = %q, want %q", got, "opaque_grant_id")
@@ -655,64 +651,6 @@ func TestManagerDelegates(t *testing.T) {
 		}
 		if got.PushedAuthReqID != session.PushedAuthReqID {
 			t.Fatalf("PARSessionByPushedAuthReqID() = %q, want %q", got.PushedAuthReqID, session.PushedAuthReqID)
-		}
-
-	})
-
-	t.Run("device sessions and grants", func(t *testing.T) {
-		ctx := oidctest.NewContext(t)
-		manager := storage.NewManager(100)
-		ctx.DeviceAuthManager = manager
-		ctx.GrantManager = manager
-
-		session := &goidc.AuthnSession{
-			ID:         "device_session",
-			DeviceCode: "device_code",
-			UserCode:   "user_code",
-			CreatedAt:  1,
-		}
-		if err := ctx.DeviceSaveSession(session); err != nil {
-			t.Fatalf("DeviceSaveSession() error = %v", err)
-		}
-
-		gotSession, err := ctx.DeviceSession(session.ID)
-		if err != nil {
-			t.Fatalf("DeviceSession() error = %v", err)
-		}
-		if gotSession.ID != session.ID {
-			t.Fatalf("DeviceSession().ID = %q, want %q", gotSession.ID, session.ID)
-		}
-
-		gotSession, err = ctx.DeviceSessionByUserCode(session.UserCode)
-		if err != nil {
-			t.Fatalf("DeviceSessionByUserCode() error = %v", err)
-		}
-		if gotSession.UserCode != session.UserCode {
-			t.Fatalf("DeviceSessionByUserCode() = %q, want %q", gotSession.UserCode, session.UserCode)
-		}
-
-		gotSession, err = ctx.DeviceSessionByDeviceCode(session.DeviceCode)
-		if err != nil {
-			t.Fatalf("DeviceSessionByDeviceCode() error = %v", err)
-		}
-		if gotSession.DeviceCode != session.DeviceCode {
-			t.Fatalf("DeviceSessionByDeviceCode() = %q, want %q", gotSession.DeviceCode, session.DeviceCode)
-		}
-
-		grant := &goidc.Grant{
-			ID:         "grant_id",
-			DeviceCode: session.DeviceCode,
-			CreatedAt:  1,
-		}
-		if err := ctx.SaveGrant(grant); err != nil {
-			t.Fatalf("SaveGrant() error = %v", err)
-		}
-		gotGrant, err := ctx.GrantByDeviceCode(session.DeviceCode)
-		if err != nil {
-			t.Fatalf("GrantByDeviceCode() error = %v", err)
-		}
-		if gotGrant.ID != grant.ID {
-			t.Fatalf("GrantByDeviceCode().ID = %q, want %q", gotGrant.ID, grant.ID)
 		}
 
 	})
@@ -1020,39 +958,11 @@ func TestSimpleHelpers(t *testing.T) {
 
 		ctx.LogoutSessionIDFunc = func(context.Context) string { return "logout_session_id" }
 		ctx.AuthSessionIDFunc = func(context.Context) string { return "authn_session_id" }
-		ctx.DeviceAuthGenerateUserCodeFunc = func(context.Context) string { return "user_code" }
 		if got := ctx.LogoutSessionID(); got != "logout_session_id" {
 			t.Fatalf("LogoutSessionID() = %q, want %q", got, "logout_session_id")
 		}
 		if got := ctx.AuthnSessionID(); got != "authn_session_id" {
 			t.Fatalf("AuthnSessionID() = %q, want %q", got, "authn_session_id")
-		}
-		if got := ctx.DeviceUserCode(); got != "user_code" {
-			t.Fatalf("DeviceUserCode() = %q, want %q", got, "user_code")
-		}
-
-		calledPrompt := false
-		ctx.DeviceAuthPromptUserCodeFunc = func(_ http.ResponseWriter, _ *http.Request) error {
-			calledPrompt = true
-			return nil
-		}
-		if err := ctx.DeviceAuthPromptUserCode(); err != nil {
-			t.Fatalf("DeviceAuthPromptUserCode() error = %v", err)
-		}
-		if !calledPrompt {
-			t.Fatal("DeviceAuthPromptUserCode() did not call DeviceAuthPromptUserCodeFunc")
-		}
-
-		calledConfirmation := false
-		ctx.DeviceAuthRenderConfirmationFunc = func(_ http.ResponseWriter, _ *http.Request) error {
-			calledConfirmation = true
-			return nil
-		}
-		if err := ctx.DeviceAuthRenderConfirmation(); err != nil {
-			t.Fatalf("DeviceAuthRenderConfirmation() error = %v", err)
-		}
-		if !calledConfirmation {
-			t.Fatal("DeviceAuthRenderConfirmation() did not call DeviceAuthRenderConfirmationFunc")
 		}
 
 		opts := goidc.TokenOptions{LifetimeSecs: 123, Format: goidc.TokenFormatJWT}

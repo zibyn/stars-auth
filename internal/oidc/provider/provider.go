@@ -2,17 +2,14 @@ package provider
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/subtle"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/big"
 	"net/http"
 	"reflect"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -242,16 +239,6 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 		op.config.RefreshTokenShouldIssueFunc = nonZeroOrDefault(op.config.RefreshTokenShouldIssueFunc, goidc.RefreshTokenShouldIssueFunc(defaultRefreshTokenShouldIssueFunc))
 	}
 
-	if slices.Contains(op.config.GrantTypes, goidc.GrantDeviceCode) {
-		op.config.DeviceAuthManager = nonZeroOrDefault(op.config.DeviceAuthManager, goidc.DeviceAuthManager(inmemoryManager))
-		op.config.DeviceAuthEndpoint = nonZeroOrDefault(op.config.DeviceAuthEndpoint, defaultEndpointDeviceAuthorization)
-		op.config.DeviceAuthVerificationEndpoint = nonZeroOrDefault(op.config.DeviceAuthVerificationEndpoint, defaultEndpointDeviceVerification)
-		op.config.DeviceAuthLifetimeSecs = nonZeroOrDefault(op.config.DeviceAuthLifetimeSecs, defaultDeviceAuthLifetimeSecs)
-		op.config.DeviceAuthPollingIntervalSecs = nonZeroOrDefault(op.config.DeviceAuthPollingIntervalSecs, defaultDeviceAuthPollingIntervalSecs)
-		op.config.DeviceCodeFunc = nonZeroOrDefault(op.config.DeviceCodeFunc, defaultDeviceCodeFunc)
-		op.config.DeviceAuthGenerateUserCodeFunc = nonZeroOrDefault(op.config.DeviceAuthGenerateUserCodeFunc, defaultGenerateUserCodeFunc())
-	}
-
 	if op.config.LogoutEnabled {
 		op.config.LogoutManager = nonZeroOrDefault(op.config.LogoutManager, goidc.LogoutManager(inmemoryManager))
 		op.config.LogoutEndpoint = nonZeroOrDefault(op.config.LogoutEndpoint, defaultEndpointEndSession)
@@ -441,8 +428,6 @@ const (
 	defaultJWTLifetimeSecs                    = 600
 	defaultLogoutSessionTimeoutSecs           = 1800 // 30 minutes.
 	defaultPARLifetimeSecs                    = 60   // 1 minute.
-	defaultDeviceAuthLifetimeSecs             = 300  // 5 minutes.
-	defaultDeviceAuthPollingIntervalSecs      = 5
 	defaultAuthorizationCodeLifetimeSecs      = 60
 	defaultEndpointJSONWebKeySet              = "/jwks"
 	defaultEndpointPushedAuthorizationRequest = "/par"
@@ -453,8 +438,6 @@ const (
 	defaultEndpointTokenIntrospection         = "/introspect"
 	defaultEndpointTokenRevocation            = "/revoke"
 	defaultEndpointEndSession                 = "/logout"
-	defaultEndpointDeviceAuthorization        = "/device_authorization"
-	defaultEndpointDeviceVerification         = "/device"
 )
 
 func defaultTokenOptionsFunc(alg goidc.SignatureAlgorithm) goidc.TokenOptionsFunc {
@@ -492,10 +475,6 @@ func defaultPARIDFunc(_ context.Context) string {
 	return strutil.Random(30)
 }
 
-func defaultDeviceCodeFunc(_ context.Context) string {
-	return strutil.Random(30)
-}
-
 func defaultVerifyClientSecretFunc(_ context.Context, stored, presented string) error {
 	if subtle.ConstantTimeCompare([]byte(stored), []byte(presented)) != 1 {
 		return errors.New("invalid client secret")
@@ -508,24 +487,6 @@ func defaultCompareAuthDetailsFunc(_ context.Context, requested, granted []goidc
 		return goidc.NewError(goidc.ErrorCodeInvalidAuthDetails, "invalid authorization details")
 	}
 	return nil
-}
-
-func defaultGenerateUserCodeFunc() goidc.RandomFunc {
-	// [RFC 8628 §6.1].
-	charset := "BCDFGHJKLMNPQRSTVWXZ"
-	charsetLength := big.NewInt(int64(len(charset)))
-	length := 8
-	return func(_ context.Context) string {
-		result := strings.Builder{}
-		for range length {
-			n, err := rand.Int(rand.Reader, charsetLength)
-			if err != nil {
-				panic(err)
-			}
-			result.WriteByte(charset[n.Int64()])
-		}
-		return result.String()
-	}
 }
 
 func defaultDCRValidateInitialTokenFunc(context.Context, string) error {

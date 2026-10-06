@@ -1107,63 +1107,6 @@ func WithTokenExchangeClientAuthnRequired() TokenExchangeGrantOption {
 	}
 }
 
-// ── Device Grant ──────────────────────────────────────────────────────────────
-
-// DeviceGrantOption is an optional configuration for the device authorization grant.
-// See [WithDeviceGrant] for more information.
-type DeviceGrantOption Option
-
-// DeviceGrantConfig holds the required configuration for the device authorization grant.
-type DeviceGrantConfig struct {
-	// Manager persists device authorization sessions. If nil, the default
-	// in-memory storage is used.
-	Manager goidc.DeviceAuthManager
-	// PromptFunc renders the page where the user enters the device user code.
-	PromptFunc goidc.RenderFunc
-	// ConfirmationFunc renders the page shown to the user after successfully
-	// entering the device user code.
-	ConfirmationFunc goidc.RenderFunc
-}
-
-// WithDeviceGrant enables the device authorization grant.
-func WithDeviceGrant(cfg DeviceGrantConfig, opts ...DeviceGrantOption) Option {
-	return func(p *Provider) error {
-		if cfg.PromptFunc == nil {
-			return errors.New("the device grant prompt function cannot be nil")
-		}
-		if cfg.ConfirmationFunc == nil {
-			return errors.New("the device grant confirmation function cannot be nil")
-		}
-		p.config.GrantTypes = append(p.config.GrantTypes, goidc.GrantDeviceCode)
-		p.config.DeviceAuthManager = cfg.Manager
-		p.config.DeviceAuthPromptUserCodeFunc = cfg.PromptFunc
-		p.config.DeviceAuthRenderConfirmationFunc = cfg.ConfirmationFunc
-		for _, opt := range opts {
-			if err := opt(p); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-}
-
-// WithDeviceCodeFunc sets the function used to generate device codes.
-func WithDeviceCodeFunc(f goidc.RandomFunc) DeviceGrantOption {
-	return func(p *Provider) error {
-		p.config.DeviceCodeFunc = f
-		return nil
-	}
-}
-
-// WithDevicePolicies adds authentication policies evaluated during device
-// authorization requests.
-func WithDevicePolicies(policies ...goidc.AuthnPolicy) DeviceGrantOption {
-	return func(p *Provider) error {
-		p.config.DevicePolicies = append(p.config.DevicePolicies, policies...)
-		return nil
-	}
-}
-
 // ── DCR ───────────────────────────────────────────────────────────────────────
 
 // DCROption is an optional configuration for Dynamic Client Registration.

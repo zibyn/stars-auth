@@ -810,26 +810,6 @@ func TestWithRefreshTokenFunc(t *testing.T) {
 	}
 }
 
-func TestWithDeviceCodeFunc(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-	codeFunc := func(context.Context) string { return "device_code" }
-
-	// When.
-	err := WithDeviceCodeFunc(codeFunc)(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if p.config.DeviceCodeFunc == nil {
-		t.Error("WithDeviceCodeFunc cannot be nil")
-	}
-}
-
 func TestWithClientCredentialsGrant(t *testing.T) {
 	// Given.
 	p := &Provider{
@@ -1752,21 +1732,6 @@ func TestWithAuthPolicies(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if diff := cmp.Diff(p.config.AuthPolicies, []goidc.AuthnPolicy{policy}); diff != "" {
-		t.Error(diff)
-	}
-}
-
-func TestWithDevicePolicies(t *testing.T) {
-	p := &Provider{}
-	policy := goidc.AuthnPolicy{
-		ID: "policy_id",
-	}
-
-	err := WithDevicePolicies(policy)(p)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if diff := cmp.Diff(p.config.DevicePolicies, []goidc.AuthnPolicy{policy}); diff != "" {
 		t.Error(diff)
 	}
 }

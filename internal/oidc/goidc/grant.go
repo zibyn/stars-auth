@@ -38,16 +38,6 @@ type Grant struct {
 	// AuthCodeConsumedAt is populated once the authorization code has been
 	// successfully redeemed, so reuse can be detected.
 	AuthCodeConsumedAt int `json:"auth_code_consumed_at,omitempty"`
-	// DeviceCode is populated when a device authorization request is approved
-	// and turned into a grant.
-	DeviceCode string `json:"device_code,omitempty"`
-	// DeviceCodeExpiresAt stores the original device_code expiry deadline from
-	// the device authorization response, so redemption remains bounded by that
-	// window even after the grant is created.
-	DeviceCodeExpiresAt int `json:"device_code_expires_at,omitempty"`
-	// DeviceCodeConsumedAt is populated once the device code has been redeemed
-	// at the token endpoint, so reuse can be detected.
-	DeviceCodeConsumedAt int `json:"device_code_consumed_at,omitempty"`
 	// JWKThumbprint stores the thumbprint of the JWK provided via DPoP.
 	JWKThumbprint string `json:"jwk_thumbprint,omitempty"`
 	// CertThumbprint contains the thumbprint of the certificate used to generate the token.

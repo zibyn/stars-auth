@@ -222,42 +222,6 @@ func (ctx Context) AuthCode() string {
 	return ctx.AuthCodeFunc(ctx)
 }
 
-func (ctx Context) DeviceSaveSession(as *goidc.AuthnSession) error {
-	return ctx.DeviceAuthManager.SaveSession(ctx, as)
-}
-
-func (ctx Context) DeviceSession(id string) (*goidc.AuthnSession, error) {
-	return ctx.DeviceAuthManager.Session(ctx, id)
-}
-
-func (ctx Context) DeviceSessionByUserCode(code string) (*goidc.AuthnSession, error) {
-	return ctx.DeviceAuthManager.SessionByUserCode(ctx, code)
-}
-
-func (ctx Context) DeviceSessionByDeviceCode(code string) (*goidc.AuthnSession, error) {
-	return ctx.DeviceAuthManager.SessionByDeviceCode(ctx, code)
-}
-
-func (ctx Context) GrantByDeviceCode(code string) (*goidc.Grant, error) {
-	return ctx.DeviceAuthManager.GrantByDeviceCode(ctx, code)
-}
-
-func (ctx Context) DeviceCode() string {
-	return ctx.DeviceCodeFunc(ctx)
-}
-
-func (ctx Context) DeviceUserCode() string {
-	return ctx.DeviceAuthGenerateUserCodeFunc(ctx)
-}
-
-func (ctx Context) DeviceAuthPromptUserCode() error {
-	return ctx.DeviceAuthPromptUserCodeFunc(ctx.Response, ctx.Request)
-}
-
-func (ctx Context) DeviceAuthRenderConfirmation() error {
-	return ctx.DeviceAuthRenderConfirmationFunc(ctx.Response, ctx.Request)
-}
-
 func (ctx Context) OpaqueTokenValue(grant *goidc.Grant) string {
 	return ctx.OpaqueTokenFunc(ctx, grant)
 }

@@ -899,29 +899,6 @@ func TestAuthenticated(t *testing.T) {
 			wantErr: goidc.ErrorCodeInvalidClient,
 		},
 		{
-			name:     "attestation combined mode at device auth rejected",
-			authnCtx: client.AuthnContextDeviceAuth,
-			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {
-				ctx, c, issuerKey, clientKey := setUpAttestationAuthn(t)
-				ctx.DPoPEnabled = true
-				ctx.DPoPSigAlgs = []goidc.SignatureAlgorithm{goidc.SigAlgES256}
-
-				cnfJWK := jose.JSONWebKey{Key: clientKey.Public(), Algorithm: string(goidc.SigAlgES256)}
-				attestation := oidctest.SignWithOptions(t, map[string]any{
-					goidc.ClaimIssuer: "https://attester.example.com", goidc.ClaimSubject: c.ID,
-					goidc.ClaimExpiry: timeutil.TimestampNow() + 300, "cnf": map[string]any{"jwk": cnfJWK},
-				}, issuerKey, (&jose.SignerOptions{}).WithType("oauth-client-attestation+jwt"))
-				ctx.Request.Header.Set("Oauth-Client-Attestation", attestation)
-
-				dpopJWT, _ := oidctest.DPoPProof(t, oidctest.DPoPProofOptions{
-					Method: http.MethodPost, URI: ctx.Host + "/device_authorization", Key: clientKey,
-				})
-				ctx.Request.Header.Set(goidc.HeaderDPoP, dpopJWT)
-				return ctx, nil
-			},
-			wantErr: goidc.ErrorCodeInvalidClient,
-		},
-		{
 			name: "attestation combined mode dpop key mismatch",
 			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {
 				ctx, c, issuerKey, clientKey := setUpAttestationAuthn(t)
