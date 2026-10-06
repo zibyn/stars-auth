@@ -221,7 +221,7 @@ func TestDefaultHTTPClientFuncDoesNotFollowRedirects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusFound)

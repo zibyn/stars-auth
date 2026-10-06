@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
-	"github.com/zibyn/stars-auth/internal/oidc/internal/dpop"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/token"
@@ -341,28 +340,4 @@ func validateIDTokenHintAsOptional(ctx oidc.Context, params goidc.AuthorizationP
 	}
 
 	return nil
-}
-
-func validateCodeBindingDPoP(ctx oidc.Context, params goidc.AuthorizationParameters) error {
-	if !ctx.DPoPEnabled {
-		return nil
-	}
-
-	dpopJWT, ok := dpop.JWT(ctx)
-	// If the DPoP header was not informed, there's nothing to validate.
-	if !ok {
-		return nil
-	}
-
-	return dpop.ValidateJWT(ctx, dpopJWT, dpop.ValidationOptions{
-		// "dpop_jkt" is optional, but it must match the DPoP JWT if present.
-		JWKThumbprint: params.DPoPJKT,
-	})
-}
-
-// clientWithRedirectURI creates a copy of the client with the given redirect URI.
-func clientWithRedirectURI(c *goidc.Client, uri string) *goidc.Client {
-	copied := *c
-	copied.RedirectURIs = append(slices.Clone(c.RedirectURIs), uri)
-	return &copied
 }

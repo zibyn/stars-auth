@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"reflect"
 	"strconv"
 
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
@@ -253,16 +252,4 @@ func newAuthnSession(ctx oidc.Context, params goidc.AuthorizationParameters, c *
 		CreatedAt:               timeutil.TimestampNow(),
 		Store:                   make(map[string]any),
 	}
-}
-
-func nonZeroOrDefault[T any](s1 T, s2 T) T {
-	if isNil(s1) || reflect.ValueOf(s1).IsZero() {
-		return s2
-	}
-
-	return s1
-}
-
-func isNil(i any) bool {
-	return i == nil
 }

@@ -2,8 +2,6 @@ package authorize
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
@@ -19,35 +17,6 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidctest"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
-)
-
-const (
-	federationClientID      = "https://client.example.com"
-	federationTrustAnchorID = "https://trust-anchor.example.com"
-	federationScopeIDs      = "openid scope1 scope2"
-)
-
-var (
-	federationClientKey, _ = rsa.GenerateKey(rand.Reader, 2048)
-	federationClientJWK    = goidc.JSONWebKey{
-		KeyID:     "fed_client_key",
-		Key:       federationClientKey,
-		Algorithm: "RS256",
-	}
-
-	federationTrustAnchorKey, _ = rsa.GenerateKey(rand.Reader, 2048)
-	federationTrustAnchorJWK    = goidc.JSONWebKey{
-		KeyID:     "fed_anchor_key",
-		Key:       federationTrustAnchorKey,
-		Algorithm: "RS256",
-	}
-
-	federationOPKey, _ = rsa.GenerateKey(rand.Reader, 2048)
-	federationOPJWK    = goidc.JSONWebKey{
-		KeyID:     "fed_op_key",
-		Key:       federationOPKey,
-		Algorithm: "RS256",
-	}
 )
 
 func TestInitAuth(t *testing.T) {
@@ -603,15 +572,4 @@ func halfHash(claim string) string {
 	hash.Write([]byte(claim))
 	halfHashedClaim := hash.Sum(nil)[:hash.Size()/2]
 	return base64.RawURLEncoding.EncodeToString(halfHashedClaim)
-}
-
-type federationRoundTripper struct {
-	responses map[string]func() *http.Response
-}
-
-func (m federationRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	if f := m.responses[req.URL.String()]; f != nil {
-		return f(), nil
-	}
-	return nil, errors.ErrUnsupported
 }

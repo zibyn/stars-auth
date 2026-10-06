@@ -1,6 +1,7 @@
 package authutil
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,7 +9,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/zibyn/stars-auth/internal/oidc/conformance/ui"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
@@ -196,7 +196,7 @@ func (a authenticator) login(w http.ResponseWriter, r *http.Request, as *goidc.A
 }
 
 func (a authenticator) createUserSession(w http.ResponseWriter, as *goidc.AuthnSession) (goidc.Status, error) { //nolint:unparam
-	sessionID := uuid.NewString()
+	sessionID := rand.Text()
 	if id, ok := as.Store[paramUserSessionID]; ok && id != nil {
 		sessionID = id.(string)
 	}

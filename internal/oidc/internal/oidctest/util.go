@@ -20,7 +20,6 @@ import (
 
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
-	"github.com/google/uuid"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/joseutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
@@ -101,10 +100,10 @@ func NewContext(tb testing.TB) oidc.Context {
 			goidc.ResponseModeFormPost,
 		},
 		OpaqueTokenFunc: func(context.Context, *goidc.Grant) string {
-			return uuid.NewString()
+			return rand.Text()
 		},
 		RefreshTokenFunc: func(context.Context) string {
-			return uuid.NewString()
+			return rand.Text()
 		},
 		TokenOptionsFunc: func(
 			_ context.Context,
@@ -176,10 +175,10 @@ func NewContext(tb testing.TB) oidc.Context {
 		TokenIntrospectionEndpoint: "/introspect",
 		JWTLifetimeSecs:            600,
 		GrantIDFunc: func(context.Context) string {
-			return uuid.NewString()
+			return rand.Text()
 		},
 		JWTIDFunc: func(context.Context) string {
-			return uuid.NewString()
+			return rand.Text()
 		},
 		IDTokenLifetimeSecs:      60,
 		SubIdentifierTypeDefault: goidc.SubIdentifierPublic,
@@ -410,7 +409,7 @@ func DPoPProof(tb testing.TB, opts DPoPProofOptions) (dpopJWT string, thumbprint
 	}
 
 	claims := map[string]any{
-		"jti": uuid.NewString(),
+		"jti": rand.Text(),
 		"htm": opts.Method,
 		"htu": opts.URI,
 		"iat": time.Now().Unix(),

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
 	"errors"
 	"fmt"
@@ -11,7 +12,6 @@ import (
 	"slices"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/authorize"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
@@ -396,15 +396,15 @@ func defaultPairwiseSubjectFunc(_ context.Context, sub string, _ *goidc.Client) 
 }
 
 func defaultGrantIDFunc(_ context.Context) string {
-	return uuid.NewString()
+	return rand.Text()
 }
 
 func defaultJWTIDFunc(_ context.Context) string {
-	return uuid.NewString()
+	return rand.Text()
 }
 
 func defaultSessionIDFunc(_ context.Context) string {
-	return uuid.NewString()
+	return rand.Text()
 }
 
 func cacheControlMiddleware(next http.Handler) http.Handler {

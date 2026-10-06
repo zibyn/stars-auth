@@ -1254,7 +1254,7 @@ func setUpAttestationAuthn(t *testing.T) (
 	issuerJWKS := goidc.JSONWebKeySet{Keys: []goidc.JSONWebKey{issuerKey.Public()}}
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(issuerJWKS)
+		_ = json.NewEncoder(w).Encode(issuerJWKS)
 	}))
 	t.Cleanup(srv.Close)
 
