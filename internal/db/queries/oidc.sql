@@ -58,3 +58,6 @@ DELETE FROM signing_keys WHERE kid NOT IN (
 
 -- name: LockSigningKeys :exec
 SELECT pg_advisory_xact_lock(hashtext('signing_keys'));
+
+-- name: SetRedirectURIs :exec
+UPDATE applications SET redirect_uris = $2, post_logout_redirect_uris = $3 WHERE client_id = $1;

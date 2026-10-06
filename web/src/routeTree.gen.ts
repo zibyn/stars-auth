@@ -11,6 +11,10 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SplatRouteImport } from './routes/$'
 import { Route as AccountRouteImport } from './routes/account'
+import { Route as ConsoleRouteImport } from './routes/console'
+import { Route as ConsoleIndexRouteImport } from './routes/console.index'
+import { Route as ConsoleUsersRouteImport } from './routes/console.users'
+import { Route as ConsoleCallbackRouteImport } from './routes/console_.callback'
 
 const SplatRoute = SplatRouteImport.update({
   id: '/$',
@@ -22,31 +26,77 @@ const AccountRoute = AccountRouteImport.update({
   path: '/account',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ConsoleRoute = ConsoleRouteImport.update({
+  id: '/console',
+  path: '/console',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConsoleIndexRoute = ConsoleIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ConsoleRoute,
+} as any)
+const ConsoleUsersRoute = ConsoleUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => ConsoleRoute,
+} as any)
+const ConsoleCallbackRoute = ConsoleCallbackRouteImport.update({
+  id: '/console_/callback',
+  path: '/console/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/$': typeof SplatRoute
   '/account': typeof AccountRoute
+  '/console': typeof ConsoleRouteWithChildren
+  '/console/users': typeof ConsoleUsersRoute
+  '/console/callback': typeof ConsoleCallbackRoute
+  '/console/': typeof ConsoleIndexRoute
 }
 export interface FileRoutesByTo {
   '/$': typeof SplatRoute
   '/account': typeof AccountRoute
+  '/console/users': typeof ConsoleUsersRoute
+  '/console/callback': typeof ConsoleCallbackRoute
+  '/console': typeof ConsoleIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/$': typeof SplatRoute
   '/account': typeof AccountRoute
+  '/console': typeof ConsoleRouteWithChildren
+  '/console/users': typeof ConsoleUsersRoute
+  '/console_/callback': typeof ConsoleCallbackRoute
+  '/console/': typeof ConsoleIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/$' | '/account'
+  fullPaths:
+    | '/$'
+    | '/account'
+    | '/console'
+    | '/console/users'
+    | '/console/callback'
+    | '/console/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/$' | '/account'
-  id: '__root__' | '/$' | '/account'
+  to: '/$' | '/account' | '/console/users' | '/console/callback' | '/console'
+  id:
+    | '__root__'
+    | '/$'
+    | '/account'
+    | '/console'
+    | '/console/users'
+    | '/console_/callback'
+    | '/console/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   SplatRoute: typeof SplatRoute
   AccountRoute: typeof AccountRoute
+  ConsoleRoute: typeof ConsoleRouteWithChildren
+  ConsoleCallbackRoute: typeof ConsoleCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +115,55 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AccountRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/console': {
+      id: '/console'
+      path: '/console'
+      fullPath: '/console'
+      preLoaderRoute: typeof ConsoleRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/console/': {
+      id: '/console/'
+      path: '/'
+      fullPath: '/console/'
+      preLoaderRoute: typeof ConsoleIndexRouteImport
+      parentRoute: typeof ConsoleRoute
+    }
+    '/console/users': {
+      id: '/console/users'
+      path: '/users'
+      fullPath: '/console/users'
+      preLoaderRoute: typeof ConsoleUsersRouteImport
+      parentRoute: typeof ConsoleRoute
+    }
+    '/console_/callback': {
+      id: '/console_/callback'
+      path: '/console/callback'
+      fullPath: '/console/callback'
+      preLoaderRoute: typeof ConsoleCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
+
+interface ConsoleRouteChildren {
+  ConsoleUsersRoute: typeof ConsoleUsersRoute
+  ConsoleIndexRoute: typeof ConsoleIndexRoute
+}
+
+const ConsoleRouteChildren: ConsoleRouteChildren = {
+  ConsoleUsersRoute: ConsoleUsersRoute,
+  ConsoleIndexRoute: ConsoleIndexRoute,
+}
+
+const ConsoleRouteWithChildren =
+  ConsoleRoute._addFileChildren(ConsoleRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   SplatRoute: SplatRoute,
   AccountRoute: AccountRoute,
+  ConsoleRoute: ConsoleRouteWithChildren,
+  ConsoleCallbackRoute: ConsoleCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

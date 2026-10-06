@@ -50,7 +50,19 @@ type Service struct {
 	origin *http.CrossOriginProtection
 }
 
-func New(pool *pgxpool.Pool, keyring *crypt.Keyring, issuer string) (*Service, error) {
+// ConsoleClientID is the built-in Application the admin console signs in as.
+const ConsoleClientID = "stars-auth-console"
+
+// New builds the provider and points the console's redirect URIs at issuer,
+// which only the running instance knows.
+func New(ctx context.Context, pool *pgxpool.Pool, keyring *crypt.Keyring, issuer string) (*Service, error) {
+	if err := sqlc.New(pool).SetRedirectURIs(ctx, sqlc.SetRedirectURIsParams{
+		ClientID:               ConsoleClientID,
+		RedirectUris:           []string{issuer + "/console/callback"},
+		PostLogoutRedirectUris: []string{issuer + "/console"},
+	}); err != nil {
+		return nil, err
+	}
 	s := &Service{
 		issuer: issuer,
 		q:      sqlc.New(pool),
@@ -84,6 +96,7 @@ func New(pool *pgxpool.Pool, keyring *crypt.Keyring, issuer string) (*Service, e
 		provider.WithTokenOptions(func(context.Context, *goidc.Grant, *goidc.Client) goidc.TokenOptions {
 			return goidc.NewJWTTokenOptions(goidc.SigAlgRS256, 600)
 		}),
+		provider.WithTokenClaims(s.audience),
 		provider.WithIDTokenClaims(func(_ context.Context, g *goidc.Grant) map[string]any {
 			return map[string]any{goidc.ClaimAuthTime: g.Store[storeAuthTime], goidc.ClaimAMR: g.Store[storeAMR]}
 		}),
@@ -102,6 +115,16 @@ func (s *Service) Register(mux *http.ServeMux) {
 	s.op.RegisterRoutes(mux)
 	mux.HandleFunc("GET /setup", s.setupPage)
 	mux.HandleFunc("POST /setup", s.setup)
+}
+
+// audience makes an access token for the Application's default API.
+// ponytail: one PG read per token; fold into Client if it shows up.
+func (s *Service) audience(ctx context.Context, _ *goidc.Token, g *goidc.Grant) map[string]any {
+	app, err := s.q.Application(ctx, g.ClientID)
+	if err != nil || !app.DefaultApi.Valid {
+		return nil
+	}
+	return map[string]any{goidc.ClaimAudience: app.DefaultApi.String}
 }
 
 // DeleteIdleSessions removes browser Sessions past their idle timeout; run

@@ -35,7 +35,10 @@ docker compose logs stars-auth | grep setup
 ```
 
 Open it and set the owner's username and password; the page then closes for
-good. The owner signs in on the hosted login page at `/authorize`.
+good. The owner signs in to the admin console at `/console`.
+
+The Management API lives under `/v1/management`; its OpenAPI document is at
+`/v1/management/openapi.json`.
 
 To try the OIDC flow before the console can register Applications, add a
 public test client by hand and run a code + PKCE flow against it:

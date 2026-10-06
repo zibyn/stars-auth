@@ -243,6 +243,21 @@ func (q *Queries) SaveLogoutSession(ctx context.Context, arg SaveLogoutSessionPa
 	return err
 }
 
+const setRedirectURIs = `-- name: SetRedirectURIs :exec
+UPDATE applications SET redirect_uris = $2, post_logout_redirect_uris = $3 WHERE client_id = $1
+`
+
+type SetRedirectURIsParams struct {
+	ClientID               string
+	RedirectUris           []string
+	PostLogoutRedirectUris []string
+}
+
+func (q *Queries) SetRedirectURIs(ctx context.Context, arg SetRedirectURIsParams) error {
+	_, err := q.db.Exec(ctx, setRedirectURIs, arg.ClientID, arg.RedirectUris, arg.PostLogoutRedirectUris)
+	return err
+}
+
 const signingKeys = `-- name: SigningKeys :many
 SELECT kid, sealed FROM signing_keys ORDER BY created_at DESC, kid LIMIT 2
 `

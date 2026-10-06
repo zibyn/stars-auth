@@ -59,11 +59,24 @@ type Password struct {
 	Hash   string
 }
 
+type Permission struct {
+	Api     string
+	Key     string
+	Name    string
+	Builtin bool
+}
+
 type Role struct {
 	Api     string
 	Key     string
 	Name    string
 	Builtin bool
+}
+
+type RolePermission struct {
+	Api        string
+	Role       string
+	Permission string
 }
 
 type Session struct {

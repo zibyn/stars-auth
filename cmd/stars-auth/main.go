@@ -23,6 +23,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/db"
 	"github.com/zibyn/stars-auth/internal/identity"
 	"github.com/zibyn/stars-auth/internal/login"
+	"github.com/zibyn/stars-auth/internal/management"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
 	"github.com/zibyn/stars-auth/internal/server"
 	"github.com/zibyn/stars-auth/web"
@@ -72,7 +73,7 @@ func serve() error {
 	} else if token != "" {
 		slog.Warn("no admin yet: open the setup page to create the owner", "url", cfg.Issuer+"/setup?token="+token)
 	}
-	auth, err := login.New(pool, keyring, cfg.Issuer)
+	auth, err := login.New(ctx, pool, keyring, cfg.Issuer)
 	if err != nil {
 		return err
 	}
@@ -83,7 +84,7 @@ func serve() error {
 	}
 	srv := &http.Server{
 		Addr:              cfg.Listen,
-		Handler:           server.New(pool.Ping, spa, cfg.TrustedProxies, auth.Register),
+		Handler:           server.New(pool.Ping, spa, cfg.TrustedProxies, auth.Register, management.New(pool, keyring, cfg.Issuer).Register),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go runCleanup(ctx, pool)

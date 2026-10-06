@@ -66,7 +66,7 @@ func start(t *testing.T) *env {
 	ts := httptest.NewUnstartedServer(nil)
 	ts.StartTLS()
 	t.Cleanup(ts.Close)
-	auth, err := login.New(pool, keyring, ts.URL)
+	auth, err := login.New(ctx, pool, keyring, ts.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,12 +108,16 @@ func (e *env) do(method, path string, form url.Values) (*http.Response, string) 
 
 // authorize starts a code flow with extra parameters.
 func (e *env) authorize(extra string) (*http.Response, string) {
+	return e.authorizeAs(clientID, callback, extra)
+}
+
+func (e *env) authorizeAs(client, redirect, extra string) (*http.Response, string) {
 	sum := sha256.Sum256([]byte(verifier))
 	q := url.Values{
-		"client_id":             {clientID},
+		"client_id":             {client},
 		"response_type":         {"code"},
 		"scope":                 {"openid"},
-		"redirect_uri":          {callback},
+		"redirect_uri":          {redirect},
 		"state":                 {"st"},
 		"nonce":                 {"n"},
 		"code_challenge":        {base64.RawURLEncoding.EncodeToString(sum[:])},
@@ -138,7 +142,7 @@ func (e *env) submit(page, username, password string) (*http.Response, string) {
 func (e *env) code(resp *http.Response) string {
 	e.t.Helper()
 	loc, _ := url.Parse(resp.Header.Get("Location"))
-	if resp.StatusCode/100 != 3 || !strings.HasPrefix(loc.String(), callback) || loc.Query().Get("code") == "" {
+	if resp.StatusCode/100 != 3 || loc.Query().Get("code") == "" {
 		e.t.Fatalf("want a redirect with a code, got %d %q", resp.StatusCode, loc)
 	}
 	return loc.Query().Get("code")
@@ -146,25 +150,39 @@ func (e *env) code(resp *http.Response) string {
 
 func (e *env) idToken(code string) map[string]any {
 	e.t.Helper()
+	return e.claims(e.exchange(clientID, callback, code).IDToken)
+}
+
+type tokens struct {
+	IDToken     string `json:"id_token"`
+	AccessToken string `json:"access_token"`
+}
+
+func (e *env) exchange(client, redirect, code string) tokens {
+	e.t.Helper()
 	resp, body := e.do("POST", "/token", url.Values{
-		"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {callback},
-		"client_id": {clientID}, "code_verifier": {verifier},
+		"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {redirect},
+		"client_id": {client}, "code_verifier": {verifier},
 	})
 	if resp.StatusCode != 200 {
 		e.t.Fatalf("token: %d %s", resp.StatusCode, body)
 	}
-	var tok struct {
-		IDToken string `json:"id_token"`
-	}
+	var tok tokens
 	if err := json.Unmarshal([]byte(body), &tok); err != nil {
 		e.t.Fatal(err)
 	}
+	return tok
+}
+
+// claims verifies a JWT against the published JWKS.
+func (e *env) claims(token string) map[string]any {
+	e.t.Helper()
 	_, jwksBody := e.do("GET", "/jwks", nil)
 	var jwks jose.JSONWebKeySet
 	if err := json.Unmarshal([]byte(jwksBody), &jwks); err != nil {
 		e.t.Fatal(err)
 	}
-	parsed, err := jwt.ParseSigned(tok.IDToken, []jose.SignatureAlgorithm{jose.RS256})
+	parsed, err := jwt.ParseSigned(token, []jose.SignatureAlgorithm{jose.RS256})
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -284,5 +302,19 @@ func TestLoginFormRejectsCrossSitePost(t *testing.T) {
 	_ = resp.Body.Close()
 	if resp.StatusCode/100 == 3 && strings.Contains(resp.Header.Get("Location"), "code=") {
 		t.Errorf("cross-site login went through")
+	}
+}
+
+// The console signs in like any Application, and its access token is for the
+// Management API.
+func TestConsoleAccessTokenIsForManagementAPI(t *testing.T) {
+	e := start(t)
+	e.bootstrap("owner", "password1")
+	redirect := e.issuer + "/console/callback"
+	_, page := e.authorizeAs(login.ConsoleClientID, redirect, "")
+	resp, _ := e.submit(page, "owner", "password1")
+	claims := e.claims(e.exchange(login.ConsoleClientID, redirect, e.code(resp)).AccessToken)
+	if claims["aud"] != identity.ManagementAPI || claims["client_id"] != login.ConsoleClientID {
+		t.Errorf("access token claims: %v", claims)
 	}
 }
