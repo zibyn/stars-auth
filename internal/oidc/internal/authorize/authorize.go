@@ -33,42 +33,6 @@ func initAuth(ctx oidc.Context, req request) error {
 	}
 
 	as, err := func() (*goidc.AuthnSession, error) {
-
-		// JAR applies when required or when the request carries a request object.
-		jar := ctx.JAREnabled && (ctx.JARRequired || c.JARRequired || req.RequestObject != "" || (ctx.JARByReferenceEnabled && req.RequestURI != ""))
-		if jar {
-			var jar request
-			switch {
-			case req.RequestObject != "":
-				jar, err = jarFromRequestObject(ctx, req.RequestObject, c)
-				if err != nil {
-					return nil, err
-				}
-			case ctx.JARByReferenceEnabled && req.RequestURI != "":
-				jar, err = jarFromRequestURI(ctx, req.RequestURI, c)
-				if err != nil {
-					return nil, err
-				}
-			default:
-				return nil, goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request", errors.New("request object is required when JAR is enabled"))
-			}
-
-			if err := validateRequestWithJAR(ctx, req, jar, c); err != nil {
-				return nil, err
-			}
-
-			as := newAuthnSession(ctx, jar.AuthorizationParameters, c)
-			// For FAPI, only the parameters sent inside the JAR are considered.
-			if ctx.Profile.IsFAPI() {
-				return as, nil
-			}
-
-			// For OIDC, the parameters sent in the authorization endpoint are merged
-			// with the ones sent inside the JAR.
-			as.AuthorizationParameters = mergeParams(as.AuthorizationParameters, req.AuthorizationParameters)
-			return as, nil
-		}
-
 		if err := validateRequest(ctx, req, c); err != nil {
 			return nil, err
 		}

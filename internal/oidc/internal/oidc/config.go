@@ -23,12 +23,10 @@ type Configuration struct {
 	OpaqueTokenManager goidc.OpaqueTokenManager
 
 	// JWKSFunc retrieves the server's JWKS.
-	// The returned JWKS must include private keys if SignFunc or DecryptFunc
-	// (when server-side encryption is enabled) are not provided.
+	// The returned JWKS must include private keys if SignerFunc is not provided.
 	// When exposing it at the jwks endpoint, any private information is removed.
-	JWKSFunc      goidc.JWKSFunc
-	SignerFunc    goidc.SignerFunc
-	DecrypterFunc goidc.DecrypterFunc
+	JWKSFunc   goidc.JWKSFunc
+	SignerFunc goidc.SignerFunc
 
 	HandleGrantFunc    goidc.HandleGrantFunc
 	HandleTokenFunc    goidc.HandleTokenFunc
@@ -116,19 +114,6 @@ type Configuration struct {
 	RefreshTokenShouldIssueFunc goidc.RefreshTokenShouldIssueFunc
 	RefreshTokenRotationEnabled bool
 	RefreshTokenLifetimeSecs    int
-
-	JAREnabled  bool
-	JARRequired bool
-	JARSigAlgs  []goidc.SignatureAlgorithm
-	// JARByReferenceEnabled determines whether Request Objects can be provided
-	// by reference using the "request_uri" parameter. When enabled, the authorization
-	// server retrieves the request object from the specified URI.
-	JARByReferenceEnabled                bool
-	JARByReferenceUnregisteredURIEnabled bool
-	JAREncEnabled                        bool
-	JARKeyEncAlgs                        []goidc.KeyEncryptionAlgorithm
-	JARContentEncAlgs                    []goidc.ContentEncryptionAlgorithm
-	JARByReferenceHTTPClientFunc         goidc.HTTPClientFunc
 
 	MTLSEnabled              bool
 	MTLSHost                 string

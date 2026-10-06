@@ -30,7 +30,6 @@ type ClientMeta struct {
 	PolicyURI         string          `json:"policy_uri,omitempty"`
 	TermsOfServiceURI string          `json:"tos_uri,omitempty"`
 	RedirectURIs      []string        `json:"redirect_uris,omitempty"`
-	RequestURIs       []string        `json:"request_uris,omitempty"`
 	GrantTypes        []GrantType     `json:"grant_types"`
 	ResponseTypes     []ResponseType  `json:"response_types"`
 	JWKSURI           string          `json:"jwks_uri,omitempty"`
@@ -45,10 +44,6 @@ type ClientMeta struct {
 	UserInfoSigAlg                SignatureAlgorithm         `json:"userinfo_signed_response_alg,omitempty"`
 	UserInfoKeyEncAlg             KeyEncryptionAlgorithm     `json:"userinfo_encrypted_response_alg,omitempty"`
 	UserInfoContentEncAlg         ContentEncryptionAlgorithm `json:"userinfo_encrypted_response_enc,omitempty"`
-	JARRequired                   bool                       `json:"require_signed_request_object,omitempty"`
-	JARSigAlg                     SignatureAlgorithm         `json:"request_object_signing_alg,omitempty"`
-	JARKeyEncAlg                  KeyEncryptionAlgorithm     `json:"request_object_encryption_alg,omitempty"`
-	JARContentEncAlg              ContentEncryptionAlgorithm `json:"request_object_encryption_enc,omitempty"`
 	TokenAuthnMethod              AuthnMethod                `json:"token_endpoint_auth_method"`
 	TokenAuthnSigAlg              SignatureAlgorithm         `json:"token_endpoint_auth_signing_alg,omitempty"`
 	TokenIntrospectionAuthnMethod AuthnMethod                `json:"introspection_endpoint_auth_method,omitempty"`

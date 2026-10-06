@@ -95,10 +95,6 @@ func TestNew(t *testing.T) {
 							goidc.ResponseTypeIDToken, goidc.ResponseTypeIDTokenAndToken, goidc.ResponseTypeCodeAndIDToken,
 							goidc.ResponseTypeCodeAndToken, goidc.ResponseTypeCodeAndIDTokenAndToken},
 					},
-						WithJAR([]goidc.SignatureAlgorithm{goidc.SigAlgRS256}, WithJAREncryption(
-							[]goidc.KeyEncryptionAlgorithm{goidc.KeyEncRSAOAEP},
-							[]goidc.ContentEncryptionAlgorithm{goidc.ContentEncAlgA128CBCHS256},
-						)),
 						WithFormPostResponseMode(),
 					),
 					WithPrivateKeyJWTAuthn(goidc.SigAlgRS256),
@@ -146,11 +142,6 @@ func TestNew(t *testing.T) {
 				AuthnMethods:                    []goidc.AuthnMethod{goidc.AuthnMethodPrivateKeyJWT, goidc.AuthnMethodSecretJWT},
 				AuthnMethodPrivateKeyJWTSigAlgs: []goidc.SignatureAlgorithm{goidc.SigAlgRS256},
 				AuthnMethodSecretJWTSigAlgs:     []goidc.SignatureAlgorithm{goidc.SigAlgHS256},
-				JAREnabled:                      true,
-				JARSigAlgs:                      []goidc.SignatureAlgorithm{goidc.SigAlgRS256},
-				JAREncEnabled:                   true,
-				JARKeyEncAlgs:                   []goidc.KeyEncryptionAlgorithm{goidc.KeyEncRSAOAEP},
-				JARContentEncAlgs:               []goidc.ContentEncryptionAlgorithm{goidc.ContentEncAlgA128CBCHS256},
 				ResponseModes: []goidc.ResponseMode{
 					goidc.ResponseModeQuery,
 					goidc.ResponseModeFragment,
@@ -254,13 +245,7 @@ func TestNew_ValidationErrors(t *testing.T) {
 		name    string
 		opts    []Option
 		wantErr string
-	}{
-		{
-			name:    "jar by-reference unregistered uris require jar by-reference",
-			opts:    []Option{Option(WithJARByReferenceUnregisteredURIs())},
-			wantErr: "jar by-reference unregistered uris cannot be enabled without jar by-reference",
-		},
-	}
+	}{}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -400,13 +400,6 @@ func (ctx Context) HTTPClient() *http.Client {
 	return ctx.HTTPClientFunc(ctx)
 }
 
-func (ctx Context) JARHTTPClient() *http.Client {
-	if ctx.JARByReferenceHTTPClientFunc == nil {
-		return ctx.HTTPClient()
-	}
-	return ctx.JARByReferenceHTTPClientFunc(ctx)
-}
-
 func (ctx Context) PairwiseSubject(sub string, c *goidc.Client) string {
 	return ctx.PairwiseSubjectFunc(ctx, sub, c)
 }
@@ -530,48 +523,6 @@ func (ctx Context) Sign(claims any, alg goidc.SignatureAlgorithm, opts *jose.Sig
 			Signer:    key,
 		},
 	}, opts)
-}
-
-func (ctx Context) Decrypt(
-	jwe string,
-	keyAlgs []goidc.KeyEncryptionAlgorithm,
-	cntAlgs []goidc.ContentEncryptionAlgorithm,
-) (
-	string,
-	error,
-) {
-	parseJWE, err := jose.ParseEncrypted(jwe, keyAlgs, cntAlgs)
-	if err != nil {
-		return "", fmt.Errorf("could not parse the jwe: %w", err)
-	}
-
-	keyID := parseJWE.Header.KeyID
-	if keyID == "" {
-		return "", errors.New("invalid jwe key ID")
-	}
-
-	var key any
-	if ctx.DecrypterFunc != nil {
-		alg := goidc.KeyEncryptionAlgorithm(parseJWE.Header.Algorithm)
-		decrypter, err := ctx.DecrypterFunc(ctx, keyID, alg)
-		if err != nil {
-			return "", fmt.Errorf("could not load the decrypter: %w", err)
-		}
-		key = joseutil.OpaqueDecrypter{Algorithm: alg, Decrypter: decrypter}
-	} else {
-		jwk, err := ctx.JWK(keyID)
-		if err != nil || joseutil.KeyUsage(jwk) != goidc.KeyUsageEncryption {
-			return "", errors.New("invalid jwk used for encryption")
-		}
-		key = jwk
-	}
-
-	jws, err := parseJWE.Decrypt(key)
-	if err != nil {
-		return "", fmt.Errorf("could not decrypt the jwe: %w", err)
-	}
-
-	return string(jws), nil
 }
 
 func (ctx Context) AuthnMethodAttestationJWTHTTPClient() *http.Client {

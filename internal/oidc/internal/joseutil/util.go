@@ -71,27 +71,6 @@ func (s OpaqueSigner) SignPayload(payload []byte, alg jose.SignatureAlgorithm) (
 	return s.Signer.Sign(rand.Reader, digest, opts)
 }
 
-type OpaqueDecrypter struct {
-	Algorithm goidc.KeyEncryptionAlgorithm
-	Decrypter crypto.Decrypter
-}
-
-func (o OpaqueDecrypter) DecryptKey(encryptedKey []byte, _ jose.Header) ([]byte, error) {
-	var opts crypto.DecrypterOpts
-	switch o.Algorithm {
-	case goidc.KeyEncRSAOAEP:
-		opts = &rsa.OAEPOptions{
-			Hash: crypto.SHA1,
-		}
-	case goidc.KeyEncRSAOAEP256:
-		opts = &rsa.OAEPOptions{
-			Hash: crypto.SHA256,
-		}
-	default:
-	}
-	return o.Decrypter.Decrypt(rand.Reader, encryptedKey, opts)
-}
-
 func Encrypt(jws string, jwk goidc.JSONWebKey, alg goidc.ContentEncryptionAlgorithm, opts *jose.EncrypterOptions) (string, error) {
 	if opts == nil {
 		opts = &jose.EncrypterOptions{}

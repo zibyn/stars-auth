@@ -205,16 +205,6 @@ func WithSigner(f goidc.SignerFunc) Option {
 	}
 }
 
-// WithDecrypter sets a custom decryption function.
-// This is required when the JWKS function returns only public keys and
-// server-side encryption (e.g., JAR encryption) is enabled.
-func WithDecrypter(f goidc.DecrypterFunc) Option {
-	return func(p *Provider) error {
-		p.config.DecrypterFunc = f
-		return nil
-	}
-}
-
 // ── Scopes & Claims ───────────────────────────────────────────────────────────
 
 // WithScopes defines the scopes accepted by the provider.
@@ -758,84 +748,6 @@ func WithPKCE(methods []goidc.CodeChallengeMethod, opts ...PKCEOption) AuthCodeG
 func WithPKCERequired() PKCEOption {
 	return func(p *Provider) error {
 		p.config.PKCERequired = true
-		return nil
-	}
-}
-
-// JAROption is an optional configuration for JWT-Secured Authorization Requests.
-// See [WithJAR] for more information.
-type JAROption Option
-
-// WithJAR allows authorization requests to be securely sent as signed JWTs.
-// Clients can choose the signing algorithm by setting the attribute
-// "request_object_signing_alg".
-// By default, the max difference between "iat" and "exp" of request objects is
-// set to [defaultJWTLifetimeSecs].
-func WithJAR(sigAlgs []goidc.SignatureAlgorithm, opts ...JAROption) AuthCodeGrantOption {
-	return func(p *Provider) error {
-		if len(sigAlgs) == 0 {
-			return errors.New("at least one signature algorithm is required for JAR")
-		}
-		p.config.JAREnabled = true
-		p.config.JARSigAlgs = sigAlgs
-		for _, opt := range opts {
-			if err := opt(p); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-}
-
-// WithJARRequired requires authorization requests to be securely sent as
-// signed JWTs.
-func WithJARRequired() JAROption {
-	return func(p *Provider) error {
-		p.config.JARRequired = true
-		return nil
-	}
-}
-
-// WithJARByReference enables support for request objects referenced by the
-// "request_uri" authorization parameter. The httpClientFunc defines how to
-// generate the HTTP client used to fetch request objects. If nil, the provider
-// falls back to [WithHTTPClientFunc].
-func WithJARByReference(httpClientFunc goidc.HTTPClientFunc) JAROption {
-	return func(p *Provider) error {
-		p.config.JARByReferenceEnabled = true
-		p.config.JARByReferenceHTTPClientFunc = httpClientFunc
-		return nil
-	}
-}
-
-// WithJARByReferenceUnregisteredURIs allows request_uri values that were not
-// pre-registered by the client.
-// Avoid using this option when possible, as it expands the attack surface for
-// server-side request_uri fetches.
-func WithJARByReferenceUnregisteredURIs() JAROption {
-	return func(p *Provider) error {
-		p.config.JARByReferenceUnregisteredURIEnabled = true
-		return nil
-	}
-}
-
-// WithJAREncryption allows authorization requests to be securely sent as
-// encrypted JWTs. Both key encryption and content encryption algorithms must
-// be provided.
-func WithJAREncryption(
-	keyAlgs []goidc.KeyEncryptionAlgorithm,
-	contentAlgs []goidc.ContentEncryptionAlgorithm,
-) JAROption {
-	return func(p *Provider) error {
-		if len(keyAlgs) == 0 {
-			return errors.New("at least one key encryption algorithm is required for JAR encryption")
-		}
-		if len(contentAlgs) == 0 {
-			return errors.New("at least one content encryption algorithm is required for JAR encryption")
-		}
-		p.config.JAREncEnabled = true
-		p.config.JARKeyEncAlgs = keyAlgs
-		p.config.JARContentEncAlgs = contentAlgs
 		return nil
 	}
 }

@@ -255,33 +255,6 @@ func newAuthnSession(ctx oidc.Context, params goidc.AuthorizationParameters, c *
 	}
 }
 
-func mergeParams(inParams goidc.AuthorizationParameters, outParams goidc.AuthorizationParameters) goidc.AuthorizationParameters {
-	return goidc.AuthorizationParameters{
-		RedirectURI:             nonZeroOrDefault(inParams.RedirectURI, outParams.RedirectURI),
-		ResponseMode:            nonZeroOrDefault(inParams.ResponseMode, outParams.ResponseMode),
-		ResponseType:            nonZeroOrDefault(inParams.ResponseType, outParams.ResponseType),
-		Scopes:                  nonZeroOrDefault(inParams.Scopes, outParams.Scopes),
-		State:                   nonZeroOrDefault(inParams.State, outParams.State),
-		Nonce:                   nonZeroOrDefault(inParams.Nonce, outParams.Nonce),
-		CodeChallenge:           nonZeroOrDefault(inParams.CodeChallenge, outParams.CodeChallenge),
-		CodeChallengeMethod:     nonZeroOrDefault(inParams.CodeChallengeMethod, outParams.CodeChallengeMethod),
-		Prompt:                  nonZeroOrDefault(inParams.Prompt, outParams.Prompt),
-		MaxAuthnAgeSecs:         nonZeroOrDefault(inParams.MaxAuthnAgeSecs, outParams.MaxAuthnAgeSecs),
-		Display:                 nonZeroOrDefault(inParams.Display, outParams.Display),
-		ACRValues:               nonZeroOrDefault(inParams.ACRValues, outParams.ACRValues),
-		Claims:                  nonZeroOrDefault(inParams.Claims, outParams.Claims),
-		AuthDetails:             nonZeroOrDefault(inParams.AuthDetails, outParams.AuthDetails),
-		Resources:               nonZeroOrDefault(inParams.Resources, outParams.Resources),
-		DPoPJKT:                 nonZeroOrDefault(inParams.DPoPJKT, outParams.DPoPJKT),
-		LoginHint:               nonZeroOrDefault(inParams.LoginHint, outParams.LoginHint),
-		LoginHintToken:          nonZeroOrDefault(inParams.LoginHintToken, outParams.LoginHintToken),
-		IDTokenHint:             nonZeroOrDefault(inParams.IDTokenHint, outParams.IDTokenHint),
-		ClientNotificationToken: nonZeroOrDefault(inParams.ClientNotificationToken, outParams.ClientNotificationToken),
-		BindingMessage:          nonZeroOrDefault(inParams.BindingMessage, outParams.BindingMessage),
-		RequestedExpiry:         nonZeroOrDefault(inParams.RequestedExpiry, outParams.RequestedExpiry),
-	}
-}
-
 func nonZeroOrDefault[T any](s1 T, s2 T) T {
 	if isNil(s1) || reflect.ValueOf(s1).IsZero() {
 		return s2

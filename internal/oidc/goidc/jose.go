@@ -125,6 +125,3 @@ func (jwks JSONWebKeySet) KeyByAlg(alg string) (JSONWebKey, error) {
 
 // SignerFunc defines a function type for handling signing operations.
 type SignerFunc func(ctx context.Context, alg SignatureAlgorithm) (kid string, signer crypto.Signer, err error)
-
-// DecrypterFunc defines a function type for handling decryption operations.
-type DecrypterFunc func(ctx context.Context, kid string, alg KeyEncryptionAlgorithm) (crypto.Decrypter, error)

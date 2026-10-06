@@ -718,118 +718,6 @@ func TestWithScopes(t *testing.T) {
 	}
 }
 
-func TestWithJAR(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithJAR([]goidc.SignatureAlgorithm{goidc.SigAlgPS256})(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			JAREnabled: true,
-			JARSigAlgs: []goidc.SignatureAlgorithm{goidc.SigAlgPS256},
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
-func TestJARRequired(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithJAR([]goidc.SignatureAlgorithm{goidc.SigAlgPS256}, WithJARRequired())(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			JAREnabled:  true,
-			JARRequired: true,
-			JARSigAlgs:  []goidc.SignatureAlgorithm{goidc.SigAlgPS256},
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
-func TestJAREncryption(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithJAREncryption(
-		[]goidc.KeyEncryptionAlgorithm{goidc.KeyEncRSAOAEP256},
-		[]goidc.ContentEncryptionAlgorithm{goidc.ContentEncAlgA128GCM},
-	)(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			JAREncEnabled:     true,
-			JARKeyEncAlgs:     []goidc.KeyEncryptionAlgorithm{goidc.KeyEncRSAOAEP256},
-			JARContentEncAlgs: []goidc.ContentEncryptionAlgorithm{goidc.ContentEncAlgA128GCM},
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
-func TestJAREncryptionValidation(t *testing.T) {
-	tests := []struct {
-		name        string
-		keyAlgs     []goidc.KeyEncryptionAlgorithm
-		contentAlgs []goidc.ContentEncryptionAlgorithm
-		wantErr     string
-	}{
-		{
-			name:        "requires key encryption algorithm",
-			contentAlgs: []goidc.ContentEncryptionAlgorithm{goidc.ContentEncAlgA128GCM},
-			wantErr:     "at least one key encryption algorithm is required for JAR encryption",
-		},
-		{
-			name:    "requires content encryption algorithm",
-			keyAlgs: []goidc.KeyEncryptionAlgorithm{goidc.KeyEncRSAOAEP},
-			wantErr: "at least one content encryption algorithm is required for JAR encryption",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			err := WithJAREncryption(test.keyAlgs, test.contentAlgs)(&Provider{})
-			if err == nil {
-				t.Fatal("WithJAREncryption() error = nil, want non-nil")
-			}
-			if got := err.Error(); got != test.wantErr {
-				t.Fatalf("WithJAREncryption() error = %q, want %q", got, test.wantErr)
-			}
-		})
-	}
-}
-
 func TestWithAssertionLifetime(t *testing.T) {
 	// Given.
 	p := &Provider{
@@ -1528,30 +1416,6 @@ func TestOpaqueTokenFunc(t *testing.T) {
 	}
 }
 
-func TestJARByReference(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithJARByReference(nil)(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			JARByReferenceEnabled: true,
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
 func TestWithJWTLeewayTime(t *testing.T) {
 	// Given.
 	p := &Provider{
@@ -1650,28 +1514,6 @@ func TestWithSigner(t *testing.T) {
 
 	if p.config.SignerFunc == nil {
 		t.Error("SignerFunc cannot be nil")
-	}
-}
-
-func TestWithDecrypter(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-	decrypterFunc := func(ctx context.Context, kid string, alg goidc.KeyEncryptionAlgorithm) (crypto.Decrypter, error) {
-		return nil, nil
-	}
-
-	// When.
-	err := WithDecrypter(decrypterFunc)(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if p.config.DecrypterFunc == nil {
-		t.Error("DecrypterFunc cannot be nil")
 	}
 }
 

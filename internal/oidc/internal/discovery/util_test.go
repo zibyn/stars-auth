@@ -146,9 +146,6 @@ func TestOIDCConfig_WithVariants(t *testing.T) {
 		AuthnMethodSecretJWTSigAlgs:     []goidc.SignatureAlgorithm{goidc.SigAlgHS256},
 		RAREnabled:                      true,
 		RARDetailTypes:                  []goidc.AuthDetailType{"detail_type"},
-		JAREnabled:                      true,
-		JARRequired:                     true,
-		JARSigAlgs:                      []goidc.SignatureAlgorithm{goidc.SigAlgPS256},
 		DPoPEnabled:                     true,
 		DPoPSigAlgs:                     []goidc.SignatureAlgorithm{goidc.SigAlgPS256},
 		TokenIntrospectionEnabled:       true,
@@ -201,62 +198,9 @@ func TestOIDCConfig_WithVariants(t *testing.T) {
 		DisplayValues: []goidc.DisplayValue{
 			goidc.DisplayValuePage,
 		},
-		JAREnabled:  true,
-		JARRequired: true,
-		JARAlgs:     ctx.JARSigAlgs,
 		DPoPSigAlgs: ctx.DPoPSigAlgs,
 	}
 	if diff := cmp.Diff(got, want); diff != "" {
 		t.Error(diff)
-	}
-}
-
-func TestOIDCConfig_JARByReferenceMetadata(t *testing.T) {
-	tests := []struct {
-		name                               string
-		byReferenceEnabled                 bool
-		unregisteredUREnabled              bool
-		wantByReferenceEnabled             bool
-		wantRegistrationRequiredAdvertised bool
-	}{
-		{
-			name:                               "disabled",
-			byReferenceEnabled:                 false,
-			unregisteredUREnabled:              false,
-			wantByReferenceEnabled:             false,
-			wantRegistrationRequiredAdvertised: false,
-		},
-		{
-			name:                               "enabled with registration required",
-			byReferenceEnabled:                 true,
-			unregisteredUREnabled:              false,
-			wantByReferenceEnabled:             true,
-			wantRegistrationRequiredAdvertised: true,
-		},
-		{
-			name:                               "enabled with unregistered uris allowed",
-			byReferenceEnabled:                 true,
-			unregisteredUREnabled:              true,
-			wantByReferenceEnabled:             true,
-			wantRegistrationRequiredAdvertised: false,
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			ctx := oidctest.NewContext(t)
-			ctx.JAREnabled = true
-			ctx.JARByReferenceEnabled = test.byReferenceEnabled
-			ctx.JARByReferenceUnregisteredURIEnabled = test.unregisteredUREnabled
-
-			got := NewConfiguration(ctx)
-
-			if got.JARByReferenceEnabled != test.wantByReferenceEnabled {
-				t.Fatalf("JARByReferenceEnabled = %v, want %v", got.JARByReferenceEnabled, test.wantByReferenceEnabled)
-			}
-			if got.JARRequestURIRegistrationRequired != test.wantRegistrationRequiredAdvertised {
-				t.Fatalf("JARRequestURIRegistrationRequired = %v, want %v", got.JARRequestURIRegistrationRequired, test.wantRegistrationRequiredAdvertised)
-			}
-		})
 	}
 }

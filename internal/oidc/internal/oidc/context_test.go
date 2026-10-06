@@ -19,7 +19,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
-	"github.com/zibyn/stars-auth/internal/oidc/internal/joseutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidctest"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/storage"
@@ -658,17 +657,6 @@ func TestHTTPClientFallbacks(t *testing.T) {
 	if got := ctx.HTTPClient(); got != baseClient {
 		t.Fatal("HTTPClient() did not return the configured client")
 	}
-	if got := ctx.JARHTTPClient(); got != baseClient {
-		t.Fatal("JARHTTPClient() did not fall back to HTTPClient()")
-	}
-
-	customJARClient := &http.Client{}
-	ctx.JARByReferenceHTTPClientFunc = func(context.Context) *http.Client {
-		return customJARClient
-	}
-	if got := ctx.JARHTTPClient(); got != customJARClient {
-		t.Fatal("JARHTTPClient() did not return the configured JAR client")
-	}
 
 }
 
@@ -1104,34 +1092,6 @@ func TestSignWithSigner(t *testing.T) {
 	}
 	if claims[goidc.ClaimSubject] != "random@email.com" {
 		t.Fatalf("claims[sub] = %v, want %q", claims[goidc.ClaimSubject], "random@email.com")
-	}
-}
-
-func TestDecryptWithDecrypter(t *testing.T) {
-	encKey := oidctest.PrivateRSAOAEP256JWK(t, "enc_key")
-	ctx := oidc.Context{
-		Configuration: &oidc.Configuration{
-			DecrypterFunc: func(context.Context, string, goidc.KeyEncryptionAlgorithm) (crypto.Decrypter, error) {
-				return encKey.Key.(crypto.Decrypter), nil
-			},
-		},
-	}
-
-	jwe, err := joseutil.Encrypt("random_jws", encKey.Public(), goidc.ContentEncAlgA128CBCHS256, nil)
-	if err != nil {
-		t.Fatalf("joseutil.Encrypt() error = %v", err)
-	}
-
-	jws, err := ctx.Decrypt(
-		jwe,
-		[]goidc.KeyEncryptionAlgorithm{goidc.KeyEncRSAOAEP256},
-		[]goidc.ContentEncryptionAlgorithm{goidc.ContentEncAlgA128CBCHS256},
-	)
-	if err != nil {
-		t.Fatalf("Decrypt() error = %v", err)
-	}
-	if jws != "random_jws" {
-		t.Fatalf("Decrypt() = %q, want %q", jws, "random_jws")
 	}
 }
 

@@ -36,20 +36,6 @@ func NewConfiguration(ctx oidc.Context) goidc.Configuration {
 		DisplayValues:              ctx.DisplayValues,
 	}
 
-	if ctx.JAREnabled {
-		config.JAREnabled = ctx.JAREnabled
-		config.JARRequired = ctx.JARRequired
-		config.JARAlgs = ctx.JARSigAlgs
-		if ctx.JARByReferenceEnabled {
-			config.JARByReferenceEnabled = ctx.JARByReferenceEnabled
-			config.JARRequestURIRegistrationRequired = !ctx.JARByReferenceUnregisteredURIEnabled
-		}
-		if ctx.JAREncEnabled {
-			config.JARKeyEncAlgs = ctx.JARKeyEncAlgs
-			config.JARContentEncAlgs = ctx.JARContentEncAlgs
-		}
-	}
-
 	if ctx.DPoPEnabled {
 		config.DPoPSigAlgs = ctx.DPoPSigAlgs
 	}

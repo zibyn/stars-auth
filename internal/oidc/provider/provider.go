@@ -41,13 +41,11 @@ type Config struct {
 // New creates a new openid provider.
 //
 // The cfg.JWKSFunc parameter provides the server's JSON Web Key Set (JWKS),
-// used for signing, decryption, and exposure via the JWKS endpoint.
+// used for signing and exposure via the JWKS endpoint.
 // Typically, it should return both private and public key material.
 // If private keys are unavailable or granular control over signing is required,
 // cfg.JWKSFunc can be configured to return only public key material. In such cases,
 // the [WithSigner] option must be provided to handle signing operations.
-// Similarly, if server-side encryption (e.g., JAR encryption) is enabled,
-// the [WithDecrypter] option must also be configured for decryption support.
 // For operations like signature verification, only the public key material is
 // needed, which can be retrieved using cfg.JWKSFunc.
 //
@@ -102,10 +100,6 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 
 	if op.config.TokenBindingRequired && !op.config.DPoPEnabled && !op.config.MTLSTokenBindingEnabled {
 		return nil, errors.New("either dpop or tls binding must be enabled if sender constraining tokens is required")
-	}
-
-	if op.config.JARByReferenceUnregisteredURIEnabled && !op.config.JARByReferenceEnabled {
-		return nil, errors.New("jar by-reference unregistered uris cannot be enabled without jar by-reference")
 	}
 
 	if op.config.ConsumeJTIFunc == nil {

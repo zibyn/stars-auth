@@ -55,35 +55,6 @@ func TestNewPushedRequest(t *testing.T) {
 	}
 }
 
-func TestMergeParams(t *testing.T) {
-	// Given.
-	insideParams := goidc.AuthorizationParameters{
-		RedirectURI: "https:example1.com",
-		State:       "random_state",
-		AuthDetails: []goidc.AuthDetail{},
-	}
-	outsideParams := goidc.AuthorizationParameters{
-		RedirectURI: "https:example2.com",
-		Nonce:       "random_nonce",
-		Claims:      &goidc.ClaimsObject{},
-	}
-
-	// When.
-	mergedParams := mergeParams(insideParams, outsideParams)
-
-	// Then.
-	want := goidc.AuthorizationParameters{
-		RedirectURI: "https:example1.com",
-		State:       "random_state",
-		AuthDetails: []goidc.AuthDetail{},
-		Nonce:       "random_nonce",
-		Claims:      &goidc.ClaimsObject{},
-	}
-	if diff := cmp.Diff(mergedParams, want, cmpopts.EquateComparable()); diff != "" {
-		t.Error(diff)
-	}
-}
-
 func setUpParams(t *testing.T) (url.Values, goidc.AuthorizationParameters) {
 	t.Helper()
 

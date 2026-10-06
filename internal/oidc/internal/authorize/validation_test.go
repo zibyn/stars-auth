@@ -76,6 +76,30 @@ func TestValidateRequest(t *testing.T) {
 			wantNonRedirect: true,
 		},
 		{
+			name: "request object not supported",
+			setup: func(t *testing.T) (oidc.Context, *goidc.Client, request) {
+				ctx := oidctest.NewContext(t)
+				client, _ := oidctest.NewClient(t)
+				req := newValidRequest(client)
+				req.RequestObject = "eyJhbGciOiJub25lIn0.e30."
+				return ctx, client, req
+			},
+			wantErr:         goidc.ErrorCodeRequestNotSupported,
+			wantRedirectErr: true,
+		},
+		{
+			name: "request uri not supported",
+			setup: func(t *testing.T) (oidc.Context, *goidc.Client, request) {
+				ctx := oidctest.NewContext(t)
+				client, _ := oidctest.NewClient(t)
+				req := newValidRequest(client)
+				req.RequestURI = "https://client.example.com/request.jwt"
+				return ctx, client, req
+			},
+			wantErr:         goidc.ErrorCodeRequestURINotSupported,
+			wantRedirectErr: true,
+		},
+		{
 			name: "resource indicator",
 			setup: func(t *testing.T) (oidc.Context, *goidc.Client, request) {
 				ctx := oidctest.NewContext(t)
@@ -246,79 +270,6 @@ func TestValidateRequest(t *testing.T) {
 
 			if test.wantRedirectURIs != nil && !slices.Equal(client.RedirectURIs, test.wantRedirectURIs) {
 				t.Fatalf("RedirectURIs = %v, want %v", client.RedirectURIs, test.wantRedirectURIs)
-			}
-		})
-	}
-}
-
-func TestValidateRequestWithJAR(t *testing.T) {
-	tests := []struct {
-		name            string
-		setup           func(*testing.T) (oidc.Context, request, request, *goidc.Client)
-		wantErr         goidc.ErrorCode
-		wantNonRedirect bool
-	}{
-		{
-			name: "happy path",
-			setup: func(t *testing.T) (oidc.Context, request, request, *goidc.Client) {
-				ctx := oidctest.NewContext(t)
-				client, _ := oidctest.NewClient(t)
-				req := request{
-					ClientID: client.ID,
-					AuthorizationParameters: goidc.AuthorizationParameters{
-						RedirectURI:  client.RedirectURIs[0],
-						ResponseType: goidc.ResponseTypeCode,
-						ResponseMode: goidc.ResponseModeQuery,
-						Scopes:       client.ScopeIDs,
-						Nonce:        "random_nonce",
-					},
-				}
-				jar := request{
-					ClientID:                client.ID,
-					AuthorizationParameters: goidc.AuthorizationParameters{},
-				}
-				return ctx, req, jar, client
-			},
-		},
-		{
-			name: "invalid client id",
-			setup: func(t *testing.T) (oidc.Context, request, request, *goidc.Client) {
-				ctx := oidctest.NewContext(t)
-				client, _ := oidctest.NewClient(t)
-				req := request{ClientID: client.ID}
-				jar := request{ClientID: "invalid_client_id"}
-				return ctx, req, jar, client
-			},
-			wantErr:         goidc.ErrorCodeInvalidClient,
-			wantNonRedirect: true,
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			ctx, req, jar, client := test.setup(t)
-
-			err := validateRequestWithJAR(ctx, req, jar, client)
-
-			if test.wantErr == "" {
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-				return
-			}
-
-			if err == nil {
-				t.Fatalf("expected error %q", test.wantErr)
-			}
-
-			if test.wantNonRedirect {
-				var oidcErr goidc.Error
-				if !errors.As(err, &oidcErr) {
-					t.Fatalf("expected OIDC error, got %T", err)
-				}
-				if oidcErr.Code != test.wantErr {
-					t.Fatalf("code = %s, want %s", oidcErr.Code, test.wantErr)
-				}
 			}
 		})
 	}

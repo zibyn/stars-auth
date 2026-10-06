@@ -20,62 +20,7 @@ func validateRequest(ctx oidc.Context, req request, c *goidc.Client) error {
 	return validateParams(ctx, req.AuthorizationParameters, c)
 }
 
-// validateRequestWithJAR validates the parameters in an authorization request
-// that includes a JWT Authorization Request (JAR).
-func validateRequestWithJAR(ctx oidc.Context, req request, jar request, client *goidc.Client) error {
-	if jar.ClientID != client.ID {
-		return goidc.NewError(goidc.ErrorCodeInvalidClient, "invalid client_id")
-	}
-
-	if ctx.Profile.IsFAPI() {
-		if err := validateParams(ctx, jar.AuthorizationParameters, client); err != nil {
-			return err
-		}
-	}
-
-	if err := validateInWithOutParams(ctx, jar.AuthorizationParameters,
-		req.AuthorizationParameters, client); err != nil {
-		return err
-	}
-
-	mergedParams := mergeParams(jar.AuthorizationParameters, req.AuthorizationParameters)
-	if jar.RequestURI != "" {
-		return wrapRedirectionError(goidc.ErrorCodeInvalidRequest, "invalid request", mergedParams,
-			errors.New("request_uri is not allowed inside the request object"))
-	}
-
-	if jar.RequestObject != "" {
-		return wrapRedirectionError(goidc.ErrorCodeInvalidRequest, "invalid request", mergedParams,
-			errors.New("request is not allowed inside the request object"))
-	}
-
-	return nil
-}
-
 // -------------------------------------------------- Helper Functions -------------------------------------------------- //
-
-// validateInWithOutParams validates the combination of inner parameters, those
-// sent inside a request object during JAR, and outter parameters,
-// those sent during the authorization request as query parameters.
-// The inner parameters take priority over the outter ones.
-func validateInWithOutParams(ctx oidc.Context, inParams goidc.AuthorizationParameters, outParams goidc.AuthorizationParameters, c *goidc.Client) error {
-
-	// Always validate the redirect URI first before other validations.
-	// If the redirect URI is invalid, we cannot safely redirect the error, even
-	// if the redirect URI is not used in the flow.
-	if err := validateRedirectURIAsOptional(ctx, outParams, c); err != nil {
-		return err
-	}
-
-	mergedParams := mergeParams(inParams, outParams)
-	if err := validateParams(ctx, mergedParams, c); err != nil {
-		return err
-	}
-
-	// Make sure all the outter parameters parameters are valid even if they are
-	// not used.
-	return validateParamsAsOptionals(ctx, outParams, c)
-}
 
 // validateParams validates the parameters of an authorization request.
 func validateParams(ctx oidc.Context, params goidc.AuthorizationParameters, c *goidc.Client) error {
@@ -152,7 +97,7 @@ func validateParamsAsOptionals(ctx oidc.Context, params goidc.AuthorizationParam
 		return err
 	}
 
-	if err := validateRequestURIAsOptional(ctx, params, c); err != nil {
+	if err := validateRequestObjectAsOptional(ctx, params, c); err != nil {
 		return err
 	}
 
@@ -192,11 +137,6 @@ func validateParamsAsOptionals(ctx oidc.Context, params goidc.AuthorizationParam
 		return err
 	}
 
-	if params.RequestURI != "" && params.RequestObject != "" {
-		return wrapRedirectionError(goidc.ErrorCodeInvalidRequest, "invalid request", params,
-			errors.New("request and request_uri cannot be used at the same time"))
-	}
-
 	return nil
 }
 
@@ -226,23 +166,15 @@ func validateRedirectURIAsOptional(_ oidc.Context, params goidc.AuthorizationPar
 	return nil
 }
 
-func validateRequestURIAsOptional(ctx oidc.Context, params goidc.AuthorizationParameters, c *goidc.Client) error {
-	if params.RequestURI == "" {
-		return nil
+// validateRequestObjectAsOptional rejects request objects: JAR is not
+// supported, so neither request nor request_uri may be used.
+func validateRequestObjectAsOptional(_ oidc.Context, params goidc.AuthorizationParameters, _ *goidc.Client) error {
+	if params.RequestObject != "" {
+		return newRedirectionError(goidc.ErrorCodeRequestNotSupported, "request is not supported", params)
 	}
-
-	if !ctx.JARByReferenceEnabled {
-		return goidc.WrapError(goidc.ErrorCodeRequestURINotSupported, "request_uri_not_supported", errors.New("request_uri is not supported"))
+	if params.RequestURI != "" {
+		return newRedirectionError(goidc.ErrorCodeRequestURINotSupported, "request_uri is not supported", params)
 	}
-
-	if !ctx.JARByReferenceUnregisteredURIEnabled && !slices.Contains(c.RequestURIs, params.RequestURI) {
-		return goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request_uri", errors.New("request_uri is not registered for the client"))
-	}
-
-	if parsedURI, err := url.Parse(params.RequestURI); err != nil || parsedURI.Scheme != "https" {
-		return goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request_uri", errors.New("request_uri must be a valid https URL"))
-	}
-
 	return nil
 }
 
