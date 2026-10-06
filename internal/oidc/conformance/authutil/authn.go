@@ -166,8 +166,8 @@ func (a authenticator) login(w http.ResponseWriter, r *http.Request, as *goidc.A
 	// If the max age is exceeded or 'auth_time' is unavailable, force re-authentication.
 	if as.MaxAuthnAgeSecs != nil {
 		maxAgeSecs := *as.MaxAuthnAgeSecs
-		authTime := as.Store[paramAuthTime]
-		if authTime == nil || timeutil.TimestampNow() > authTime.(int)+maxAgeSecs {
+		authTime, ok := storedAuthTime(as)
+		if !ok || timeutil.TimestampNow() > authTime+maxAgeSecs {
 			mustAuthenticate = true
 		}
 	}
@@ -203,7 +203,7 @@ func (a authenticator) createUserSession(w http.ResponseWriter, as *goidc.AuthnS
 	userSessionStore[sessionID] = userSession{
 		ID:       sessionID,
 		Subject:  as.Subject,
-		AuthTime: as.Store[paramAuthTime].(int),
+		AuthTime: must(storedAuthTime(as)),
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     cookieUserSessionID,
@@ -235,7 +235,7 @@ func (a authenticator) finishFlow(as *goidc.AuthnSession) (goidc.Status, error) 
 	as.GrantedAuthDetails = as.AuthDetails
 
 	idTokenClaims := map[string]any{
-		goidc.ClaimAuthTime: as.Store[paramAuthTime].(int),
+		goidc.ClaimAuthTime: must(storedAuthTime(as)),
 		goidc.ClaimACR:      string(goidc.ACRMaceIncommonIAPSilver),
 	}
 	userInfoClaims := map[string]any{}
@@ -414,4 +414,23 @@ func mapify(as any) map[string]any {
 		panic(err)
 	}
 	return m
+}
+
+// storedAuthTime reads auth_time back from the session store; once the
+// session has been persisted as JSON, numbers come back as float64.
+func storedAuthTime(as *goidc.AuthnSession) (int, bool) {
+	switch v := as.Store[paramAuthTime].(type) {
+	case int:
+		return v, true
+	case float64:
+		return int(v), true
+	}
+	return 0, false
+}
+
+func must(authTime int, ok bool) int {
+	if !ok {
+		panic("auth_time missing from the session store")
+	}
+	return authTime
 }

@@ -159,6 +159,8 @@ func (s *Store) openGrant(row sqlc.OidcGrant, err error) (*goidc.Grant, error) {
 	return &g, json.Unmarshal(data, &g)
 }
 
+// SaveSession stores as as JSON: values in as.Store come back JSON-typed
+// (numbers as float64).
 func (s *Store) SaveSession(ctx context.Context, as *goidc.AuthnSession) error {
 	data, err := json.Marshal(as)
 	if err != nil {
