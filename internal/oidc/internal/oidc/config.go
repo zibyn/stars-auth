@@ -223,46 +223,6 @@ type Configuration struct {
 	LogoutSessionIDFunc         goidc.RandomFunc
 	HandleDefaultPostLogoutFunc goidc.HandleDefaultPostLogoutFunc
 
-	VCIEnabled                           bool
-	VCIIssuers                           []goidc.VCIssuer
-	VCISelfEnabled                       bool
-	VCISelfHost                          string
-	VCISelfConfigurations                map[goidc.VCConfigurationID]goidc.VCConfiguration
-	VCISelfOffersEnabled                 bool
-	VCISelfOfferManager                  goidc.VCOfferManager
-	VCISelfCredentialEndpoint            string
-	VCISelfOfferEndpoint                 string
-	VCISelfOfferIDFunc                   goidc.RandomFunc
-	VCISelfPreAuthCodeGrantEnabled       bool
-	VCISelfPreAuthCodeGrantManager       goidc.VCPreAuthCodeGrantManager
-	VCISelfPreAuthCodeFunc               goidc.RandomFunc
-	VCISelfPreAuthCodeLifetimeSecs       int
-	VCISelfJWTIssuerEnabled              bool
-	VCISelfJWTIssuerJWKSFunc             goidc.JWKSFunc
-	VCISelfJWTIssuerJWKSURI              string
-	VCISelfBatchSize                     int
-	VCISelfResponseEncEnabled            bool
-	VCISelfResponseEncRequired           bool
-	VCISelfResponseEncKeyAlgs            []goidc.KeyEncryptionAlgorithm
-	VCISelfResponseEncContentAlgs        []goidc.ContentEncryptionAlgorithm
-	VCISelfResponseEncCompressionEnabled bool
-	VCISelfResponseEncCompressionAlgs    []goidc.CompressionAlgorithm
-	VCIExternalPreAuthCodeGrantEnabled   bool
-	VCIExternalPreAuthCodeHandleFunc     goidc.VCIPreAuthCodeHandleFunc
-	VCIIssuerStateEnabled                bool
-	VCIIssuerStateHandleFunc             goidc.VCIIssuerStateHandleFunc
-	VCIPreAuthCodeAnonymousAccessEnabled bool
-	VCISelfDeferredEnabled               bool
-	VCISelfDeferredManager               goidc.VCDeferralManager
-	VCISelfDeferredCredentialEndpoint    string
-	VCISelfDeferredIDFunc                goidc.RandomFunc
-	VCISelfDeferredIntervalSecs          int
-	VCISelfNotificationEnabled           bool
-	VCISelfNotificationManager           goidc.VCNotificationManager
-	VCISelfNotificationEndpoint          string
-	VCISelfNotificationIDFunc            goidc.RandomFunc
-	VCISelfNotificationHandleFunc        goidc.VCNotificationHandleFunc
-
 	DeviceAuthManager                        goidc.DeviceAuthManager
 	DeviceAuthEndpoint                       string
 	DeviceAuthVerificationEndpoint           string

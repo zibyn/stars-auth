@@ -176,12 +176,6 @@ func NewContext(tb testing.TB) oidc.Context {
 		CIBAHandleSessionFunc: func(context.Context, *goidc.AuthnSession, *goidc.Client) error {
 			return errors.New("ciba init back auth function is not set")
 		},
-		VCIExternalPreAuthCodeHandleFunc: func(context.Context, string, goidc.VCPreAuthCodeOptions) (goidc.VCPreAuthCodeResult, error) {
-			return goidc.VCPreAuthCodeResult{}, errors.New("vc pre-authorized code handler is not set")
-		},
-		VCISelfOfferIDFunc: func(context.Context) string {
-			return uuid.NewString()
-		},
 		AuthTimeoutSecs: 60,
 		AuthnMethods: []goidc.AuthnMethod{
 			goidc.AuthnMethodNone,

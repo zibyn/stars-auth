@@ -14,7 +14,6 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/token"
-	vcutil "github.com/zibyn/stars-auth/internal/oidc/internal/vc/util"
 )
 
 // validateRequest validates the parameters sent in an authorization request.
@@ -290,10 +289,6 @@ func validateParamsAsOptionals(ctx oidc.Context, params goidc.AuthorizationParam
 		return err
 	}
 
-	if err := validateVerifiableCredentialsAsOptional(ctx, params, c); err != nil {
-		return err
-	}
-
 	if err := validateIDTokenHintAsOptional(ctx, params, c); err != nil {
 		return err
 	}
@@ -564,22 +559,6 @@ func validateCodeBindingDPoP(ctx oidc.Context, params goidc.AuthorizationParamet
 		// "dpop_jkt" is optional, but it must match the DPoP JWT if present.
 		JWKThumbprint: params.DPoPJKT,
 	})
-}
-
-func validateVerifiableCredentialsAsOptional(ctx oidc.Context, params goidc.AuthorizationParameters, _ *goidc.Client) error {
-	if !ctx.VCIEnabled {
-		return nil
-	}
-
-	if _, _, err := vcutil.Resolve(ctx, vcutil.Request{
-		Scopes:    params.Scopes,
-		Details:   params.AuthDetails,
-		Resources: params.Resources,
-	}); err != nil {
-		return wrapRedirectionError(goidc.ErrorCodeInvalidRequest, "invalid verifiable credentials request", params, err)
-	}
-
-	return nil
 }
 
 // clientWithRedirectURI creates a copy of the client with the given redirect URI.

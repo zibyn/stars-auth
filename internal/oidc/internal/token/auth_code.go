@@ -10,7 +10,6 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
-	vcutil "github.com/zibyn/stars-auth/internal/oidc/internal/vc/util"
 )
 
 func generateAuthCodeToken(ctx oidc.Context, req request) (response, error) {
@@ -78,10 +77,6 @@ func generateAuthCodeToken(ctx oidc.Context, req request) (response, error) {
 			return response{}, err
 		}
 
-		if err := validateVerifiableCredentials(ctx, grant); err != nil {
-			return response{}, err
-		}
-
 		if err := validateScopes(ctx, req, c, &scopeValidationOptions{granted: grant.Scopes}); err != nil {
 			return response{}, err
 		}
@@ -131,20 +126,4 @@ func generateAuthCodeToken(ctx oidc.Context, req request) (response, error) {
 		return response{}, err
 	}
 	return resp, nil
-}
-
-func validateVerifiableCredentials(ctx oidc.Context, grant *goidc.Grant) error {
-	if !ctx.VCIEnabled {
-		return nil
-	}
-
-	if _, _, err := vcutil.Resolve(ctx, vcutil.Request{
-		Scopes:    grant.Scopes,
-		Details:   grant.AuthDetails,
-		Resources: grant.Resources,
-	}); err != nil {
-		return err
-	}
-
-	return nil
 }

@@ -28,7 +28,6 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/token"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/userinfo"
-	"github.com/zibyn/stars-auth/internal/oidc/internal/vc"
 )
 
 type Provider struct {
@@ -280,85 +279,6 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 		op.config.ClientCertFunc = nonZeroOrDefault(op.config.ClientCertFunc, goidc.ClientCertFunc(defaultClientCertFunc))
 	}
 
-	if op.config.VCIEnabled {
-		if op.config.VCISelfEnabled {
-			op.config.VCISelfHost = nonZeroOrDefault(op.config.VCISelfHost, op.config.Host)
-			op.config.VCISelfCredentialEndpoint = nonZeroOrDefault(op.config.VCISelfCredentialEndpoint, defaultEndpointVCICredential)
-			op.config.VCISelfBatchSize = nonZeroOrDefault(op.config.VCISelfBatchSize, 1)
-
-			for id, config := range op.config.VCISelfConfigurations {
-				if config.Format == goidc.VCFormatDCSDJWT {
-					if config.Type == "" {
-						return nil, fmt.Errorf("credential configuration %q requires Type when Format is %q", id, goidc.VCFormatDCSDJWT)
-					}
-
-					if !op.config.VCISelfJWTIssuerEnabled {
-						return nil, fmt.Errorf("credential configuration %q with Format %q requires WithVCISelfJWTIssuer", id, goidc.VCFormatDCSDJWT)
-					}
-				}
-			}
-
-			// The self issuer should go first. This is just a convention.
-			op.config.VCIIssuers = append([]goidc.VCIssuer{{
-				Issuer: op.config.VCISelfHost,
-				Configurations: func() []goidc.VCConfiguration {
-					selfConfigs := make([]goidc.VCConfiguration, 0, len(op.config.VCISelfConfigurations))
-					for _, config := range op.config.VCISelfConfigurations {
-						selfConfigs = append(selfConfigs, config)
-					}
-					return selfConfigs
-				}(),
-			}}, op.config.VCIIssuers...)
-
-			if op.config.VCISelfOffersEnabled {
-				op.config.VCISelfOfferManager = nonZeroOrDefault(op.config.VCISelfOfferManager, goidc.VCOfferManager(inmemoryManager))
-				op.config.VCISelfOfferIDFunc = nonZeroOrDefault(op.config.VCISelfOfferIDFunc, defaultSessionIDFunc)
-			}
-
-			if op.config.VCISelfPreAuthCodeGrantEnabled {
-				op.config.VCISelfPreAuthCodeGrantManager = nonZeroOrDefault(op.config.VCISelfPreAuthCodeGrantManager, goidc.VCPreAuthCodeGrantManager(inmemoryManager))
-				op.config.VCISelfPreAuthCodeFunc = nonZeroOrDefault(op.config.VCISelfPreAuthCodeFunc, defaultPreAuthCodeFunc)
-				op.config.VCISelfPreAuthCodeLifetimeSecs = nonZeroOrDefault(op.config.VCISelfPreAuthCodeLifetimeSecs, defaultPreAuthCodeLifetimeSecs)
-			}
-
-			if op.config.VCISelfDeferredEnabled {
-				op.config.VCISelfDeferredManager = nonZeroOrDefault(op.config.VCISelfDeferredManager, goidc.VCDeferralManager(inmemoryManager))
-				op.config.VCISelfDeferredIDFunc = nonZeroOrDefault(op.config.VCISelfDeferredIDFunc, defaultSessionIDFunc)
-				op.config.VCISelfDeferredCredentialEndpoint = nonZeroOrDefault(op.config.VCISelfDeferredCredentialEndpoint, defaultEndpointVCIDeferredCredential)
-				op.config.VCISelfDeferredIntervalSecs = nonZeroOrDefault(op.config.VCISelfDeferredIntervalSecs, defaultVCIDeferredIntervalSecs)
-			} else {
-				for id, config := range op.config.VCISelfConfigurations {
-					if config.IsDeferred != nil {
-						return nil, fmt.Errorf("credential configuration %q defines IsDeferred but WithVCISelfDeferred was not called", id)
-					}
-				}
-			}
-
-			if op.config.VCISelfNotificationEnabled {
-				op.config.VCISelfNotificationManager = nonZeroOrDefault(op.config.VCISelfNotificationManager, goidc.VCNotificationManager(inmemoryManager))
-				op.config.VCISelfNotificationIDFunc = nonZeroOrDefault(op.config.VCISelfNotificationIDFunc, defaultSessionIDFunc)
-				op.config.VCISelfNotificationEndpoint = nonZeroOrDefault(op.config.VCISelfNotificationEndpoint, defaultEndpointVCINotification)
-			}
-
-			if op.config.VCISelfJWTIssuerEnabled {
-				if op.config.VCISelfJWTIssuerJWKSFunc == nil && op.config.VCISelfJWTIssuerJWKSURI == "" {
-					return nil, errors.New("WithVCISelfJWTIssuer requires either JWKS or JWKS URI")
-				}
-
-				if op.config.VCISelfJWTIssuerJWKSFunc != nil && op.config.VCISelfJWTIssuerJWKSURI != "" {
-					return nil, errors.New("WithVCISelfJWTIssuer requires either JWKS or JWKS URI, not both")
-				}
-			}
-		}
-
-		if op.config.VCIIssuerStateEnabled {
-			if !slices.Contains(op.config.GrantTypes, goidc.GrantAuthorizationCode) {
-				return nil, errors.New("WithVCIIssuerState requires the authorization code grant to be enabled")
-			}
-		}
-
-	}
-
 	if !op.profileValidationEnabled {
 		return op, nil
 	}
@@ -451,7 +371,6 @@ func (op Provider) RegisterRoutes(mux *http.ServeMux, middlewares ...goidc.Middl
 	userinfo.RegisterHandlers(mux, &op.config, middlewares...)
 	dcr.RegisterHandlers(mux, &op.config, middlewares...)
 	logout.RegisterHandlers(mux, &op.config, middlewares...)
-	vc.RegisterHandlers(mux, &op.config, middlewares...)
 }
 
 func (op *Provider) Run(address string, middlewares ...goidc.MiddlewareFunc) error {
@@ -503,42 +422,6 @@ func (op *Provider) GrantCIBARequest(ctx context.Context, authReqID string) erro
 func (op *Provider) DenyCIBARequest(ctx context.Context, authReqID string, err goidc.Error) error {
 	oidcCtx := oidc.NewContext(ctx, &op.config)
 	return token.DenyCIBARequest(oidcCtx, authReqID, err)
-}
-
-// CreatePreAuthCodeGrant creates a grant that can be redeemed through the
-// pre-authorized code grant.
-func (op *Provider) CreatePreAuthCodeGrant(ctx context.Context, grant *goidc.Grant) error {
-	if !op.config.VCISelfEnabled || !op.config.VCISelfPreAuthCodeGrantEnabled {
-		return errors.New("self pre-authorized code grant is not enabled")
-	}
-	if grant == nil {
-		return errors.New("grant is required")
-	}
-	if grant.PreAuthCodeConsumedAt != 0 {
-		return errors.New("pre-authorized code grant is already consumed")
-	}
-
-	oidcCtx := oidc.NewContext(ctx, &op.config)
-	now := timeutil.TimestampNow()
-	if grant.ID == "" {
-		grant.ID = oidcCtx.GrantID()
-	}
-	if grant.CreatedAt == 0 {
-		grant.CreatedAt = now
-	}
-	if grant.PreAuthCode == "" {
-		grant.PreAuthCode = oidcCtx.PreAuthCode()
-	}
-	if grant.PreAuthCodeExpiresAt == 0 {
-		grant.PreAuthCodeExpiresAt = now + oidcCtx.PreAuthCodeLifetime()
-	}
-	if grant.PreAuthCodeExpiresAt <= now {
-		return errors.New("pre-authorized code expiration must be in the future")
-	}
-	if err := oidcCtx.HandleGrant(goidc.GrantPreAuthorizedCode, grant); err != nil {
-		return err
-	}
-	return oidcCtx.SaveGrant(grant)
 }
 
 // MakeToken generates a new access token based on the provided grant
@@ -604,8 +487,6 @@ const (
 	defaultDeviceAuthLifetimeSecs             = 300 // 5 minutes.
 	defaultDeviceAuthPollingIntervalSecs      = 5
 	defaultAuthorizationCodeLifetimeSecs      = 60
-	defaultPreAuthCodeLifetimeSecs            = 60
-	defaultVCIDeferredIntervalSecs            = 5
 	defaultEndpointJSONWebKeySet              = "/jwks"
 	defaultEndpointPushedAuthorizationRequest = "/par"
 	defaultEndpointAuthorize                  = "/authorize"
@@ -618,9 +499,6 @@ const (
 	defaultEndpointEndSession                 = "/logout"
 	defaultEndpointDeviceAuthorization        = "/device_authorization"
 	defaultEndpointDeviceVerification         = "/device"
-	defaultEndpointVCICredential              = "/credential"          //nolint:gosec
-	defaultEndpointVCIDeferredCredential      = "/deferred_credential" //nolint:gosec
-	defaultEndpointVCINotification            = "/notification"
 )
 
 func defaultTokenOptionsFunc(alg goidc.SignatureAlgorithm) goidc.TokenOptionsFunc {
@@ -651,10 +529,6 @@ func defaultHTTPClientFunc(_ context.Context) *http.Client {
 }
 
 func defaultAuthCodeFunc(_ context.Context) string {
-	return strutil.Random(30)
-}
-
-func defaultPreAuthCodeFunc(_ context.Context) string {
 	return strutil.Random(30)
 }
 

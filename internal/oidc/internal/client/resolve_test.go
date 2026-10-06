@@ -641,20 +641,6 @@ func TestResolve(t *testing.T) {
 			wantErr: true,
 		},
 
-		"credential offer endpoint cleared when vc disabled": {
-			setup: func() (oidc.Context, *client.Meta) {
-				ctx := oidctest.NewContext(t)
-				// ctx.VCIEnabled is false by default.
-				c, _ := oidctest.NewClient(t)
-				c.CredentialOfferEndpoint = "https://example.com/offer"
-				return ctx, &client.Meta{ClientMeta: c.ClientMeta}
-			},
-			validate: func(t *testing.T, c *client.Meta) {
-				if c.CredentialOfferEndpoint != "" {
-					t.Errorf("got %q, want empty", c.CredentialOfferEndpoint)
-				}
-			},
-		},
 
 		"par required cleared when par disabled": {
 			setup: func() (oidc.Context, *client.Meta) {

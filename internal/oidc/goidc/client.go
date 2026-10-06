@@ -83,7 +83,6 @@ type ClientMeta struct {
 	Keywords                    []string              `json:"keywords,omitempty"`
 	InformationURI              string                `json:"information_uri,omitempty"`
 	OrganizationURI             string                `json:"organization_uri,omitempty"`
-	CredentialOfferEndpoint     string                `json:"credential_offer_endpoint,omitempty"`
 	// CustomAttributes holds any additional dynamic attributes a client may
 	// provide during registration.
 	// These attributes allow clients to extend their metadata beyond the

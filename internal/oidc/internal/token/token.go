@@ -241,8 +241,6 @@ func generateToken(ctx oidc.Context, req request) (response, error) {
 		return generateJWTBearerToken(ctx, req)
 	case goidc.GrantCIBA:
 		return generateCIBAToken(ctx, req)
-	case goidc.GrantPreAuthorizedCode:
-		return generatePreAuthCodeToken(ctx, req)
 	case goidc.GrantDeviceCode:
 		return generateDeviceCodeToken(ctx, req)
 	case goidc.GrantTokenExchange:

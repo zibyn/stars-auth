@@ -21,7 +21,6 @@ type GrantOptions struct {
 	Nonce                string
 	AuthCode             string
 	AuthCodeExpiresAt    int
-	PreAuthCode          string
 	DeviceCode           string
 	DeviceCodeExpiresAt  int
 	AuthReqID            string
@@ -39,7 +38,6 @@ func NewGrant(ctx oidc.Context, c *goidc.Client, opts GrantOptions) (*goidc.Gran
 		ID:                  ctx.GrantID(),
 		AuthCode:            opts.AuthCode,
 		AuthCodeExpiresAt:   opts.AuthCodeExpiresAt,
-		PreAuthCode:         opts.PreAuthCode,
 		DeviceCode:          opts.DeviceCode,
 		DeviceCodeExpiresAt: opts.DeviceCodeExpiresAt,
 		AuthReqID:           opts.AuthReqID,
@@ -105,8 +103,6 @@ type request struct {
 	authDetails  []goidc.AuthDetail
 	assertion    string
 	authReqID    string
-	preAuthCode  string
-	txCode       string
 	deviceCode   string
 	// audience is the logical name of the target service where the client
 	// intends to use the requested security token.
@@ -139,8 +135,6 @@ func newRequest(r *http.Request) request {
 		resources:          r.PostForm["resource"],
 		assertion:          r.PostFormValue("assertion"),
 		authReqID:          r.PostFormValue("auth_req_id"),
-		preAuthCode:        r.PostFormValue("pre-authorized_code"),
-		txCode:             r.PostFormValue("tx_code"),
 		deviceCode:         r.PostFormValue("device_code"),
 		subjectToken:       r.PostFormValue("subject_token"),
 		subjectTokenType:   goidc.TokenTypeIdentifier(r.PostFormValue("subject_token_type")),

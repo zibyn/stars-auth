@@ -51,9 +51,5 @@ type AuthnSession struct {
 	ExpiresAt         int            `json:"expires_at"`
 	CreatedAt         int            `json:"created_at"`
 	IDTokenHintClaims *IDToken       `json:"id_token_hint_claims,omitempty"`
-	VCInfo            *struct {
-		Issuer           string              `json:"issuer"`
-		ConfigurationIDs []VCConfigurationID `json:"configuration_ids"`
-	} `json:"vc_info,omitempty"`
 	AuthorizationParameters
 }

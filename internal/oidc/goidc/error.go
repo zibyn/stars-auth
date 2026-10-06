@@ -46,9 +46,6 @@ const (
 	ErrorCodeInvalidTrustAnchor       ErrorCode = "invalid_trust_anchor"
 	ErrorCodeInvalidTrustChain        ErrorCode = "invalid_trust_chain"
 	ErrorCodeInvalidMetadata          ErrorCode = "invalid_metadata"
-	// ErrorCodeInvalidTransactionID signals that the transaction_id used to
-	// poll the deferred credential endpoint is invalid. See [OIDC4VCI §9.3].
-	ErrorCodeInvalidTransactionID ErrorCode = "invalid_transaction_id"
 )
 
 func (c ErrorCode) StatusCode() int {

@@ -71,14 +71,13 @@ type Configuration struct {
 		CIBAEndpoint               string `json:"backchannel_authentication_endpoint,omitempty"`
 	} `json:"mtls_endpoint_aliases,omitempty"`
 	// TLSBoundTokensEnabled signals support for certificate bound tokens.
-	TLSBoundTokensEnabled      bool                  `json:"tls_client_certificate_bound_access_tokens,omitempty"`
-	ACRs                       []ACR                 `json:"acr_values_supported,omitempty"`
-	DisplayValues              []DisplayValue        `json:"display_values_supported,omitempty"`
-	CodeChallengeMethods       []CodeChallengeMethod `json:"code_challenge_methods_supported,omitempty"`
-	EndSessionEndpoint         string                `json:"end_session_endpoint,omitempty"`
-	OrganizationName           string                `json:"organization_name,omitempty"`
-	JWKS                       *JSONWebKeySet        `json:"jwks,omitempty"`
-	PreAuthCodeAnonymousAccess bool                  `json:"pre-authorized_grant_anonymous_access_supported,omitempty"`
+	TLSBoundTokensEnabled bool                  `json:"tls_client_certificate_bound_access_tokens,omitempty"`
+	ACRs                  []ACR                 `json:"acr_values_supported,omitempty"`
+	DisplayValues         []DisplayValue        `json:"display_values_supported,omitempty"`
+	CodeChallengeMethods  []CodeChallengeMethod `json:"code_challenge_methods_supported,omitempty"`
+	EndSessionEndpoint    string                `json:"end_session_endpoint,omitempty"`
+	OrganizationName      string                `json:"organization_name,omitempty"`
+	JWKS                  *JSONWebKeySet        `json:"jwks,omitempty"`
 }
 
 // GrantManager stores grants.
@@ -189,7 +188,6 @@ const (
 	GrantImplicit          GrantType = "implicit"
 	GrantJWTBearer         GrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer" //nolint:gosec
 	GrantCIBA              GrantType = "urn:openid:params:grant-type:ciba"
-	GrantPreAuthorizedCode GrantType = "urn:ietf:params:oauth:grant-type:pre-authorized_code"
 	GrantDeviceCode        GrantType = "urn:ietf:params:oauth:grant-type:device_code"
 	GrantTokenExchange     GrantType = "urn:ietf:params:oauth:grant-type:token-exchange" //nolint:gosec
 )
@@ -278,51 +276,49 @@ const (
 )
 
 const (
-	ClaimTokenID                          string = "jti"
-	ClaimIssuer                           string = "iss"
-	ClaimSubject                          string = "sub"
-	ClaimAudience                         string = "aud"
-	ClaimClientID                         string = "client_id"
-	ClaimExpiry                           string = "exp"
-	ClaimIssuedAt                         string = "iat"
-	ClaimNotBefore                        string = "nbf"
-	ClaimScope                            string = "scope"
-	ClaimNonce                            string = "nonce"
-	ClaimAuthTime                         string = "auth_time"
-	ClaimAMR                              string = "amr"
-	ClaimACR                              string = "acr"
-	ClaimProfile                          string = "profile"
-	ClaimEmail                            string = "email"
-	ClaimEmailVerified                    string = "email_verified"
-	ClaimPhoneNumber                      string = "phone_number"
-	ClaimPhoneNumberVerified              string = "phone_number_verified"
-	ClaimAddress                          string = "address"
-	ClaimName                             string = "name"
-	ClaimWebsite                          string = "website"
-	ClaimZoneInfo                         string = "zoneinfo"
-	ClaimBirthdate                        string = "birthdate"
-	ClaimGender                           string = "gender"
-	ClaimPreferredUsername                string = "preferred_username"
-	ClaimGivenName                        string = "given_name"
-	ClaimMiddleName                       string = "middle_name"
-	ClaimLocale                           string = "locale"
-	ClaimPicture                          string = "picture"
-	ClaimUpdatedAt                        string = "updated_at"
-	ClaimNickname                         string = "nickname"
-	ClaimFamilyName                       string = "family_name"
-	ClaimAuthDetails                      string = "authorization_details"
-	ClaimAccessTokenHash                  string = "at_hash"
-	ClaimAuthzCodeHash                    string = "c_hash"
-	ClaimStateHash                        string = "s_hash"
-	ClaimRefreshTokenHash                 string = "urn:openid:params:jwt:claim:rt_hash" //nolint:gosec
-	ClaimAuthReqID                        string = "urn:openid:params:jwt:claim:auth_req_id"
-	ClaimGrantID                          string = "grant_id"
-	ClaimAct                              string = "act"
-	ClaimMayAct                           string = "may_act"
-	ClaimConfirmation                     string = "cnf"
-	ClaimJWK                              string = "jwk"
-	ClaimVerifiableCredentilType          string = "vct"
-	ClaimVerifiableCredentilTypeIntegrity string = "vct#integrity"
+	ClaimTokenID             string = "jti"
+	ClaimIssuer              string = "iss"
+	ClaimSubject             string = "sub"
+	ClaimAudience            string = "aud"
+	ClaimClientID            string = "client_id"
+	ClaimExpiry              string = "exp"
+	ClaimIssuedAt            string = "iat"
+	ClaimNotBefore           string = "nbf"
+	ClaimScope               string = "scope"
+	ClaimNonce               string = "nonce"
+	ClaimAuthTime            string = "auth_time"
+	ClaimAMR                 string = "amr"
+	ClaimACR                 string = "acr"
+	ClaimProfile             string = "profile"
+	ClaimEmail               string = "email"
+	ClaimEmailVerified       string = "email_verified"
+	ClaimPhoneNumber         string = "phone_number"
+	ClaimPhoneNumberVerified string = "phone_number_verified"
+	ClaimAddress             string = "address"
+	ClaimName                string = "name"
+	ClaimWebsite             string = "website"
+	ClaimZoneInfo            string = "zoneinfo"
+	ClaimBirthdate           string = "birthdate"
+	ClaimGender              string = "gender"
+	ClaimPreferredUsername   string = "preferred_username"
+	ClaimGivenName           string = "given_name"
+	ClaimMiddleName          string = "middle_name"
+	ClaimLocale              string = "locale"
+	ClaimPicture             string = "picture"
+	ClaimUpdatedAt           string = "updated_at"
+	ClaimNickname            string = "nickname"
+	ClaimFamilyName          string = "family_name"
+	ClaimAuthDetails         string = "authorization_details"
+	ClaimAccessTokenHash     string = "at_hash"
+	ClaimAuthzCodeHash       string = "c_hash"
+	ClaimStateHash           string = "s_hash"
+	ClaimRefreshTokenHash    string = "urn:openid:params:jwt:claim:rt_hash" //nolint:gosec
+	ClaimAuthReqID           string = "urn:openid:params:jwt:claim:auth_req_id"
+	ClaimGrantID             string = "grant_id"
+	ClaimAct                 string = "act"
+	ClaimMayAct              string = "may_act"
+	ClaimConfirmation        string = "cnf"
+	ClaimJWK                 string = "jwk"
 )
 
 type KeyUsage string
@@ -711,7 +707,6 @@ type AuthorizationParameters struct {
 	BindingMessage          string              `json:"binding_message,omitempty"`
 	UserCode                string              `json:"user_code,omitempty"`
 	RequestedExpiry         *int                `json:"requested_expiry,omitempty"`
-	IssuerState             string              `json:"issuer_state,omitempty"`
 }
 
 // Audiences is a list of strings that marshals as a single string when it

@@ -13,7 +13,6 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/token"
-	vcutil "github.com/zibyn/stars-auth/internal/oidc/internal/vc/util"
 )
 
 func initAuth(ctx oidc.Context, req request) error {
@@ -131,50 +130,6 @@ func initAuth(ctx oidc.Context, req request) error {
 		// The ID token hint was already validated during request validation.
 		idTkn, _ := token.IDToken(ctx, as.IDTokenHint)
 		as.IDTokenHintClaims = &idTkn
-	}
-
-	if ctx.VCIEnabled {
-		issuer, configIDs, err := vcutil.Resolve(ctx, vcutil.Request{
-			Scopes:    as.Scopes,
-			Details:   as.AuthDetails,
-			Resources: as.Resources,
-		})
-		if err != nil {
-			var oidcErr goidc.Error
-			if errors.As(err, &oidcErr) {
-				return redirectError(ctx, wrapRedirectionError(oidcErr.Code, oidcErr.Description, as.AuthorizationParameters, err), c)
-			}
-			return fmt.Errorf("could not resolve verifiable credential metadata for the authorization request: %w", err)
-		}
-
-		if len(configIDs) > 0 {
-			if ctx.VCIIssuerStateEnabled && as.IssuerState != "" {
-				result, err := ctx.VCIIssuerStateHandle(as.IssuerState, goidc.VCIssuerOptions{Issuer: issuer.Issuer})
-				if err != nil {
-					return redirectError(ctx, wrapRedirectionError(goidc.ErrorCodeInvalidRequest, "invalid request", as.AuthorizationParameters, err), c)
-				}
-				as.Store = result.Store
-
-				authorizedIDs := make(map[goidc.VCConfigurationID]struct{}, len(result.ConfigurationIDs))
-				for _, id := range result.ConfigurationIDs {
-					authorizedIDs[id] = struct{}{}
-				}
-				for _, id := range configIDs {
-					if _, ok := authorizedIDs[id]; !ok {
-						return redirectError(ctx, wrapRedirectionError(goidc.ErrorCodeInvalidRequest, "invalid request",
-							as.AuthorizationParameters, fmt.Errorf("credential configuration %q is not authorized by issuer_state", id)), c)
-					}
-				}
-			}
-
-			as.VCInfo = &struct {
-				Issuer           string                    `json:"issuer"`
-				ConfigurationIDs []goidc.VCConfigurationID `json:"configuration_ids"`
-			}{
-				Issuer:           issuer.Issuer,
-				ConfigurationIDs: configIDs,
-			}
-		}
 	}
 
 	if err := authenticate(ctx, as, c); err != nil {

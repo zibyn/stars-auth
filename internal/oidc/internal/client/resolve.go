@@ -556,10 +556,6 @@ func Resolve(ctx oidc.Context, c *Meta) (err error) {
 		c.TLSTokenBindingRequired = false
 	}
 
-	if !ctx.VCIEnabled {
-		c.CredentialOfferEndpoint = ""
-	}
-
 	if c.LogoURI != "" {
 		if err := validateURL("logo_uri", c.LogoURI); err != nil {
 			return err
