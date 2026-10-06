@@ -9,7 +9,6 @@ import (
 
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
-	"github.com/zibyn/stars-auth/internal/oidc/internal/federation"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
@@ -22,36 +21,7 @@ func initAuth(ctx oidc.Context, req request) error {
 		return goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client_id", errors.New("client_id is required"))
 	}
 
-	var shouldRegisterFedClient bool
-	c, err := func() (*goidc.Client, error) {
-		if !ctx.OpenIDFedEnabled {
-			return client.Client(ctx, req.ClientID)
-		}
-
-		if !slices.Contains(ctx.OpenIDFedClientRegTypes, goidc.ClientRegistrationTypeAutomatic) {
-			return client.Client(ctx, req.ClientID)
-		}
-
-		if !strutil.IsURL(req.ClientID) {
-			return client.Client(ctx, req.ClientID)
-		}
-
-		c, err := client.Client(ctx, req.ClientID)
-		if err != nil {
-			if !errors.Is(err, goidc.ErrNotFound) {
-				return nil, err
-			}
-			shouldRegisterFedClient = true
-			return federationClient(ctx, req)
-		}
-
-		if c.ExpiresAt != 0 && timeutil.TimestampNow() >= c.ExpiresAt {
-			shouldRegisterFedClient = true
-			return federationClient(ctx, req)
-		}
-
-		return c, nil
-	}()
+	c, err := client.Client(ctx, req.ClientID)
 	if err != nil {
 		return goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client_id", fmt.Errorf("could not load the client: %w", err))
 	}
@@ -105,9 +75,7 @@ func initAuth(ctx oidc.Context, req request) error {
 			var jar request
 			switch {
 			case req.RequestObject != "":
-				jar, err = jarFromRequestObject(ctx, req.RequestObject, c, &jarOptions{
-					federation: shouldRegisterFedClient,
-				})
+				jar, err = jarFromRequestObject(ctx, req.RequestObject, c)
 				if err != nil {
 					return nil, err
 				}
@@ -206,12 +174,6 @@ func initAuth(ctx oidc.Context, req request) error {
 				Issuer:           issuer.Issuer,
 				ConfigurationIDs: configIDs,
 			}
-		}
-	}
-
-	if shouldRegisterFedClient {
-		if err := ctx.OpenIDFedSaveClient(c); err != nil {
-			return fmt.Errorf("could not save the federated client: %w", err)
 		}
 	}
 
@@ -372,27 +334,4 @@ func authenticate(ctx oidc.Context, as *goidc.AuthnSession, c *goidc.Client) err
 
 		return newRedirectionError(goidc.ErrorCodeAccessDenied, "access denied", as.AuthorizationParameters)
 	}
-}
-
-func federationClient(ctx oidc.Context, req request) (*goidc.Client, error) {
-	jwksIsUsed := ctx.JAREnabled && req.RequestObject != ""
-	if !jwksIsUsed {
-		return nil, goidc.WrapError(goidc.ErrorCodeAccessDenied, "access denied",
-			errors.New("automatic federation registration requires a signed request object"))
-	}
-
-	c, err := federation.Client(ctx, req.ClientID, &federation.Options{
-		TrustChain: jarTrustChain(req.RequestObject, ctx.JARSigAlgs),
-	})
-	if err != nil {
-		return nil, err
-	}
-	// TODO: Validate the jar alg for the client.
-
-	if !slices.Contains(c.ClientRegistrationTypes, goidc.ClientRegistrationTypeAutomatic) {
-		return nil, goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request",
-			errors.New("the client is not registered for automatic federation registration"))
-	}
-
-	return c, nil
 }

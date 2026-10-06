@@ -71,17 +71,14 @@ type Configuration struct {
 		CIBAEndpoint               string `json:"backchannel_authentication_endpoint,omitempty"`
 	} `json:"mtls_endpoint_aliases,omitempty"`
 	// TLSBoundTokensEnabled signals support for certificate bound tokens.
-	TLSBoundTokensEnabled          bool                     `json:"tls_client_certificate_bound_access_tokens,omitempty"`
-	ACRs                           []ACR                    `json:"acr_values_supported,omitempty"`
-	DisplayValues                  []DisplayValue           `json:"display_values_supported,omitempty"`
-	CodeChallengeMethods           []CodeChallengeMethod    `json:"code_challenge_methods_supported,omitempty"`
-	EndSessionEndpoint             string                   `json:"end_session_endpoint,omitempty"`
-	ClientRegistrationTypes        []ClientRegistrationType `json:"client_registration_types_supported,omitempty"`
-	OrganizationName               string                   `json:"organization_name,omitempty"`
-	FederationRegistrationEndpoint string                   `json:"federation_registration_endpoint,omitempty"`
-	SignedJWKSEndpoint             string                   `json:"signed_jwks_uri,omitempty"`
-	JWKS                           *JSONWebKeySet           `json:"jwks,omitempty"`
-	PreAuthCodeAnonymousAccess     bool                     `json:"pre-authorized_grant_anonymous_access_supported,omitempty"`
+	TLSBoundTokensEnabled      bool                  `json:"tls_client_certificate_bound_access_tokens,omitempty"`
+	ACRs                       []ACR                 `json:"acr_values_supported,omitempty"`
+	DisplayValues              []DisplayValue        `json:"display_values_supported,omitempty"`
+	CodeChallengeMethods       []CodeChallengeMethod `json:"code_challenge_methods_supported,omitempty"`
+	EndSessionEndpoint         string                `json:"end_session_endpoint,omitempty"`
+	OrganizationName           string                `json:"organization_name,omitempty"`
+	JWKS                       *JSONWebKeySet        `json:"jwks,omitempty"`
+	PreAuthCodeAnonymousAccess bool                  `json:"pre-authorized_grant_anonymous_access_supported,omitempty"`
 }
 
 // GrantManager stores grants.
@@ -119,14 +116,6 @@ type DCRManager interface {
 	// It must return [ErrNotFound] when the client does not exist.
 	Client(context.Context, string) (*Client, error)
 	DeleteClient(context.Context, string) error
-}
-
-// OpenIDFedManager stores OpenID Federation clients.
-type OpenIDFedManager interface {
-	SaveClient(context.Context, *Client) error
-	// Client returns the federation client identified by id.
-	// It must return [ErrNotFound] when the client does not exist.
-	Client(context.Context, string) (*Client, error)
 }
 
 // RefreshTokenManager resolves grants by refresh token.

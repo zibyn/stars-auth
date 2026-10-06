@@ -1,21 +1,18 @@
 package authorize
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"slices"
 	"testing"
 
-	"github.com/go-jose/go-jose/v4"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
@@ -25,10 +22,9 @@ import (
 )
 
 const (
-	federationClientID           = "https://client.example.com"
-	federationTrustAnchorID      = "https://trust-anchor.example.com"
-	federationDefaultRedirectURI = "https://client.example.com/callback"
-	federationScopeIDs           = "openid scope1 scope2"
+	federationClientID      = "https://client.example.com"
+	federationTrustAnchorID = "https://trust-anchor.example.com"
+	federationScopeIDs      = "openid scope1 scope2"
 )
 
 var (
@@ -58,146 +54,6 @@ func TestInitAuth(t *testing.T) {
 	setup := func(t *testing.T) (oidc.Context, *goidc.Client) {
 		t.Helper()
 		return setUpAuth(t)
-	}
-
-	type federationAuthOptions struct {
-		redirectURI       string
-		registrationTypes []goidc.ClientRegistrationType
-	}
-	setUpFederationAuth := func(t *testing.T, opts federationAuthOptions) (oidc.Context, string, int) {
-		t.Helper()
-
-		redirectURI := federationDefaultRedirectURI
-		if opts.redirectURI != "" {
-			redirectURI = opts.redirectURI
-		}
-		registrationTypes := []goidc.ClientRegistrationType{
-			goidc.ClientRegistrationTypeAutomatic,
-		}
-		if len(opts.registrationTypes) > 0 {
-			registrationTypes = opts.registrationTypes
-		}
-
-		ctx := oidctest.NewContext(t)
-		ctx.AuthManager = oidctest.Manager(t, ctx)
-		ctx.OpenIDFedEnabled = true
-		ctx.OpenIDFedManager = oidctest.Manager(t, ctx)
-		ctx.OpenIDFedTrustedAnchors = []string{federationTrustAnchorID}
-		ctx.OpenIDFedClientRegTypes = []goidc.ClientRegistrationType{goidc.ClientRegistrationTypeAutomatic}
-		ctx.OpenIDFedSigAlgs = []goidc.SignatureAlgorithm{goidc.SigAlgRS256}
-		ctx.OpenIDFedSigAlg = goidc.SigAlgRS256
-		ctx.OpenIDFedJWKSFunc = func(context.Context) (goidc.JSONWebKeySet, error) {
-			return goidc.JSONWebKeySet{Keys: []goidc.JSONWebKey{federationOPJWK}}, nil
-		}
-		ctx.JAREnabled = true
-		ctx.JARSigAlgs = []goidc.SignatureAlgorithm{goidc.SigAlgRS256}
-		ctx.AuthSessionIDFunc = func(_ context.Context) string {
-			return "random_authn_session_id"
-		}
-		ctx.AuthCodeFunc = func(_ context.Context) string {
-			return "random_auth_code"
-		}
-
-		ctx.AuthPolicies = []goidc.AuthnPolicy{
-			goidc.NewPolicy(
-				"random_policy_id",
-				func(_ *http.Request, _ *goidc.AuthnSession, _ *goidc.Client) bool {
-					return true
-				},
-				func(_ http.ResponseWriter, _ *http.Request, as *goidc.AuthnSession, _ *goidc.Client) (goidc.Status, error) {
-					as.Subject = "random_subject"
-					as.Username = "random_username"
-					as.GrantedScopes = as.Scopes
-					as.GrantedAuthDetails = as.AuthDetails
-					as.GrantedResources = as.Resources
-					return goidc.StatusSuccess, nil
-				},
-			),
-		}
-
-		now := timeutil.TimestampNow()
-		expiresAt := now + 500
-		clientConfig := oidctest.SignWithOptions(t, map[string]any{
-			"iss": federationClientID,
-			"sub": federationClientID,
-			"iat": now,
-			"exp": now + 600,
-			"jwks": jose.JSONWebKeySet{
-				Keys: []jose.JSONWebKey{federationClientJWK.Public()},
-			},
-			"metadata": map[string]any{
-				"openid_relying_party": map[string]any{
-					"redirect_uris":              []string{redirectURI},
-					"grant_types":                []string{"authorization_code"},
-					"response_types":             []string{"code"},
-					"scope":                      federationScopeIDs,
-					"token_endpoint_auth_method": "private_key_jwt",
-					"request_object_signing_alg": "RS256",
-					"jwks": jose.JSONWebKeySet{
-						Keys: []jose.JSONWebKey{federationClientJWK.Public()},
-					},
-					"client_registration_types": registrationTypes,
-				},
-			},
-			"authority_hints": []string{federationTrustAnchorID},
-		}, federationClientJWK, (&jose.SignerOptions{}).WithType("entity-statement+jwt"))
-		subordinate := oidctest.SignWithOptions(t, map[string]any{
-			"iss": federationTrustAnchorID,
-			"sub": federationClientID,
-			"iat": now,
-			"exp": expiresAt,
-			"jwks": jose.JSONWebKeySet{
-				Keys: []jose.JSONWebKey{federationClientJWK.Public()},
-			},
-		}, federationTrustAnchorJWK, (&jose.SignerOptions{}).WithType("entity-statement+jwt"))
-		trustChain := []string{clientConfig, subordinate}
-
-		ctx.OpenIDFedHTTPClientFunc = func(context.Context) *http.Client {
-			return &http.Client{
-				Transport: federationRoundTripper{
-					responses: map[string]func() *http.Response{
-						federationTrustAnchorID + "/.well-known/openid-federation": func() *http.Response {
-							anchorConfig := oidctest.SignWithOptions(t, map[string]any{
-								"iss": federationTrustAnchorID,
-								"sub": federationTrustAnchorID,
-								"iat": now,
-								"exp": now + 700,
-								"jwks": jose.JSONWebKeySet{
-									Keys: []jose.JSONWebKey{federationTrustAnchorJWK.Public()},
-								},
-								"metadata": map[string]any{
-									"federation_entity": map[string]any{
-										"federation_fetch_endpoint": federationTrustAnchorID + "/fetch",
-									},
-								},
-							}, federationTrustAnchorJWK, (&jose.SignerOptions{}).WithType("entity-statement+jwt"))
-
-							return &http.Response{
-								StatusCode: http.StatusOK,
-								Header: http.Header{
-									"Content-Type": []string{"application/entity-statement+jwt"},
-								},
-								Body: io.NopCloser(bytes.NewBufferString(anchorConfig)),
-							}
-						},
-					},
-				},
-			}
-		}
-
-		requestObject := oidctest.SignWithOptions(t, map[string]any{
-			goidc.ClaimIssuer:   federationClientID,
-			goidc.ClaimAudience: ctx.Issuer(),
-			goidc.ClaimIssuedAt: now,
-			goidc.ClaimExpiry:   now + 60,
-			goidc.ClaimTokenID:  "random_jti",
-			"client_id":         federationClientID,
-			"redirect_uri":      redirectURI,
-			"scope":             federationScopeIDs,
-			"response_type":     goidc.ResponseTypeCode,
-		}, federationClientJWK, (&jose.SignerOptions{}).WithHeader("trust_chain", trustChain))
-
-		return ctx, requestObject, expiresAt
 	}
 
 	tests := []struct {
@@ -544,48 +400,6 @@ func TestInitAuth(t *testing.T) {
 				return ctx, nil, request{ClientID: "invalid_client_id"}
 			},
 			wantErr: goidc.ErrorCodeInvalidClient,
-		},
-		{
-			name: "federation automatic registration disabled does not resolve unknown url client",
-			setup: func(t *testing.T) (oidc.Context, *goidc.Client, request) {
-				t.Helper()
-				ctx := oidctest.NewContext(t)
-				ctx.OpenIDFedEnabled = true
-				ctx.OpenIDFedManager = oidctest.Manager(t, ctx)
-				ctx.OpenIDFedClientRegTypes = []goidc.ClientRegistrationType{goidc.ClientRegistrationTypeExplicit}
-				return ctx, nil, request{ClientID: "https://unknown-client.example.com"}
-			},
-			wantErr: goidc.ErrorCodeInvalidClient,
-			validateErr: func(t *testing.T, err error, _ oidc.Context, _ *goidc.Client, _ request) {
-				t.Helper()
-				if !errors.Is(err, goidc.ErrNotFound) {
-					t.Fatalf("expected wrapped not found error, got %v", err)
-				}
-				if got := err.Error(); got != "invalid_client invalid client_id: could not load the client: not found" {
-					t.Fatalf("error = %q, want %q", got, "invalid_client invalid client_id: could not load the client: not found")
-				}
-			},
-		},
-		{
-			name: "federation automatic registration ignores unknown non url client",
-			setup: func(t *testing.T) (oidc.Context, *goidc.Client, request) {
-				t.Helper()
-				ctx := oidctest.NewContext(t)
-				ctx.OpenIDFedEnabled = true
-				ctx.OpenIDFedManager = oidctest.Manager(t, ctx)
-				ctx.OpenIDFedClientRegTypes = []goidc.ClientRegistrationType{goidc.ClientRegistrationTypeAutomatic}
-				return ctx, nil, request{ClientID: "unknown-client"}
-			},
-			wantErr: goidc.ErrorCodeInvalidClient,
-			validateErr: func(t *testing.T, err error, _ oidc.Context, _ *goidc.Client, _ request) {
-				t.Helper()
-				if !errors.Is(err, goidc.ErrNotFound) {
-					t.Fatalf("expected wrapped not found error, got %v", err)
-				}
-				if got := err.Error(); got != "invalid_client invalid client_id: could not load the client: not found" {
-					t.Fatalf("error = %q, want %q", got, "invalid_client invalid client_id: could not load the client: not found")
-				}
-			},
 		},
 		{
 			name: "invalid redirect uri",
@@ -982,246 +796,6 @@ func TestInitAuth(t *testing.T) {
 				}
 				if redirectURL.Query().Get("code") != grant.AuthCode {
 					t.Errorf("code = %q, want %q", redirectURL.Query().Get("code"), grant.AuthCode)
-				}
-			},
-		},
-		{
-			name: "federation automatic registration",
-			setup: func(t *testing.T) (oidc.Context, *goidc.Client, request) {
-				ctx, requestObject, expiresAt := setUpFederationAuth(t, federationAuthOptions{})
-				expected := &goidc.Client{
-					ID:        federationClientID,
-					ExpiresAt: expiresAt,
-					Federation: &struct {
-						TrustAnchor string   `json:"trust_anchor"`
-						TrustMarks  []string `json:"trust_marks,omitempty"`
-					}{
-						TrustAnchor: federationTrustAnchorID,
-					},
-					ClientMeta: goidc.ClientMeta{
-						RedirectURIs: []string{federationDefaultRedirectURI},
-					},
-				}
-				req := request{
-					ClientID: federationClientID,
-					AuthorizationParameters: goidc.AuthorizationParameters{
-						RequestObject: requestObject,
-						Scopes:        federationScopeIDs,
-						ResponseType:  goidc.ResponseTypeCode,
-					},
-				}
-				return ctx, expected, req
-			},
-			validate: func(t *testing.T, ctx oidc.Context, client *goidc.Client, _ request) {
-				grants := oidctest.Grants(t, ctx)
-				if len(grants) != 1 {
-					t.Fatalf("len(grants) = %d, want 1", len(grants))
-				}
-				if grants[0].ClientID != client.ID {
-					t.Fatalf("ClientID = %q, want %q", grants[0].ClientID, client.ID)
-				}
-				if grants[0].AuthParams.RedirectURI != client.RedirectURIs[0] {
-					t.Fatalf("RedirectURI = %q, want %q", grants[0].AuthParams.RedirectURI, client.RedirectURIs[0])
-				}
-
-				saved, err := ctx.OpenIDFedClient(client.ID)
-				if err != nil {
-					t.Fatalf("could not load saved federation client: %v", err)
-				}
-				if saved.Federation == nil {
-					t.Fatal("expected federation metadata to be populated")
-				}
-				if saved.Federation.TrustAnchor != client.Federation.TrustAnchor {
-					t.Fatalf("TrustAnchor = %q, want %q", saved.Federation.TrustAnchor, client.Federation.TrustAnchor)
-				}
-				if saved.ExpiresAt != client.ExpiresAt {
-					t.Fatalf("ExpiresAt = %d, want %d", saved.ExpiresAt, client.ExpiresAt)
-				}
-				if diff := cmp.Diff(saved.RedirectURIs, client.RedirectURIs); diff != "" {
-					t.Fatal(diff)
-				}
-			},
-		},
-		{
-			name: "federation expired cached client refresh",
-			setup: func(t *testing.T) (oidc.Context, *goidc.Client, request) {
-				redirectURI := "https://client.example.com/updated-callback"
-				ctx, requestObject, expiresAt := setUpFederationAuth(t, federationAuthOptions{
-					redirectURI: "https://client.example.com/updated-callback",
-				})
-				expected := &goidc.Client{
-					ID:        federationClientID,
-					ExpiresAt: expiresAt,
-					ClientMeta: goidc.ClientMeta{
-						RedirectURIs: []string{redirectURI},
-					},
-				}
-
-				if err := ctx.OpenIDFedSaveClient(&goidc.Client{
-					ID:        federationClientID,
-					CreatedAt: timeutil.TimestampNow() - 120,
-					ExpiresAt: timeutil.TimestampNow() - 60,
-					ClientMeta: goidc.ClientMeta{
-						RedirectURIs: []string{"https://client.example.com/stale-callback"},
-						ScopeIDs:     federationScopeIDs,
-						GrantTypes:   []goidc.GrantType{goidc.GrantAuthorizationCode},
-						ResponseTypes: []goidc.ResponseType{
-							goidc.ResponseTypeCode,
-						},
-						JWKS:             &goidc.JSONWebKeySet{Keys: []goidc.JSONWebKey{federationClientJWK.Public()}},
-						TokenAuthnMethod: goidc.AuthnMethodPrivateKeyJWT,
-					},
-				}); err != nil {
-					t.Fatalf("could not save expired federation client: %v", err)
-				}
-
-				req := request{
-					ClientID: federationClientID,
-					AuthorizationParameters: goidc.AuthorizationParameters{
-						RequestObject: requestObject,
-						Scopes:        federationScopeIDs,
-						ResponseType:  goidc.ResponseTypeCode,
-					},
-				}
-				return ctx, expected, req
-			},
-			validate: func(t *testing.T, ctx oidc.Context, client *goidc.Client, _ request) {
-				grants := oidctest.Grants(t, ctx)
-				if len(grants) != 1 {
-					t.Fatalf("len(grants) = %d, want 1", len(grants))
-				}
-				if grants[0].AuthParams.RedirectURI != client.RedirectURIs[0] {
-					t.Fatalf("RedirectURI = %q, want %q", grants[0].AuthParams.RedirectURI, client.RedirectURIs[0])
-				}
-
-				saved, err := ctx.OpenIDFedClient(client.ID)
-				if err != nil {
-					t.Fatalf("could not load refreshed federation client: %v", err)
-				}
-				if diff := cmp.Diff(saved.RedirectURIs, client.RedirectURIs); diff != "" {
-					t.Fatal(diff)
-				}
-				if saved.ExpiresAt != client.ExpiresAt {
-					t.Fatalf("ExpiresAt = %d, want %d", saved.ExpiresAt, client.ExpiresAt)
-				}
-			},
-		},
-		{
-			name: "federation valid cached client reuse",
-			setup: func(t *testing.T) (oidc.Context, *goidc.Client, request) {
-				ctx, _, _ := setUpFederationAuth(t, federationAuthOptions{})
-				redirectURI := federationDefaultRedirectURI
-				ctx.OpenIDFedHTTPClientFunc = func(context.Context) *http.Client {
-					return &http.Client{Transport: federationRoundTripper{responses: map[string]func() *http.Response{}}}
-				}
-
-				expected := &goidc.Client{
-					ID: federationClientID,
-					ClientMeta: goidc.ClientMeta{
-						RedirectURIs: []string{redirectURI},
-					},
-				}
-				cached := &goidc.Client{
-					ID:        federationClientID,
-					CreatedAt: timeutil.TimestampNow() - 60,
-					ExpiresAt: timeutil.TimestampNow() + 600,
-					ClientMeta: goidc.ClientMeta{
-						RedirectURIs: []string{redirectURI},
-						ScopeIDs:     federationScopeIDs,
-						GrantTypes:   []goidc.GrantType{goidc.GrantAuthorizationCode},
-						ResponseTypes: []goidc.ResponseType{
-							goidc.ResponseTypeCode,
-						},
-						JWKS:             &goidc.JSONWebKeySet{Keys: []goidc.JSONWebKey{federationClientJWK.Public()}},
-						TokenAuthnMethod: goidc.AuthnMethodPrivateKeyJWT,
-						ClientRegistrationTypes: []goidc.ClientRegistrationType{
-							goidc.ClientRegistrationTypeAutomatic,
-						},
-					},
-					Federation: &struct {
-						TrustAnchor string   `json:"trust_anchor"`
-						TrustMarks  []string `json:"trust_marks,omitempty"`
-					}{
-						TrustAnchor: federationTrustAnchorID,
-					},
-				}
-				if err := ctx.OpenIDFedSaveClient(cached); err != nil {
-					t.Fatalf("could not save cached federation client: %v", err)
-				}
-
-				req := request{
-					ClientID: federationClientID,
-					AuthorizationParameters: goidc.AuthorizationParameters{
-						RedirectURI:  redirectURI,
-						Scopes:       federationScopeIDs,
-						ResponseType: goidc.ResponseTypeCode,
-						State:        "state",
-					},
-				}
-				return ctx, expected, req
-			},
-			validate: func(t *testing.T, ctx oidc.Context, client *goidc.Client, _ request) {
-				grants := oidctest.Grants(t, ctx)
-				if len(grants) != 1 {
-					t.Fatalf("len(grants) = %d, want 1", len(grants))
-				}
-				if grants[0].ClientID != client.ID {
-					t.Fatalf("ClientID = %q, want %q", grants[0].ClientID, client.ID)
-				}
-
-				clients := oidctest.Clients(t, ctx)
-				if len(clients) != 1 {
-					t.Fatalf("len(clients) = %d, want 1", len(clients))
-				}
-				if clients[0].RedirectURIs[0] != client.RedirectURIs[0] {
-					t.Fatalf("RedirectURI = %q, want %q", clients[0].RedirectURIs[0], client.RedirectURIs[0])
-				}
-			},
-		},
-		{
-			name: "federation automatic registration requires signed request authentication",
-			setup: func(t *testing.T) (oidc.Context, *goidc.Client, request) {
-				ctx, _, _ := setUpFederationAuth(t, federationAuthOptions{})
-				redirectURI := federationDefaultRedirectURI
-				req := request{
-					ClientID: federationClientID,
-					AuthorizationParameters: goidc.AuthorizationParameters{
-						RedirectURI:  redirectURI,
-						Scopes:       federationScopeIDs,
-						ResponseType: goidc.ResponseTypeCode,
-					},
-				}
-				return ctx, nil, req
-			},
-			wantErr: goidc.ErrorCodeInvalidClient,
-			validate: func(t *testing.T, ctx oidc.Context, _ *goidc.Client, _ request) {
-				clients := oidctest.Clients(t, ctx)
-				if len(clients) != 0 {
-					t.Fatalf("len(clients) = %d, want 0", len(clients))
-				}
-			},
-		},
-		{
-			name: "federation automatic registration rejects entity without automatic type",
-			setup: func(t *testing.T) (oidc.Context, *goidc.Client, request) {
-				ctx, requestObject, _ := setUpFederationAuth(t, federationAuthOptions{
-					registrationTypes: []goidc.ClientRegistrationType{goidc.ClientRegistrationTypeExplicit},
-				})
-				req := request{
-					ClientID: federationClientID,
-					AuthorizationParameters: goidc.AuthorizationParameters{
-						RequestObject: requestObject,
-						Scopes:        federationScopeIDs,
-						ResponseType:  goidc.ResponseTypeCode,
-					},
-				}
-				return ctx, nil, req
-			},
-			wantErr: goidc.ErrorCodeInvalidClient,
-			validate: func(t *testing.T, ctx oidc.Context, _ *goidc.Client, _ request) {
-				clients := oidctest.Clients(t, ctx)
-				if len(clients) != 0 {
-					t.Fatalf("len(clients) = %d, want 0", len(clients))
 				}
 			},
 		},

@@ -214,33 +214,6 @@ func (ctx Context) CIBAHandleSession(as *goidc.AuthnSession, c *goidc.Client) er
 	return ctx.CIBAHandleSessionFunc(ctx, as, c)
 }
 
-func (ctx Context) OpenIDFedSaveClient(client *goidc.Client) error {
-	return ctx.OpenIDFedManager.SaveClient(ctx, client)
-}
-
-func (ctx Context) OpenIDFedClient(id string) (*goidc.Client, error) {
-	return ctx.OpenIDFedManager.Client(ctx, id)
-}
-
-func (ctx Context) OpenIDFedRequiredTrustMarks(client *goidc.Client) []goidc.TrustMark {
-	return ctx.OpenIDFedRequiredClientTrustMarksFunc(ctx, client)
-}
-
-func (ctx Context) OpenIDFedEntityJWKS(id string) (goidc.JSONWebKeySet, error) {
-	return ctx.OpenIDFedEntityJWKSFunc(ctx, id)
-}
-
-func (ctx Context) OpenIDFedHandleClient(client *goidc.Client) error {
-	return ctx.OpenIDFedHandleClientFunc(ctx, client)
-}
-
-func (ctx Context) OpenIDFedHTTPClient() *http.Client {
-	if ctx.OpenIDFedHTTPClientFunc == nil {
-		return ctx.HTTPClient()
-	}
-	return ctx.OpenIDFedHTTPClientFunc(ctx)
-}
-
 func (ctx Context) HandleDefaultPostLogout(session *goidc.LogoutSession) error {
 	return ctx.HandleDefaultPostLogoutFunc(ctx.Response, ctx.Request, session)
 }
@@ -791,56 +764,6 @@ func (ctx Context) Decrypt(
 	}
 
 	return string(jws), nil
-}
-
-func (ctx Context) OpenIDFedJWKS() (goidc.JSONWebKeySet, error) {
-	return ctx.OpenIDFedJWKSFunc(ctx)
-}
-
-func (ctx Context) OpenIDFedPublicJWKS() (goidc.JSONWebKeySet, error) {
-	jwks, err := ctx.OpenIDFedJWKS()
-	if err != nil {
-		return goidc.JSONWebKeySet{}, err
-	}
-
-	return jwks.Public(), nil
-}
-
-func (ctx Context) OpenIDFedSign(claims any, opts *jose.SignerOptions, algs ...goidc.SignatureAlgorithm) (string, error) {
-	if len(algs) == 0 {
-		algs = []goidc.SignatureAlgorithm{ctx.OpenIDFedSigAlg}
-	}
-
-	jwks, err := ctx.OpenIDFedJWKS()
-	if err != nil {
-		return "", fmt.Errorf("could not load the federation jwks: %w", err)
-	}
-
-	jwk, err := joseutil.KeyByAlgorithms(jwks, algs)
-	if err != nil {
-		return "", fmt.Errorf("could not find a valid federation signing jwk matching the algorithms: %w", err)
-	}
-
-	if ctx.OpenIDFedSignerFunc == nil {
-		return joseutil.Sign(claims, jose.SigningKey{
-			Algorithm: jose.SignatureAlgorithm(jwk.Algorithm),
-			Key:       jwk,
-		}, opts)
-	}
-
-	keyID, key, err := ctx.OpenIDFedSignerFunc(ctx, goidc.SignatureAlgorithm(jwk.Algorithm))
-	if err != nil {
-		return "", fmt.Errorf("could not load the signer: %w", err)
-	}
-
-	return joseutil.Sign(claims, jose.SigningKey{
-		Algorithm: goidc.SignatureAlgorithm(jwk.Algorithm),
-		Key: joseutil.OpaqueSigner{
-			ID:        keyID,
-			Algorithm: goidc.SignatureAlgorithm(jwk.Algorithm),
-			Signer:    key,
-		},
-	}, opts)
 }
 
 func (ctx Context) TokenExchangeHandle(req goidc.TokenExchangeRequest) (goidc.TokenExchangeResult, error) {

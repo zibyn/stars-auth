@@ -11,7 +11,6 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidctest"
-	"github.com/zibyn/stars-auth/internal/oidc/internal/storage"
 )
 
 func TestClient(t *testing.T) {
@@ -32,84 +31,11 @@ func TestClient(t *testing.T) {
 			wantClientID: "static_client",
 		},
 		{
-			name: "static client takes precedence over federation and dcr",
-			setup: func(t *testing.T) (oidc.Context, string) {
-				ctx := oidctest.NewContext(t)
-				fedManager := storage.NewManager(100)
-				dcrManager := storage.NewManager(100)
-				clientID := "https://client.example.com"
-				staticClient := &goidc.Client{ID: clientID}
-				fedClient := &goidc.Client{ID: clientID}
-				dcrClient := &goidc.Client{ID: clientID}
-				ctx.StaticClients = append(ctx.StaticClients, staticClient)
-				ctx.OpenIDFedEnabled = true
-				ctx.OpenIDFedManager = fedManager
-				ctx.DCREnabled = true
-				ctx.DCRManager = dcrManager
-				if err := ctx.OpenIDFedSaveClient(fedClient); err != nil {
-					t.Fatalf("could not save federation client: %v", err)
-				}
-				if err := ctx.DCRSaveClient(dcrClient); err != nil {
-					t.Fatalf("could not save dcr client: %v", err)
-				}
-				return ctx, clientID
-			},
-			wantClientID: "https://client.example.com",
-		},
-		{
-			name: "federation client",
-			setup: func(t *testing.T) (oidc.Context, string) {
-				ctx := oidctest.NewContext(t)
-				manager := oidctest.Manager(t, ctx)
-				fedClient := &goidc.Client{ID: "https://client.example.com"}
-				ctx.OpenIDFedEnabled = true
-				ctx.OpenIDFedManager = manager
-				if err := ctx.OpenIDFedSaveClient(fedClient); err != nil {
-					t.Fatalf("could not save federation client: %v", err)
-				}
-				return ctx, fedClient.ID
-			},
-			wantClientID: "https://client.example.com",
-		},
-		{
-			name: "federation url does not fall back to dcr",
-			setup: func(t *testing.T) (oidc.Context, string) {
-				ctx := oidctest.NewContext(t)
-				ctx.OpenIDFedManager = storage.NewManager(100)
-				ctx.DCRManager = storage.NewManager(100)
-				clientID := "https://client.example.com"
-				ctx.OpenIDFedEnabled = true
-				ctx.DCREnabled = true
-				if err := ctx.DCRSaveClient(&goidc.Client{ID: clientID}); err != nil {
-					t.Fatalf("could not save dcr client: %v", err)
-				}
-				return ctx, clientID
-			},
-			wantErr: goidc.ErrNotFound,
-		},
-		{
 			name: "dcr client",
 			setup: func(t *testing.T) (oidc.Context, string) {
 				ctx := oidctest.NewContext(t)
 				manager := oidctest.Manager(t, ctx)
 				dcrClient := &goidc.Client{ID: "dcr_client"}
-				ctx.DCREnabled = true
-				ctx.DCRManager = manager
-				if err := ctx.DCRSaveClient(dcrClient); err != nil {
-					t.Fatalf("could not save dcr client: %v", err)
-				}
-				return ctx, dcrClient.ID
-			},
-			wantClientID: "dcr_client",
-		},
-		{
-			name: "non url skips federation and uses dcr",
-			setup: func(t *testing.T) (oidc.Context, string) {
-				ctx := oidctest.NewContext(t)
-				manager := oidctest.Manager(t, ctx)
-				dcrClient := &goidc.Client{ID: "dcr_client"}
-				ctx.OpenIDFedEnabled = true
-				ctx.OpenIDFedManager = manager
 				ctx.DCREnabled = true
 				ctx.DCRManager = manager
 				if err := ctx.DCRSaveClient(dcrClient); err != nil {

@@ -9,7 +9,6 @@ import (
 
 var _ goidc.AuthManager = &Manager{}
 var _ goidc.DCRManager = &Manager{}
-var _ goidc.OpenIDFedManager = &Manager{}
 var _ goidc.PARManager = &Manager{}
 var _ goidc.CIBAManager = &Manager{}
 var _ goidc.DeviceAuthManager = &Manager{}

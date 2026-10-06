@@ -181,7 +181,7 @@ func Resolve(ctx oidc.Context, c *Meta) (err error) {
 				fmt.Errorf("token_endpoint_auth_signing_alg %s is not allowed", c.TokenAuthnSigAlg))
 		}
 
-		if c.JWKS == nil && c.JWKSURI == "" && (!ctx.OpenIDFedEnabled || c.SignedJWKSURI == "") {
+		if c.JWKS == nil && c.JWKSURI == "" {
 			return goidc.WrapError(goidc.ErrorCodeInvalidClientMetadata, "invalid client metadata",
 				errors.New("jwks or jwks_uri is required for private_key_jwt"))
 		}
@@ -530,12 +530,6 @@ func Resolve(ctx oidc.Context, c *Meta) (err error) {
 				errors.New("jwks and jwks_uri must not both be present"))
 		}
 		if err := validateURL("jwks_uri", c.JWKSURI); err != nil {
-			return err
-		}
-	}
-
-	if c.SignedJWKSURI != "" {
-		if err := validateURL("signed_jwks_uri", c.SignedJWKSURI); err != nil {
 			return err
 		}
 	}

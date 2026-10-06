@@ -20,10 +20,6 @@ const (
 	maxJARResponseByteSize int64 = 1_000_000 // 1 MB.
 )
 
-type jarOptions struct {
-	federation bool
-}
-
 func jarFromRequestURI(ctx oidc.Context, reqURI string, client *goidc.Client) (request, error) {
 	resp, err := ctx.JARHTTPClient().Get(reqURI)
 	if err != nil {
@@ -55,13 +51,10 @@ func jarFromRequestURI(ctx oidc.Context, reqURI string, client *goidc.Client) (r
 		)
 	}
 
-	return jarFromRequestObject(ctx, string(reqObject), client, nil)
+	return jarFromRequestObject(ctx, string(reqObject), client)
 }
 
-func jarFromRequestObject(ctx oidc.Context, reqObject string, c *goidc.Client, opts *jarOptions) (request, error) {
-	if opts == nil {
-		opts = &jarOptions{}
-	}
+func jarFromRequestObject(ctx oidc.Context, reqObject string, c *goidc.Client) (request, error) {
 
 	if ctx.JAREncEnabled && joseutil.IsJWE(reqObject) {
 		contentEncAlgs := ctx.JARContentEncAlgs
@@ -143,20 +136,6 @@ func jarFromRequestObject(ctx oidc.Context, reqObject string, c *goidc.Client, o
 		}
 	}
 
-	if opts.federation {
-		// [OpenID Fed Connect 1.1 §12.1.1.1] exp and jti are required in
-		// request objects for automatic client registration.
-		if claims.Expiry == nil {
-			return request{}, goidc.WrapError(goidc.ErrorCodeInvalidRequestObject, "invalid request object",
-				errors.New("claim 'exp' is required in the request object"))
-		}
-
-		if claims.ID == "" {
-			return request{}, goidc.WrapError(goidc.ErrorCodeInvalidRequestObject, "invalid request object",
-				errors.New("claim 'jti' is missing in the request object"))
-		}
-	}
-
 	if claims.ID != "" {
 		if err := ctx.ConsumeJTI(claims.ID); err != nil && !errors.Is(err, goidc.ErrNotFound) {
 			return request{}, goidc.WrapError(goidc.ErrorCodeInvalidRequestObject, "invalid request object",
@@ -177,40 +156,4 @@ func jarFromRequestObject(ctx oidc.Context, reqObject string, c *goidc.Client, o
 	}
 
 	return jarReq, nil
-}
-
-// jarTrustChain extracts the trust_chain header or claim from a JAR request object.
-// Returns nil if parsing fails or the value is absent/malformed.
-func jarTrustChain(reqObject string, sigAlgs []goidc.SignatureAlgorithm) []string {
-	parsed, err := jwt.ParseSigned(reqObject, sigAlgs)
-	if err != nil || len(parsed.Headers) == 0 {
-		return nil
-	}
-
-	raw, ok := parsed.Headers[0].ExtraHeaders["trust_chain"]
-	if !ok {
-		var claims struct {
-			TrustChain []string `json:"trust_chain"`
-		}
-		if err := parsed.UnsafeClaimsWithoutVerification(&claims); err != nil {
-			return nil
-		}
-		return claims.TrustChain
-	}
-
-	items, ok := raw.([]any)
-	if !ok {
-		return nil
-	}
-
-	chain := make([]string, 0, len(items))
-	for _, v := range items {
-		s, ok := v.(string)
-		if !ok {
-			return nil
-		}
-		chain = append(chain, s)
-	}
-
-	return chain
 }

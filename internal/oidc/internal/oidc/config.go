@@ -215,31 +215,6 @@ type Configuration struct {
 
 	ErrorURI string
 
-	OpenIDFedEnabled              bool
-	OpenIDFedManager              goidc.OpenIDFedManager
-	OpenIDFedRegistrationEndpoint string
-	OpenIDFedJWKSFunc             goidc.JWKSFunc
-	OpenIDFedSignerFunc           goidc.SignerFunc
-	OpenIDFedAuthorityHints       []string
-	OpenIDFedTrustedAnchors       []string
-	// OpenIDFedSigAlg is the algorithm used to sign the provider's entity configuration.
-	// The federation JWKS must contain a key matching this algorithm.
-	OpenIDFedSigAlg goidc.SignatureAlgorithm
-	// OpenIDFedSigAlgs are the algorithms accepted when parsing and verifying entity
-	// statements and trust marks from other federation participants.
-	OpenIDFedSigAlgs                      []goidc.SignatureAlgorithm
-	OpenIDFedTrustChainMaxDepth           int
-	OpenIDFedClientRegTypes               []goidc.ClientRegistrationType
-	OpenIDFedRequiredClientTrustMarksFunc goidc.RequiredTrustMarksFunc
-	OpenIDFedTrustMarkConfigs             []goidc.TrustMarkConfig
-	OpenIDFedJWKSRepresentations          []goidc.JWKSRepresentation
-	OpenIDFedSignedJWKSEndpoint           string
-	OpenIDFedSignedJWKSLifetimeSecs       int
-	OpenIDFedOrganizationName             string
-	OpenIDFedHTTPClientFunc               goidc.HTTPClientFunc
-	OpenIDFedHandleClientFunc             goidc.HandleClientFunc
-	OpenIDFedEntityJWKSFunc               func(ctx Context, id string) (goidc.JSONWebKeySet, error)
-
 	LogoutEnabled               bool
 	LogoutEndpoint              string
 	LogoutManager               goidc.LogoutManager

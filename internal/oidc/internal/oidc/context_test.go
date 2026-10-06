@@ -811,25 +811,6 @@ func TestManagerDelegates(t *testing.T) {
 		}
 	})
 
-	t.Run("openid federation clients", func(t *testing.T) {
-		ctx := oidctest.NewContext(t)
-		manager := storage.NewManager(100)
-		ctx.OpenIDFedManager = manager
-
-		client := &goidc.Client{ID: "https://client.example.com"}
-		if err := ctx.OpenIDFedSaveClient(client); err != nil {
-			t.Fatalf("OpenIDFedSaveClient() error = %v", err)
-		}
-
-		got, err := ctx.OpenIDFedClient(client.ID)
-		if err != nil {
-			t.Fatalf("OpenIDFedClient() error = %v", err)
-		}
-		if got.ID != client.ID {
-			t.Fatalf("OpenIDFedClient().ID = %q, want %q", got.ID, client.ID)
-		}
-	})
-
 	t.Run("tokens and grants", func(t *testing.T) {
 		ctx := oidctest.NewContext(t)
 		manager := storage.NewManager(100)
@@ -908,22 +889,11 @@ func TestHTTPClientFallbacks(t *testing.T) {
 	if got := ctx.HTTPClient(); got != baseClient {
 		t.Fatal("HTTPClient() did not return the configured client")
 	}
-	if got := ctx.OpenIDFedHTTPClient(); got != baseClient {
-		t.Fatal("OpenIDFedHTTPClient() did not fall back to HTTPClient()")
-	}
 	if got := ctx.JARHTTPClient(); got != baseClient {
 		t.Fatal("JARHTTPClient() did not fall back to HTTPClient()")
 	}
 	if got := ctx.CIBAHTTPClient(); got != baseClient {
 		t.Fatal("CIBAHTTPClient() did not fall back to HTTPClient()")
-	}
-
-	customFedClient := &http.Client{}
-	ctx.OpenIDFedHTTPClientFunc = func(context.Context) *http.Client {
-		return customFedClient
-	}
-	if got := ctx.OpenIDFedHTTPClient(); got != customFedClient {
-		t.Fatal("OpenIDFedHTTPClient() did not return the configured federation client")
 	}
 
 	customJARClient := &http.Client{}
@@ -1109,46 +1079,6 @@ func TestSimpleHelpers(t *testing.T) {
 		}
 		if err := ctx.RARValidateDetail(authDetail); err == nil {
 			t.Fatal("RARValidateDetail() error = nil, want non-nil")
-		}
-
-		if got := ctx.OpenIDFedRequiredTrustMarks(client); got != nil {
-			t.Fatalf("OpenIDFedRequiredTrustMarks() = %v, want nil", got)
-		}
-		trustMarks := []goidc.TrustMark{"mark"}
-		ctx.OpenIDFedRequiredClientTrustMarksFunc = func(_ context.Context, _ *goidc.Client) []goidc.TrustMark {
-			return trustMarks
-		}
-		if diff := cmp.Diff(trustMarks, ctx.OpenIDFedRequiredTrustMarks(client)); diff != "" {
-			t.Fatal(diff)
-		}
-
-		fedKey := oidctest.PrivatePS256JWK(t, "fed_key", goidc.KeyUsageSignature)
-		fedJWKS := goidc.JSONWebKeySet{Keys: []goidc.JSONWebKey{fedKey.Public()}}
-		ctx.OpenIDFedEntityJWKSFunc = func(_ oidc.Context, id string) (goidc.JSONWebKeySet, error) {
-			if id != client.ID {
-				t.Fatalf("OpenIDFedEntityJWKS() id = %q, want %q", id, client.ID)
-			}
-			return fedJWKS, nil
-		}
-		gotJWKS, err := ctx.OpenIDFedEntityJWKS(client.ID)
-		if err != nil {
-			t.Fatalf("OpenIDFedEntityJWKS() error = %v", err)
-		}
-		if diff := cmp.Diff(fedJWKS, gotJWKS); diff != "" {
-			t.Fatal(diff)
-		}
-
-		if err := ctx.OpenIDFedHandleClient(client); err != nil {
-			t.Fatalf("OpenIDFedHandleClient() default error = %v", err)
-		}
-		ctx.OpenIDFedHandleClientFunc = func(_ context.Context, got *goidc.Client) error {
-			if got.ID != client.ID {
-				t.Fatalf("OpenIDFedHandleClient() client = %q, want %q", got.ID, client.ID)
-			}
-			return errors.New("fed handle error")
-		}
-		if err := ctx.OpenIDFedHandleClient(client); err == nil {
-			t.Fatal("OpenIDFedHandleClient() error = nil, want non-nil")
 		}
 
 		calledDefaultPostLogout := false
@@ -1418,35 +1348,6 @@ func TestHTTPResponses(t *testing.T) {
 	})
 }
 
-func TestOpenIDFedJWKSHelpers(t *testing.T) {
-	ctx := newContext()
-	signingKey := oidctest.PrivatePS256JWK(t, "fed_signing_key", goidc.KeyUsageSignature)
-	ctx.OpenIDFedJWKSFunc = func(context.Context) (goidc.JSONWebKeySet, error) {
-		return goidc.JSONWebKeySet{Keys: []goidc.JSONWebKey{signingKey}}, nil
-	}
-	ctx.OpenIDFedSigAlg = goidc.SigAlgPS256
-
-	t.Run("jwks", func(t *testing.T) {
-		jwks, err := ctx.OpenIDFedJWKS()
-		if err != nil {
-			t.Fatalf("OpenIDFedJWKS() error = %v", err)
-		}
-		if len(jwks.Keys) != 1 || jwks.Keys[0].KeyID != signingKey.KeyID {
-			t.Fatal("OpenIDFedJWKS() returned unexpected keys")
-		}
-	})
-
-	t.Run("public jwks", func(t *testing.T) {
-		jwks, err := ctx.OpenIDFedPublicJWKS()
-		if err != nil {
-			t.Fatalf("OpenIDFedPublicJWKS() error = %v", err)
-		}
-		if len(jwks.Keys) != 1 || !jwks.Keys[0].IsPublic() {
-			t.Fatal("OpenIDFedPublicJWKS() returned unexpected keys")
-		}
-	})
-}
-
 func TestSign(t *testing.T) {
 	ctx := oidctest.NewContext(t)
 	jwks, err := ctx.JWKS()
@@ -1555,12 +1456,6 @@ func newContext() oidc.Context {
 			},
 			HandleErrorFunc: func(context.Context, error) {},
 			RARValidateDetailFunc: func(context.Context, goidc.AuthDetail) error {
-				return nil
-			},
-			OpenIDFedRequiredClientTrustMarksFunc: func(context.Context, *goidc.Client) []goidc.TrustMark {
-				return nil
-			},
-			OpenIDFedHandleClientFunc: func(context.Context, *goidc.Client) error {
 				return nil
 			},
 			RefreshTokenShouldIssueFunc: func(context.Context, *goidc.Client, *goidc.Grant) bool {

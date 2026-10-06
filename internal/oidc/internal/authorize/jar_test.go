@@ -179,7 +179,7 @@ func TestJARFromRequestObject(t *testing.T) {
 			ctx, requestObject, c, want := test.setup(t)
 
 			// When.
-			jar, err := jarFromRequestObject(ctx, requestObject, c, nil)
+			jar, err := jarFromRequestObject(ctx, requestObject, c)
 
 			// Then.
 			if test.wantErr != "" {

@@ -21,7 +21,6 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/dcr"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/discovery"
-	"github.com/zibyn/stars-auth/internal/oidc/internal/federation"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/logout"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/storage"
@@ -265,23 +264,6 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 		op.config.DeviceAuthGenerateUserCodeFunc = nonZeroOrDefault(op.config.DeviceAuthGenerateUserCodeFunc, defaultGenerateUserCodeFunc())
 	}
 
-	if op.config.OpenIDFedEnabled {
-		op.config.OpenIDFedManager = nonZeroOrDefault(op.config.OpenIDFedManager, goidc.OpenIDFedManager(inmemoryManager))
-		op.config.OpenIDFedSigAlgs = nonZeroOrDefault(op.config.OpenIDFedSigAlgs, []goidc.SignatureAlgorithm{op.config.OpenIDFedSigAlg})
-		op.config.OpenIDFedTrustChainMaxDepth = nonZeroOrDefault(op.config.OpenIDFedTrustChainMaxDepth, defaultOpenIDFedTrustChainMaxDepth)
-		op.config.OpenIDFedClientRegTypes = nonZeroOrDefault(op.config.OpenIDFedClientRegTypes, []goidc.ClientRegistrationType{defaultOpenIDFedRegType})
-		op.config.OpenIDFedJWKSRepresentations = nonZeroOrDefault(op.config.OpenIDFedJWKSRepresentations, []goidc.JWKSRepresentation{goidc.JWKSRepresentationURI})
-		op.config.OpenIDFedRequiredClientTrustMarksFunc = nonZeroOrDefault(op.config.OpenIDFedRequiredClientTrustMarksFunc, goidc.RequiredTrustMarksFunc(defaultOpenIDFedRequiredTrustMarksFunc))
-		op.config.OpenIDFedHandleClientFunc = nonZeroOrDefault(op.config.OpenIDFedHandleClientFunc, goidc.HandleClientFunc(defaultOpenIDFedHandleClientFunc))
-		op.config.OpenIDFedEntityJWKSFunc = federation.FetchEntityConfigurationJWKS
-		if slices.Contains(op.config.OpenIDFedClientRegTypes, goidc.ClientRegistrationTypeExplicit) {
-			op.config.OpenIDFedRegistrationEndpoint = nonZeroOrDefault(op.config.OpenIDFedRegistrationEndpoint, defaultEndpointOpenIDFederationRegistration)
-		}
-		if slices.Contains(op.config.OpenIDFedJWKSRepresentations, goidc.JWKSRepresentationSignedURI) {
-			op.config.OpenIDFedSignedJWKSEndpoint = nonZeroOrDefault(op.config.OpenIDFedSignedJWKSEndpoint, defaultEndpointOpenIDFederationSignedJWKS)
-		}
-	}
-
 	if op.config.LogoutEnabled {
 		op.config.LogoutManager = nonZeroOrDefault(op.config.LogoutManager, goidc.LogoutManager(inmemoryManager))
 		op.config.LogoutEndpoint = nonZeroOrDefault(op.config.LogoutEndpoint, defaultEndpointEndSession)
@@ -468,7 +450,6 @@ func (op Provider) RegisterRoutes(mux *http.ServeMux, middlewares ...goidc.Middl
 	authorize.RegisterHandlers(mux, &op.config, middlewares...)
 	userinfo.RegisterHandlers(mux, &op.config, middlewares...)
 	dcr.RegisterHandlers(mux, &op.config, middlewares...)
-	federation.RegisterHandlers(mux, &op.config, middlewares...)
 	logout.RegisterHandlers(mux, &op.config, middlewares...)
 	vc.RegisterHandlers(mux, &op.config, middlewares...)
 }
@@ -590,13 +571,6 @@ func (op *Provider) RevokeToken(ctx context.Context, tkn string) error {
 	return token.Revoke(oidc.NewContext(ctx, &op.config), tkn, nil)
 }
 
-// Resolve builds and resolves a federation trust chain for the given entity ID,
-// returning the resolved entity statement with merged metadata and applied
-// metadata policies.
-func (op *Provider) ResolveFederationEntity(ctx context.Context, id string) (goidc.EntityStatement, error) {
-	return federation.Resolve(oidc.NewContext(ctx, &op.config), id)
-}
-
 // nonZeroOrDefault returns the first argument "s1" if it is non-nil and non-zero.
 // Otherwise, it returns the second argument "s2" as the default value.
 //
@@ -618,39 +592,35 @@ func nonZeroOrDefault[T any](s1 T, s2 T) T {
 }
 
 const (
-	defaultStorageMaxSize                       = 100
-	defaultAuthnSessionTimeoutSecs              = 1800 // 30 minutes.
-	defaultIDTokenLifetimeSecs                  = 600
-	defaultTokenLifetimeSecs                    = 300
-	defaultJWTLifetimeSecs                      = 600
-	defaultLogoutSessionTimeoutSecs             = 1800 // 30 minutes.
-	defaultPARLifetimeSecs                      = 60   // 1 minute.
-	defaultCIBADefaultSessionLifetimeSecs       = 60
-	defaultCIBAPollingIntervalSecs              = 5
-	defaultDeviceAuthLifetimeSecs               = 300 // 5 minutes.
-	defaultDeviceAuthPollingIntervalSecs        = 5
-	defaultAuthorizationCodeLifetimeSecs        = 60
-	defaultPreAuthCodeLifetimeSecs              = 60
-	defaultVCIDeferredIntervalSecs              = 5
-	defaultOpenIDFedTrustChainMaxDepth          = 5
-	defaultOpenIDFedRegType                     = goidc.ClientRegistrationTypeAutomatic
-	defaultEndpointJSONWebKeySet                = "/jwks"
-	defaultEndpointPushedAuthorizationRequest   = "/par"
-	defaultEndpointAuthorize                    = "/authorize"
-	defaultEndpointToken                        = "/token"
-	defaultEndpointUserInfo                     = "/userinfo"
-	defaultEndpointDynamicClient                = "/register"
-	defaultEndpointTokenIntrospection           = "/introspect"
-	defaultEndpointTokenRevocation              = "/revoke"
-	defaultEndpointCIBA                         = "/bc-authorize"
-	defaultEndpointOpenIDFederationRegistration = "/federation/register"
-	defaultEndpointOpenIDFederationSignedJWKS   = "/signed-jwks"
-	defaultEndpointEndSession                   = "/logout"
-	defaultEndpointDeviceAuthorization          = "/device_authorization"
-	defaultEndpointDeviceVerification           = "/device"
-	defaultEndpointVCICredential                = "/credential"          //nolint:gosec
-	defaultEndpointVCIDeferredCredential        = "/deferred_credential" //nolint:gosec
-	defaultEndpointVCINotification              = "/notification"
+	defaultStorageMaxSize                     = 100
+	defaultAuthnSessionTimeoutSecs            = 1800 // 30 minutes.
+	defaultIDTokenLifetimeSecs                = 600
+	defaultTokenLifetimeSecs                  = 300
+	defaultJWTLifetimeSecs                    = 600
+	defaultLogoutSessionTimeoutSecs           = 1800 // 30 minutes.
+	defaultPARLifetimeSecs                    = 60   // 1 minute.
+	defaultCIBADefaultSessionLifetimeSecs     = 60
+	defaultCIBAPollingIntervalSecs            = 5
+	defaultDeviceAuthLifetimeSecs             = 300 // 5 minutes.
+	defaultDeviceAuthPollingIntervalSecs      = 5
+	defaultAuthorizationCodeLifetimeSecs      = 60
+	defaultPreAuthCodeLifetimeSecs            = 60
+	defaultVCIDeferredIntervalSecs            = 5
+	defaultEndpointJSONWebKeySet              = "/jwks"
+	defaultEndpointPushedAuthorizationRequest = "/par"
+	defaultEndpointAuthorize                  = "/authorize"
+	defaultEndpointToken                      = "/token"
+	defaultEndpointUserInfo                   = "/userinfo"
+	defaultEndpointDynamicClient              = "/register"
+	defaultEndpointTokenIntrospection         = "/introspect"
+	defaultEndpointTokenRevocation            = "/revoke"
+	defaultEndpointCIBA                       = "/bc-authorize"
+	defaultEndpointEndSession                 = "/logout"
+	defaultEndpointDeviceAuthorization        = "/device_authorization"
+	defaultEndpointDeviceVerification         = "/device"
+	defaultEndpointVCICredential              = "/credential"          //nolint:gosec
+	defaultEndpointVCIDeferredCredential      = "/deferred_credential" //nolint:gosec
+	defaultEndpointVCINotification            = "/notification"
 )
 
 func defaultTokenOptionsFunc(alg goidc.SignatureAlgorithm) goidc.TokenOptionsFunc {
@@ -795,14 +765,6 @@ func defaultPairwiseSubjectFunc(_ context.Context, sub string, _ *goidc.Client) 
 }
 
 func defaultPARHandleSessionFunc(context.Context, *goidc.AuthnSession, *goidc.Client) error {
-	return nil
-}
-
-func defaultOpenIDFedRequiredTrustMarksFunc(context.Context, *goidc.Client) []goidc.TrustMark {
-	return nil
-}
-
-func defaultOpenIDFedHandleClientFunc(context.Context, *goidc.Client) error {
 	return nil
 }
 
