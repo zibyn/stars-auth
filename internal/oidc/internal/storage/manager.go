@@ -8,7 +8,6 @@ import (
 )
 
 var _ goidc.AuthManager = &Manager{}
-var _ goidc.DCRManager = &Manager{}
 var _ goidc.PARManager = &Manager{}
 var _ goidc.RefreshTokenManager = &Manager{}
 var _ goidc.GrantManager = &Manager{}

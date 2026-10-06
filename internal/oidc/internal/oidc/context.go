@@ -93,30 +93,6 @@ func (ctx Context) ClientCert() (*x509.Certificate, error) {
 	return ctx.ClientCertFunc(ctx)
 }
 
-func (ctx Context) DCRSaveClient(client *goidc.Client) error {
-	return ctx.DCRManager.SaveClient(ctx, client)
-}
-
-func (ctx Context) DCRClient(id string) (*goidc.Client, error) {
-	return ctx.DCRManager.Client(ctx, id)
-}
-
-func (ctx Context) DCRDeleteClient(id string) error {
-	return ctx.DCRManager.DeleteClient(ctx, id)
-}
-
-func (ctx Context) ValidateInitalAccessToken(token string) error {
-	return ctx.DCRValidateInitialTokenFunc(ctx, token)
-}
-
-func (ctx Context) HandleDynamicClient(id string, c *goidc.ClientMeta) error {
-	return ctx.DCRHandleClientFunc(ctx, id, c)
-}
-
-func (ctx Context) ClientID() string {
-	return ctx.DCRClientIDFunc(ctx)
-}
-
 func (ctx Context) ConsumeJTI(jti string) error {
 	return ctx.ConsumeJTIFunc(ctx, jti)
 }
@@ -454,10 +430,6 @@ func (ctx Context) ClientSecret() string {
 	// For client_secret_jwt, the highest algorithm accepted in this implementation
 	// is HS512 which requires a key of at least 512 bits (64 characters).
 	return strutil.Random(64)
-}
-
-func (ctx Context) RegistrationAccessToken() string {
-	return ctx.DCRRegistrationTokenFunc(ctx)
 }
 
 //---------------------------------------- context.Context ----------------------------------------//

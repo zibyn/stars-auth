@@ -23,7 +23,6 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidctest"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/storage"
-	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
 )
 
 func TestTokenAuthnSigAlgs(t *testing.T) {
@@ -78,58 +77,6 @@ func TestTokenAuthnSigAlgs(t *testing.T) {
 			if diff := cmp.Diff(test.want, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Fatal(diff)
 			}
-		})
-	}
-}
-
-func TestHandleDynamicClient(t *testing.T) {
-	tests := []struct {
-		name      string
-		configure func(*oidc.Context)
-		validate  func(*testing.T, error, *goidc.ClientMeta)
-	}{
-		{
-			name:      "default no-op",
-			configure: func(*oidc.Context) {},
-			validate: func(t *testing.T, err error, clientMeta *goidc.ClientMeta) {
-				t.Helper()
-				if err != nil {
-					t.Fatalf("HandleDynamicClient() error = %v", err)
-				}
-				if clientMeta.TokenAuthnMethod != "" {
-					t.Fatalf("TokenAuthnMethod = %q, want empty", clientMeta.TokenAuthnMethod)
-				}
-			},
-		},
-		{
-			name: "custom handler",
-			configure: func(ctx *oidc.Context) {
-				ctx.DCRHandleClientFunc = func(_ context.Context, _ string, meta *goidc.ClientMeta) error {
-					meta.TokenAuthnMethod = goidc.AuthnMethodNone
-					return nil
-				}
-			},
-			validate: func(t *testing.T, err error, clientMeta *goidc.ClientMeta) {
-				t.Helper()
-				if err != nil {
-					t.Fatalf("HandleDynamicClient() error = %v", err)
-				}
-				if clientMeta.TokenAuthnMethod != goidc.AuthnMethodNone {
-					t.Fatalf("TokenAuthnMethod = %q, want %q", clientMeta.TokenAuthnMethod, goidc.AuthnMethodNone)
-				}
-			},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			ctx := newContext()
-			test.configure(&ctx)
-
-			clientMeta := &goidc.ClientMeta{}
-			err := ctx.HandleDynamicClient("random_id", clientMeta)
-
-			test.validate(t, err, clientMeta)
 		})
 	}
 }
@@ -445,19 +392,7 @@ func TestTokenAndPolicyHooks(t *testing.T) {
 		{
 			name: "validate initial access token",
 			run: func(t *testing.T, ctx oidc.Context) {
-				ctx.DCRValidateInitialTokenFunc = func(context.Context, string) error {
-					return nil
-				}
-				if err := ctx.ValidateInitalAccessToken("token"); err != nil {
-					t.Fatalf("ValidateInitalAccessToken() error = %v", err)
-				}
 
-				ctx.DCRValidateInitialTokenFunc = func(context.Context, string) error {
-					return errors.New("error")
-				}
-				if err := ctx.ValidateInitalAccessToken("token"); err == nil {
-					t.Fatal("ValidateInitalAccessToken() error = nil, want non-nil")
-				}
 			},
 		},
 		{
@@ -653,32 +588,6 @@ func TestManagerDelegates(t *testing.T) {
 			t.Fatalf("PARSessionByPushedAuthReqID() = %q, want %q", got.PushedAuthReqID, session.PushedAuthReqID)
 		}
 
-	})
-
-	t.Run("dcr clients", func(t *testing.T) {
-		ctx := oidctest.NewContext(t)
-		manager := storage.NewManager(100)
-		ctx.DCRManager = manager
-
-		client := &goidc.Client{ID: "dcr_client"}
-		if err := ctx.DCRSaveClient(client); err != nil {
-			t.Fatalf("DCRSaveClient() error = %v", err)
-		}
-
-		got, err := ctx.DCRClient(client.ID)
-		if err != nil {
-			t.Fatalf("DCRClient() error = %v", err)
-		}
-		if got.ID != client.ID {
-			t.Fatalf("DCRClient().ID = %q, want %q", got.ID, client.ID)
-		}
-
-		if err := ctx.DCRDeleteClient(client.ID); err != nil {
-			t.Fatalf("DCRDeleteClient() error = %v", err)
-		}
-		if _, err := ctx.DCRClient(client.ID); !errors.Is(err, goidc.ErrNotFound) {
-			t.Fatalf("DCRClient() error = %v, want %v", err, goidc.ErrNotFound)
-		}
 	})
 
 	t.Run("tokens and grants", func(t *testing.T) {
@@ -888,11 +797,6 @@ func TestSimpleHelpers(t *testing.T) {
 		authSession := &goidc.AuthnSession{ID: "auth_session_id"}
 		authDetail := goidc.AuthDetail{"type": "payment"}
 
-		ctx.DCRClientIDFunc = func(context.Context) string { return "dynamic_client_id" }
-		if got := ctx.ClientID(); got != "dynamic_client_id" {
-			t.Fatalf("ClientID() = %q, want %q", got, "dynamic_client_id")
-		}
-
 		calledVerify := false
 		ctx.VerifyClientSecretFunc = func(_ context.Context, stored, presented string) error {
 			calledVerify = true
@@ -1035,9 +939,6 @@ func TestSimpleHelpers(t *testing.T) {
 
 		if got := ctx.ClientSecret(); len(got) != 64 {
 			t.Fatalf("len(ClientSecret()) = %d, want 64", len(got))
-		}
-		if got := ctx.RegistrationAccessToken(); len(got) != 50 {
-			t.Fatalf("len(RegistrationAccessToken()) = %d, want 50", len(got))
 		}
 	})
 }
@@ -1261,12 +1162,6 @@ func TestDecryptWithDecrypter(t *testing.T) {
 func newContext() oidc.Context {
 	return oidc.Context{
 		Configuration: &oidc.Configuration{
-			DCRHandleClientFunc: func(context.Context, string, *goidc.ClientMeta) error {
-				return nil
-			},
-			DCRRegistrationTokenFunc: func(context.Context) string {
-				return strutil.Random(50)
-			},
 			ClientCertFunc: func(context.Context) (*x509.Certificate, error) {
 				return nil, errors.New("the client certificate function was not defined")
 			},

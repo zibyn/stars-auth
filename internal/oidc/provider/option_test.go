@@ -178,30 +178,6 @@ func TestWithPAREndpoint(t *testing.T) {
 	}
 }
 
-func TestWithDCREndpoint(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithDCREndpoint("/register")(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			DCREndpoint: "/register",
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
 func TestWithUserInfoEndpoint(t *testing.T) {
 	// Given.
 	p := &Provider{
@@ -223,56 +199,6 @@ func TestWithUserInfoEndpoint(t *testing.T) {
 	}
 	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
 		t.Error(diff)
-	}
-}
-
-func TestWithRPMetadataChoices(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithRPMetadataChoices()(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !p.config.RPMetadataChoicesEnabled {
-		t.Fatal("RP metadata choices must be enabled")
-	}
-}
-
-func TestWithDCRClientHandler(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-	var called bool
-	f := func(context.Context, string, *goidc.ClientMeta) error {
-		called = true
-		return nil
-	}
-
-	// When.
-	err := WithDCRClientHandler(f)(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if p.config.DCRHandleClientFunc == nil {
-		t.Fatal("DCRHandleClientFunc must be set")
-	}
-
-	if err := p.config.DCRHandleClientFunc(context.Background(), "client", &goidc.ClientMeta{}); err != nil {
-		t.Fatalf("unexpected handler error: %v", err)
-	}
-	if !called {
-		t.Fatal("DCRHandleClientFunc was not called")
 	}
 }
 
@@ -578,97 +504,6 @@ func TestWithIDTokenEncryptionValidation(t *testing.T) {
 	}
 }
 
-func TestWithDCR(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithDCR(storage.NewManager(1))(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !p.config.DCREnabled {
-		t.Error("DCREnabled cannot be false")
-	}
-}
-
-func TestWithDCRTokenRotation(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithDCRTokenRotation()(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			DCRTokenRotationEnabled: true,
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
-func TestWithDCRSecretRotation(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithDCRSecretRotation()(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			DCRSecretRotationEnabled: true,
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
-func TestWithDCRSecretLifetime(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithDCRSecretLifetime(300)(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			DCRSecretLifetimeSecs: 300,
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
 func TestWithLocalhostRedirectURIs(t *testing.T) {
 	// Given.
 	p := &Provider{
@@ -690,48 +525,6 @@ func TestWithLocalhostRedirectURIs(t *testing.T) {
 	}
 	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
 		t.Error(diff)
-	}
-}
-
-func TestWithDCRClientIDFunc(t *testing.T) {
-	// Given.
-	op := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithDCRClientIDFunc(func(context.Context) string {
-		return "client_id"
-	})(op)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if op.config.DCRClientIDFunc == nil {
-		t.Error("ClientIDFunc cannot be nil")
-	}
-}
-
-func TestWithDCRRegistrationTokenFunc(t *testing.T) {
-	// Given.
-	op := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithDCRRegistrationTokenFunc(func(context.Context) string {
-		return "registration_token"
-	})(op)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if op.config.DCRRegistrationTokenFunc == nil {
-		t.Error("WithDCRRegistrationTokenFunc cannot be nil")
 	}
 }
 

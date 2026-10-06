@@ -13,7 +13,6 @@ import (
 
 type Configuration struct {
 	Issuer                            string                       `json:"issuer"`
-	ClientRegistrationEndpoint        string                       `json:"registration_endpoint,omitempty"`
 	AuthorizationEndpoint             string                       `json:"authorization_endpoint"`
 	TokenEndpoint                     string                       `json:"token_endpoint"`
 	UserInfoEndpoint                  string                       `json:"userinfo_endpoint"`
@@ -60,7 +59,6 @@ type Configuration struct {
 		TokenEndpoint              string `json:"token_endpoint"`
 		ParEndpoint                string `json:"pushed_authorization_request_endpoint,omitempty"`
 		UserInfoEndpoint           string `json:"userinfo_endpoint"`
-		ClientRegistrationEndpoint string `json:"registration_endpoint,omitempty"`
 		TokenIntrospectionEndpoint string `json:"introspection_endpoint,omitempty"`
 		TokenRevocationEndpoint    string `json:"revocation_endpoint,omitempty"`
 	} `json:"mtls_endpoint_aliases,omitempty"`
@@ -100,15 +98,6 @@ type PARManager interface {
 	// authorization request identifier.
 	// It must return [ErrNotFound] when the session does not exist.
 	SessionByPushedAuthReqID(context.Context, string) (*AuthnSession, error)
-}
-
-// DCRManager stores dynamically registered clients.
-type DCRManager interface {
-	SaveClient(context.Context, *Client) error
-	// Client returns the client identified by id.
-	// It must return [ErrNotFound] when the client does not exist.
-	Client(context.Context, string) (*Client, error)
-	DeleteClient(context.Context, string) error
 }
 
 // RefreshTokenManager resolves grants by refresh token.
@@ -402,14 +391,6 @@ func ApplyMiddlewares(h http.Handler, middlewares ...MiddlewareFunc) http.Handle
 	}
 	return h
 }
-
-// DCRHandleClientFunc defines a function that will be executed during DCR and DCM.
-// It can be used to modify the client and perform custom validations.
-type DCRHandleClientFunc func(ctx context.Context, id string, meta *ClientMeta) error
-
-type DCRValidateInitialTokenFunc func(context.Context, string) error
-
-type ClientIDFunc func(context.Context) string
 
 // RenderErrorFunc defines a function that will be called when errors
 // during the authorization request cannot be handled.

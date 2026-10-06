@@ -105,7 +105,6 @@ func TestNew(t *testing.T) {
 					),
 					WithPrivateKeyJWTAuthn(goidc.SigAlgRS256),
 					WithSecretJWTAuthn(goidc.SigAlgHS256),
-					WithDCR(manager),
 					WithTokenIntrospection(nil),
 					WithTokenRevocation(nil),
 					WithUserInfoSignatureAlgs(goidc.SigAlgPS256),
@@ -149,8 +148,6 @@ func TestNew(t *testing.T) {
 				AuthnMethods:                    []goidc.AuthnMethod{goidc.AuthnMethodPrivateKeyJWT, goidc.AuthnMethodSecretJWT},
 				AuthnMethodPrivateKeyJWTSigAlgs: []goidc.SignatureAlgorithm{goidc.SigAlgRS256},
 				AuthnMethodSecretJWTSigAlgs:     []goidc.SignatureAlgorithm{goidc.SigAlgHS256},
-				DCREnabled:                      true,
-				DCREndpoint:                     defaultEndpointDynamicClient,
 				PAREnabled:                      true,
 				PAREndpoint:                     defaultEndpointPushedAuthorizationRequest,
 				PARLifetimeSecs:                 defaultPARLifetimeSecs,
@@ -187,11 +184,6 @@ func TestNew(t *testing.T) {
 				"AuthSessionIDFunc",
 				"PARIDFunc",
 				"PARHandleSessionFunc",
-				"DCRManager",
-				"DCRClientIDFunc",
-				"DCRHandleClientFunc",
-				"DCRRegistrationTokenFunc",
-				"DCRValidateInitialTokenFunc",
 				"PARManager",
 				"GrantManager",
 				"OpaqueTokenManager",
@@ -283,22 +275,6 @@ func TestNew_ValidationErrors(t *testing.T) {
 			name:    "jar by-reference unregistered uris require jar by-reference",
 			opts:    []Option{Option(WithJARByReferenceUnregisteredURIs())},
 			wantErr: "jar by-reference unregistered uris cannot be enabled without jar by-reference",
-		},
-		{
-			name: "dcr secret lifetime requires secret client auth",
-			opts: []Option{
-				WithPrivateKeyJWTAuthn(goidc.SigAlgPS256),
-				WithDCR(nil, WithDCRSecretLifetime(300)),
-			},
-			wantErr: "dcr secret lifetime requires a secret-based token authentication method",
-		},
-		{
-			name: "dcr secret rotation requires secret client auth",
-			opts: []Option{
-				WithPrivateKeyJWTAuthn(goidc.SigAlgPS256),
-				WithDCR(nil, WithDCRSecretRotation()),
-			},
-			wantErr: "dcr secret rotation requires a secret-based token authentication method",
 		},
 	}
 

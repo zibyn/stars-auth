@@ -41,10 +41,6 @@ func NewConfiguration(ctx oidc.Context) goidc.Configuration {
 		config.PAREndpoint = ctx.BaseURL() + ctx.PAREndpoint
 	}
 
-	if ctx.DCREnabled {
-		config.ClientRegistrationEndpoint = ctx.BaseURL() + ctx.DCREndpoint
-	}
-
 	if ctx.JAREnabled {
 		config.JAREnabled = ctx.JAREnabled
 		config.JARRequired = ctx.JARRequired
@@ -90,7 +86,6 @@ func NewConfiguration(ctx oidc.Context) goidc.Configuration {
 			TokenEndpoint              string `json:"token_endpoint"`
 			ParEndpoint                string `json:"pushed_authorization_request_endpoint,omitempty"`
 			UserInfoEndpoint           string `json:"userinfo_endpoint"`
-			ClientRegistrationEndpoint string `json:"registration_endpoint,omitempty"`
 			TokenIntrospectionEndpoint string `json:"introspection_endpoint,omitempty"`
 			TokenRevocationEndpoint    string `json:"revocation_endpoint,omitempty"`
 		}{
@@ -100,10 +95,6 @@ func NewConfiguration(ctx oidc.Context) goidc.Configuration {
 
 		if ctx.PAREnabled {
 			config.MTLSAliases.ParEndpoint = ctx.MTLSBaseURL() + ctx.PAREndpoint
-		}
-
-		if ctx.DCREnabled {
-			config.MTLSAliases.ClientRegistrationEndpoint = ctx.MTLSBaseURL() + ctx.DCREndpoint
 		}
 
 		if ctx.TokenIntrospectionEnabled {

@@ -20,7 +20,6 @@ func TestOIDCConfig(t *testing.T) {
 		TokenEndpoint:              "/token",
 		AuthorizationEndpoint:      "/authorize",
 		PAREndpoint:                "/par",
-		DCREndpoint:                "/register",
 		UserInfoEndpoint:           "/userinfo",
 		TokenIntrospectionEndpoint: "/introspect",
 		TokenRevocationEndpoint:    "/revoke",
@@ -47,7 +46,6 @@ func TestOIDCConfig(t *testing.T) {
 		UserInfoSigAlgs:        []goidc.SignatureAlgorithm{goidc.SignatureAlgorithm(userKey.Algorithm)},
 		IDTokenDefaultSigAlg:   goidc.SignatureAlgorithm(userKey.Algorithm),
 		IDTokenSigAlgs:         []goidc.SignatureAlgorithm{goidc.SignatureAlgorithm(userKey.Algorithm)},
-		DCREnabled:             true,
 		AuthnMethods: []goidc.AuthnMethod{
 			goidc.AuthnMethodNone,
 			goidc.AuthnMethodPrivateKeyJWT,
@@ -66,7 +64,6 @@ func TestOIDCConfig(t *testing.T) {
 	// Then.
 	want := goidc.Configuration{
 		Issuer:                     ctx.Issuer(),
-		ClientRegistrationEndpoint: ctx.Issuer() + ctx.DCREndpoint,
 		AuthorizationEndpoint:      ctx.Issuer() + ctx.AuthorizationEndpoint,
 		TokenEndpoint:              ctx.Issuer() + ctx.TokenEndpoint,
 		UserInfoEndpoint:           ctx.Issuer() + ctx.UserInfoEndpoint,
@@ -116,7 +113,6 @@ func TestOIDCConfig_WithVariants(t *testing.T) {
 		TokenEndpoint:              "/token",
 		AuthorizationEndpoint:      "/authorize",
 		PAREndpoint:                "/par",
-		DCREndpoint:                "/register",
 		UserInfoEndpoint:           "/userinfo",
 		TokenIntrospectionEndpoint: "/introspect",
 		TokenRevocationEndpoint:    "/revoke",
@@ -143,7 +139,6 @@ func TestOIDCConfig_WithVariants(t *testing.T) {
 		UserInfoSigAlgs:        []goidc.SignatureAlgorithm{goidc.SignatureAlgorithm(userInfoKey.Algorithm)},
 		IDTokenDefaultSigAlg:   goidc.SignatureAlgorithm(userInfoKey.Algorithm),
 		IDTokenSigAlgs:         []goidc.SignatureAlgorithm{goidc.SignatureAlgorithm(userInfoKey.Algorithm)},
-		DCREnabled:             true,
 		AuthnMethods: []goidc.AuthnMethod{
 			goidc.AuthnMethodNone,
 			goidc.AuthnMethodPrivateKeyJWT,
@@ -173,7 +168,6 @@ func TestOIDCConfig_WithVariants(t *testing.T) {
 	// Then.
 	want := goidc.Configuration{
 		Issuer:                     ctx.Issuer(),
-		ClientRegistrationEndpoint: ctx.Issuer() + ctx.DCREndpoint,
 		AuthorizationEndpoint:      ctx.Issuer() + ctx.AuthorizationEndpoint,
 		TokenEndpoint:              ctx.Issuer() + ctx.TokenEndpoint,
 		UserInfoEndpoint:           ctx.Issuer() + ctx.UserInfoEndpoint,

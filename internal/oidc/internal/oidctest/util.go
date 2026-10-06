@@ -26,7 +26,6 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/internal/joseutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/storage"
-	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
 )
 
 var (
@@ -126,12 +125,6 @@ func NewContext(tb testing.TB) oidc.Context {
 			}
 			return nil
 		},
-		DCRHandleClientFunc: func(context.Context, string, *goidc.ClientMeta) error {
-			return nil
-		},
-		DCRRegistrationTokenFunc: func(context.Context) string {
-			return strutil.Random(50)
-		},
 		ConsumeJTIFunc: func(context.Context, string) error {
 			return nil
 		},
@@ -190,7 +183,6 @@ func NewContext(tb testing.TB) oidc.Context {
 		TokenEndpoint:              "/token",
 		AuthorizationEndpoint:      "/authorize",
 		PAREndpoint:                "/par",
-		DCREndpoint:                "/register",
 		UserInfoEndpoint:           "/userinfo",
 		TokenIntrospectionEndpoint: "/introspect",
 		JWTLifetimeSecs:            600,

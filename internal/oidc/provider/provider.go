@@ -16,7 +16,6 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/authorize"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
-	"github.com/zibyn/stars-auth/internal/oidc/internal/dcr"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/discovery"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/logout"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
@@ -113,18 +112,6 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 		return nil, errors.New("jar by-reference unregistered uris cannot be enabled without jar by-reference")
 	}
 
-	if op.config.DCRSecretLifetimeSecs != 0 && !slices.ContainsFunc(op.config.AuthnMethods, func(method goidc.AuthnMethod) bool {
-		return method == goidc.AuthnMethodSecretBasic || method == goidc.AuthnMethodSecretPost || method == goidc.AuthnMethodSecretJWT
-	}) {
-		return nil, errors.New("dcr secret lifetime requires a secret-based token authentication method")
-	}
-
-	if op.config.DCRSecretRotationEnabled && !slices.ContainsFunc(op.config.AuthnMethods, func(method goidc.AuthnMethod) bool {
-		return method == goidc.AuthnMethodSecretBasic || method == goidc.AuthnMethodSecretPost || method == goidc.AuthnMethodSecretJWT
-	}) {
-		return nil, errors.New("dcr secret rotation requires a secret-based token authentication method")
-	}
-
 	if op.config.ConsumeJTIFunc == nil {
 		slog.Warn("ConsumeJTIFunc is not configured; JTI replay protection is disabled. Configure provider.WithJTIConsumer for production use.")
 	}
@@ -197,15 +184,6 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 	}
 
 	op.config.AuthnMethods = nonZeroOrDefault(op.config.AuthnMethods, []goidc.AuthnMethod{goidc.AuthnMethodSecretPost})
-
-	if op.config.DCREnabled {
-		op.config.DCRManager = nonZeroOrDefault(op.config.DCRManager, goidc.DCRManager(inmemoryManager))
-		op.config.DCREndpoint = nonZeroOrDefault(op.config.DCREndpoint, defaultEndpointDynamicClient)
-		op.config.DCRClientIDFunc = nonZeroOrDefault(op.config.DCRClientIDFunc, defaultClientIDFunc)
-		op.config.DCRHandleClientFunc = nonZeroOrDefault(op.config.DCRHandleClientFunc, goidc.DCRHandleClientFunc(defaultDCRHandleClientFunc))
-		op.config.DCRValidateInitialTokenFunc = nonZeroOrDefault(op.config.DCRValidateInitialTokenFunc, defaultDCRValidateInitialTokenFunc)
-		op.config.DCRRegistrationTokenFunc = nonZeroOrDefault(op.config.DCRRegistrationTokenFunc, goidc.RandomFunc(defaultDCRRegistrationTokenFunc))
-	}
 
 	if op.config.PAREnabled {
 		op.config.PARManager = nonZeroOrDefault(op.config.PARManager, goidc.PARManager(inmemoryManager))
@@ -345,7 +323,6 @@ func (op Provider) RegisterRoutes(mux *http.ServeMux, middlewares ...goidc.Middl
 	token.RegisterHandlers(mux, &op.config, middlewares...)
 	authorize.RegisterHandlers(mux, &op.config, middlewares...)
 	userinfo.RegisterHandlers(mux, &op.config, middlewares...)
-	dcr.RegisterHandlers(mux, &op.config, middlewares...)
 	logout.RegisterHandlers(mux, &op.config, middlewares...)
 }
 
@@ -434,7 +411,6 @@ const (
 	defaultEndpointAuthorize                  = "/authorize"
 	defaultEndpointToken                      = "/token"
 	defaultEndpointUserInfo                   = "/userinfo"
-	defaultEndpointDynamicClient              = "/register"
 	defaultEndpointTokenIntrospection         = "/introspect"
 	defaultEndpointTokenRevocation            = "/revoke"
 	defaultEndpointEndSession                 = "/logout"
@@ -486,18 +462,6 @@ func defaultCompareAuthDetailsFunc(_ context.Context, requested, granted []goidc
 	if !reflect.DeepEqual(requested, granted) {
 		return goidc.NewError(goidc.ErrorCodeInvalidAuthDetails, "invalid authorization details")
 	}
-	return nil
-}
-
-func defaultDCRValidateInitialTokenFunc(context.Context, string) error {
-	return nil
-}
-
-func defaultDCRRegistrationTokenFunc(context.Context) string {
-	return strutil.Random(50)
-}
-
-func defaultDCRHandleClientFunc(context.Context, string, *goidc.ClientMeta) error {
 	return nil
 }
 
@@ -553,10 +517,6 @@ func defaultPairwiseSubjectFunc(_ context.Context, sub string, _ *goidc.Client) 
 
 func defaultPARHandleSessionFunc(context.Context, *goidc.AuthnSession, *goidc.Client) error {
 	return nil
-}
-
-func defaultClientIDFunc(ctx context.Context) string {
-	return uuid.NewString()
 }
 
 func defaultGrantIDFunc(_ context.Context) string {

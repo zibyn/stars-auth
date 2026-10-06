@@ -100,19 +100,7 @@ type Configuration struct {
 	JWTLeewayTimeSecs int
 	JWTIDFunc         goidc.RandomFunc
 
-	RPMetadataChoicesEnabled bool
-
-	DCREnabled                  bool
-	DCRManager                  goidc.DCRManager
-	DCREndpoint                 string
-	DCRTokenRotationEnabled     bool
-	DCRHandleClientFunc         goidc.DCRHandleClientFunc
-	DCRValidateInitialTokenFunc goidc.DCRValidateInitialTokenFunc
-	DCRRegistrationTokenFunc    goidc.RandomFunc
 	LocalhostRedirectURIEnabled bool
-	DCRClientIDFunc             goidc.ClientIDFunc
-	DCRSecretRotationEnabled    bool
-	DCRSecretLifetimeSecs       int
 
 	TokenIntrospectionEnabled             bool
 	TokenIntrospectionEndpoint            string

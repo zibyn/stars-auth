@@ -4,13 +4,9 @@ type Client struct {
 	ID              string `json:"id"`
 	Secret          string `json:"secret,omitempty"`
 	SecretExpiresAt int    `json:"secret_expires_at,omitempty"`
-	// RegistrationToken is the plain text registration access token generated during
-	// dynamic client registration.
-	// Note: For security reasons, it is strongly recommended to encrypt this value before storing it in a database.
-	RegistrationToken string `json:"registration_token,omitempty"`
-	CreatedAt         int    `json:"created_at,omitempty"`
-	ExpiresAt         int    `json:"expires_at,omitempty"`
-	cachedJWKS        *JSONWebKeySet
+	CreatedAt       int    `json:"created_at,omitempty"`
+	ExpiresAt       int    `json:"expires_at,omitempty"`
+	cachedJWKS      *JSONWebKeySet
 	ClientMeta
 }
 

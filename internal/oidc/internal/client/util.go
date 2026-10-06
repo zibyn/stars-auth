@@ -11,15 +11,15 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 )
 
+const (
+	maxResponseByteSize int64 = 1_000_000 // 1 MB.
+)
+
 func Client(ctx oidc.Context, id string) (*goidc.Client, error) {
 	for _, c := range ctx.StaticClients {
 		if c.ID == id {
 			return c, nil
 		}
-	}
-
-	if ctx.DCREnabled {
-		return ctx.DCRClient(id)
 	}
 
 	return nil, goidc.ErrNotFound

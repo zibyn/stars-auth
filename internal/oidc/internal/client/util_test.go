@@ -31,21 +31,6 @@ func TestClient(t *testing.T) {
 			wantClientID: "static_client",
 		},
 		{
-			name: "dcr client",
-			setup: func(t *testing.T) (oidc.Context, string) {
-				ctx := oidctest.NewContext(t)
-				manager := oidctest.Manager(t, ctx)
-				dcrClient := &goidc.Client{ID: "dcr_client"}
-				ctx.DCREnabled = true
-				ctx.DCRManager = manager
-				if err := ctx.DCRSaveClient(dcrClient); err != nil {
-					t.Fatalf("could not save dcr client: %v", err)
-				}
-				return ctx, dcrClient.ID
-			},
-			wantClientID: "dcr_client",
-		},
-		{
 			name: "not found",
 			setup: func(t *testing.T) (oidc.Context, string) {
 				return oidctest.NewContext(t), "missing_client"

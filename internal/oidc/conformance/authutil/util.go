@@ -15,7 +15,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -178,20 +177,6 @@ func ClientCACertPool() *x509.CertPool {
 	caPool.AppendCertsFromPEM(clientTwoCert)
 
 	return caPool
-}
-
-func DCRFunc(_ context.Context, _ string, meta *goidc.ClientMeta) error {
-	s := make([]string, len(Scopes))
-	for i, scope := range Scopes {
-		s[i] = scope.ID
-	}
-	meta.ScopeIDs = strings.Join(s, " ")
-
-	if !slices.Contains(meta.GrantTypes, goidc.GrantRefreshToken) {
-		meta.GrantTypes = append(meta.GrantTypes, goidc.GrantRefreshToken)
-	}
-
-	return nil
 }
 
 func TokenOptionsFunc(alg goidc.SignatureAlgorithm) goidc.TokenOptionsFunc {
