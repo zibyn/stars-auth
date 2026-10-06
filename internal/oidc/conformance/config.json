@@ -1,0 +1,852 @@
+{
+    "alias": "goidc",
+    "server": {
+        "discoveryUrl": "https://auth.localhost/.well-known/openid-configuration"
+    },
+    "client": {
+        "client_name": "client_one"
+    },
+    "client2": {
+        "client_name": "client_two"
+    },
+    "browser_verbose": true,
+    "browser": [
+        {
+            "match": "https://auth.localhost*/authorize*",
+            "tasks": [
+                {
+                    "task": "Login",
+                    "optional": true,
+                    "match": "https://auth.localhost*/authorize/*/login",
+                    "commands": [
+                        ["text", "id", "username", "random@gmail.com"],
+                        ["text", "id", "password", "pass"],
+                        ["click", "id", "submit_button"]
+                    ]
+                },
+                {
+                    "task": "Consent",
+                    "match": "https://auth.localhost*/authorize/*/consent",
+                    "commands": [
+                        ["click", "id", "submit_button"]
+                    ]
+                },
+                {
+                    "task": "Verify complete",
+                    "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                    "commands": [
+                        ["wait", "id", "submission_complete", 10]
+                    ]
+                }
+            ]
+        },
+        {
+            "match": "https://auth.localhost*/logout*",
+            "tasks": [
+                {
+                    "task": "Logout",
+                    "optional": true,
+                    "match": "https://auth.localhost*/logout/*",
+                    "commands": [
+                        ["click", "id", "confirm_button"]
+                    ]
+                }
+            ]
+        }
+    ],
+    "override": {
+        "oidcc-ensure-redirect-uri-in-authorization-request": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Expect redirect_uri is required",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize*",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "Error", "update-image-placeholder"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-redirect-uri-query-mismatch": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Expect redirect_uri is invalid",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize*",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "Error", "update-image-placeholder"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-redirect-uri-query-added": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Expect redirect_uri is invalid",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize*",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "Error", "update-image-placeholder"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-response-type-missing": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Expect error for response type missing",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-prompt-login": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*prompt=login*",
+                    "tasks": [
+                        {
+                            "task": "Login and upload login form",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize/*/login",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "Login Form", "update-image-placeholder"],
+                                ["text", "id", "username", "random@gmail.com"],
+                                ["text", "id", "password", "pass"],
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Consent",
+                            "match": "https://auth.localhost*/authorize/*/consent",
+                            "commands": [
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Verify complete",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Login",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize/*/login",
+                            "commands": [
+                                ["text", "id", "username", "random@gmail.com"],
+                                ["text", "id", "password", "pass"],
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Consent",
+                            "match": "https://auth.localhost*/authorize/*/consent",
+                            "commands": [
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Verify complete",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-prompt-none-not-logged-in": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Expect prompt none cannot be used for user not logged in",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-ensure-registered-redirect-uri": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Expect redirect_uri is missing",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize*",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "Error", "update-image-placeholder"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-ensure-request-object-with-redirect-uri": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Expect invalid redirect_uri",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize*",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "Error", "update-image-placeholder"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-max-age-1": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*max_age=1*",
+                    "tasks": [
+                        {
+                            "task": "Login and upload login form",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize/*/login",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "Login Form", "update-image-placeholder"],
+                                ["text", "id", "username", "random@gmail.com"],
+                                ["text", "id", "password", "pass"],
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Consent",
+                            "match": "https://auth.localhost*/authorize/*/consent",
+                            "commands": [
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Verify complete",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Login",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize/*/login",
+                            "commands": [
+                                ["text", "id", "username", "random@gmail.com"],
+                                ["text", "id", "password", "pass"],
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Consent",
+                            "match": "https://auth.localhost*/authorize/*/consent",
+                            "commands": [
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Verify complete",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-registration-logo-uri": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Expect logo is required",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize*",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "Login Form", "update-image-placeholder"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-registration-policy-uri": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Expect policy is required",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize*",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "Login Form", "update-image-placeholder"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-registration-tos-uri": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Expect terms of service",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize*",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "Login Form", "update-image-placeholder"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-ensure-request-without-nonce-fails": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Expect error for response type missing",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-rp-initiated-logout": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Login",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize/*/login",
+                            "commands": [
+                                ["text", "id", "username", "random@gmail.com"],
+                                ["text", "id", "password", "pass"],
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Consent",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize/*/consent",
+                            "commands": [
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Verify complete",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "match": "https://auth.localhost*/logout*",
+                    "tasks": [
+                        {
+                            "task": "Logout",
+                            "optional": true,
+                            "match": "https://auth.localhost*/logout/*",
+                            "commands": [
+                                ["click", "id", "confirm_button"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-rp-initiated-logout-bad-post-logout-redirect-uri": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Login",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize/*/login",
+                            "commands": [
+                                ["text", "id", "username", "random@gmail.com"],
+                                ["text", "id", "password", "pass"],
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Consent",
+                            "match": "https://auth.localhost*/authorize/*/consent",
+                            "commands": [
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Verify complete",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "match": "https://auth.localhost*/logout*",
+                    "tasks": [
+                        {
+                            "task": "Expect invalid post_logout_redirect_uri",
+                            "optional": true,
+                            "match": "https://auth.localhost*/logout*",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "Error", "update-image-placeholder"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-rp-initiated-logout-modified-id-token-hint": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Login",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize/*/login",
+                            "commands": [
+                                ["text", "id", "username", "random@gmail.com"],
+                                ["text", "id", "password", "pass"],
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Consent",
+                            "match": "https://auth.localhost*/authorize/*/consent",
+                            "commands": [
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Verify complete",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "match": "https://auth.localhost*/logout*",
+                    "tasks": [
+                        {
+                            "task": "Expect invalid id_token_hint",
+                            "optional": true,
+                            "match": "https://auth.localhost*/logout*",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "Error", "update-image-placeholder"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-rp-initiated-logout-no-id-token-hint": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Login",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize/*/login",
+                            "commands": [
+                                ["text", "id", "username", "random@gmail.com"],
+                                ["text", "id", "password", "pass"],
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Consent",
+                            "match": "https://auth.localhost*/authorize/*/consent",
+                            "commands": [
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Verify complete",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "match": "https://auth.localhost*/logout*",
+                    "tasks": [
+                        {
+                            "task": "Expect invalid id_token_hint",
+                            "optional": true,
+                            "match": "https://auth.localhost*/logout*",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "Error", "update-image-placeholder"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-rp-initiated-logout-no-params": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Login",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize/*/login",
+                            "commands": [
+                                ["text", "id", "username", "random@gmail.com"],
+                                ["text", "id", "password", "pass"],
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Consent",
+                            "match": "https://auth.localhost*/authorize/*/consent",
+                            "commands": [
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Verify complete",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "match": "https://auth.localhost*/logout*",
+                    "tasks": [
+                        {
+                            "task": "Logout",
+                            "optional": true,
+                            "match": "https://auth.localhost*/logout/*",
+                            "commands": [
+                                ["click", "id", "confirm_button"]
+                            ]
+                        },
+                        {
+                            "task": "Verify complete",
+                            "match": "https://auth.localhost*/post-logout",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "You have been logged out", "update-image-placeholder"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-rp-initiated-logout-no-post-logout-redirect-uri": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Login",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize/*/login",
+                            "commands": [
+                                ["text", "id", "username", "random@gmail.com"],
+                                ["text", "id", "password", "pass"],
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Consent",
+                            "match": "https://auth.localhost*/authorize/*/consent",
+                            "commands": [
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Verify complete",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "match": "https://auth.localhost*/logout*",
+                    "tasks": [
+                        {
+                            "task": "Logout",
+                            "optional": true,
+                            "match": "https://auth.localhost*/logout/*",
+                            "commands": [
+                                ["click", "id", "confirm_button"]
+                            ]
+                        },
+                        {
+                            "task": "Verify complete",
+                            "match": "https://auth.localhost*/post-logout",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "You have been logged out", "update-image-placeholder"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-rp-initiated-logout-no-state": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Login",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize/*/login",
+                            "commands": [
+                                ["text", "id", "username", "random@gmail.com"],
+                                ["text", "id", "password", "pass"],
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Consent",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize/*/consent",
+                            "commands": [
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Verify complete",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "match": "https://auth.localhost*/logout*",
+                    "tasks": [
+                        {
+                            "task": "Logout",
+                            "optional": true,
+                            "match": "https://auth.localhost*/logout/*",
+                            "commands": [
+                                ["click", "id", "confirm_button"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-rp-initiated-logout-only-state": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Login",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize/*/login",
+                            "commands": [
+                                ["text", "id", "username", "random@gmail.com"],
+                                ["text", "id", "password", "pass"],
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Consent",
+                            "match": "https://auth.localhost*/authorize/*/consent",
+                            "commands": [
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Verify complete",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "match": "https://auth.localhost*/logout*",
+                    "tasks": [
+                        {
+                            "task": "Logout",
+                            "optional": true,
+                            "match": "https://auth.localhost*/logout/*",
+                            "commands": [
+                                ["click", "id", "confirm_button"]
+                            ]
+                        },
+                        {
+                            "task": "Verify complete",
+                            "match": "https://auth.localhost*/post-logout",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "You have been logged out", "update-image-placeholder"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-rp-initiated-logout-query-added-to-post-logout-redirect-uri": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Login",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize/*/login",
+                            "commands": [
+                                ["text", "id", "username", "random@gmail.com"],
+                                ["text", "id", "password", "pass"],
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Consent",
+                            "match": "https://auth.localhost*/authorize/*/consent",
+                            "commands": [
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Verify complete",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "match": "https://auth.localhost*/logout*",
+                    "tasks": [
+                        {
+                            "task": "Expect invalid post_logout_redirect_uri",
+                            "optional": true,
+                            "match": "https://auth.localhost*/logout*",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "Error", "update-image-placeholder"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        "oidcc-rp-initiated-logout-bad-id-token-hint": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Login",
+                            "optional": true,
+                            "match": "https://auth.localhost*/authorize/*/login",
+                            "commands": [
+                                ["text", "id", "username", "random@gmail.com"],
+                                ["text", "id", "password", "pass"],
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Consent",
+                            "match": "https://auth.localhost*/authorize/*/consent",
+                            "commands": [
+                                ["click", "id", "submit_button"]
+                            ]
+                        },
+                        {
+                            "task": "Verify complete",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "match": "https://auth.localhost*/logout*",
+                    "tasks": [
+                        {
+                            "task": "Expect invalid id_token_hint",
+                            "optional": true,
+                            "match": "https://auth.localhost*/logout*",
+                            "commands": [
+                                ["wait",  "xpath", "//*", 10, "Error", "update-image-placeholder"]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+}

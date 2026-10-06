@@ -1,0 +1,189 @@
+package authorize
+
+import (
+	"errors"
+	"fmt"
+	"slices"
+
+	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/dpop"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/federation"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/hashutil"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
+)
+
+func pushAuth(ctx oidc.Context, req request) (parResponse, error) {
+	var shouldRegisterFedClient bool
+	c, err := func() (*goidc.Client, error) {
+		if !ctx.OpenIDFedEnabled {
+			return client.Authenticated(ctx, client.AuthnContextPAR)
+		}
+
+		if !slices.Contains(ctx.OpenIDFedClientRegTypes, goidc.ClientRegistrationTypeAutomatic) {
+			return client.Authenticated(ctx, client.AuthnContextPAR)
+		}
+
+		id, err := client.ExtractID(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		if !strutil.IsURL(id) {
+			return client.Authenticated(ctx, client.AuthnContextPAR)
+		}
+
+		c, err := client.Authenticated(ctx, client.AuthnContextPAR)
+		if err != nil {
+			if !errors.Is(err, goidc.ErrNotFound) {
+				return nil, err
+			}
+			shouldRegisterFedClient = true
+			return federationClientForPAR(ctx, id, req)
+		}
+
+		if c.ExpiresAt != 0 && timeutil.TimestampNow() >= c.ExpiresAt {
+			shouldRegisterFedClient = true
+			return federationClientForPAR(ctx, id, req)
+		}
+
+		return c, nil
+	}()
+	if err != nil {
+		return parResponse{}, err
+	}
+
+	as, err := func() (*goidc.AuthnSession, error) {
+		jar := ctx.JAREnabled && (ctx.JARRequired || c.JARRequired || req.RequestObject != "")
+		if jar {
+			if req.RequestObject == "" {
+				return nil, goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request", errors.New("request object is required"))
+			}
+
+			jar, err := jarFromRequestObject(ctx, req.RequestObject, c, &jarOptions{
+				federation: shouldRegisterFedClient,
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			if err := validatePushedRequestWithJAR(ctx, req, jar, c); err != nil {
+				return nil, err
+			}
+
+			return &goidc.AuthnSession{
+				ID:                      ctx.AuthnSessionID(),
+				Status:                  goidc.StatusPending,
+				PushedAuthReqID:         ctx.PARID(),
+				ClientID:                c.ID,
+				AuthorizationParameters: jar.AuthorizationParameters,
+				CreatedAt:               timeutil.TimestampNow(),
+				ExpiresAt:               timeutil.TimestampNow() + ctx.PARLifetimeSecs,
+				JWKThumbprint:           dpopThumbprintForPAR(ctx, req),
+				ClientCertThumbprint:    tlsThumbprint(ctx),
+				Store:                   make(map[string]any),
+			}, nil
+		}
+
+		if err := validateSimplePushedRequest(ctx, req, c); err != nil {
+			return nil, err
+		}
+
+		return &goidc.AuthnSession{
+			ID:                      ctx.AuthnSessionID(),
+			Status:                  goidc.StatusPending,
+			PushedAuthReqID:         ctx.PARID(),
+			ClientID:                c.ID,
+			AuthorizationParameters: req.AuthorizationParameters,
+			CreatedAt:               timeutil.TimestampNow(),
+			ExpiresAt:               timeutil.TimestampNow() + ctx.PARLifetimeSecs,
+			JWKThumbprint:           dpopThumbprintForPAR(ctx, req),
+			ClientCertThumbprint:    tlsThumbprint(ctx),
+			Store:                   make(map[string]any),
+		}, nil
+	}()
+	if err != nil {
+		return parResponse{}, err
+	}
+
+	if err := ctx.PARHandleSession(as, c); err != nil {
+		var oidcErr goidc.Error
+		if errors.As(err, &oidcErr) {
+			return parResponse{}, oidcErr
+		}
+		return parResponse{}, fmt.Errorf("could not handle the pushed authorization request session: %w", err)
+	}
+
+	if shouldRegisterFedClient {
+		if err := ctx.OpenIDFedSaveClient(c); err != nil {
+			return parResponse{}, fmt.Errorf("could not save the federated client for the pushed authorization request: %w", err)
+		}
+	}
+
+	if err := ctx.AuthSaveSession(as); err != nil {
+		return parResponse{}, fmt.Errorf("could not save the pushed authorization request session: %w", err)
+	}
+
+	return parResponse{
+		RequestURI: parRequestURIPrefix + as.PushedAuthReqID,
+		ExpiresIn:  ctx.PARLifetimeSecs,
+	}, nil
+}
+
+// dpopThumbprintForPAR extracts the DPoP JWK thumbprint from the request.
+// The DPoP proof is expected to have been validated before this point.
+func dpopThumbprintForPAR(ctx oidc.Context, req request) string {
+	if !ctx.DPoPEnabled {
+		return ""
+	}
+	if dpopJWT, ok := dpop.JWT(ctx); ok {
+		return dpop.JWKThumbprint(dpopJWT, ctx.DPoPSigAlgs)
+	}
+	return req.DPoPJKT
+}
+
+func tlsThumbprint(ctx oidc.Context) string {
+	if !ctx.MTLSTokenBindingEnabled {
+		return ""
+	}
+	clientCert, err := ctx.ClientCert()
+	if err != nil {
+		return ""
+	}
+	return hashutil.Thumbprint(string(clientCert.Raw))
+}
+
+func federationClientForPAR(ctx oidc.Context, id string, req request) (*goidc.Client, error) {
+	var opts *federation.Options
+	if ctx.JAREnabled && req.RequestObject != "" {
+		opts = &federation.Options{
+			TrustChain: jarTrustChain(req.RequestObject, ctx.JARSigAlgs),
+		}
+	}
+
+	c, err := federation.Client(ctx, id, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	jwksIsUsed := ctx.JAREnabled && req.RequestObject != ""
+	jwksIsUsed = jwksIsUsed || c.TokenAuthnMethod == goidc.AuthnMethodPrivateKeyJWT
+	jwksIsUsed = jwksIsUsed || c.TokenAuthnMethod == goidc.AuthnMethodSelfSignedTLS
+	if !jwksIsUsed {
+		return nil, goidc.WrapError(goidc.ErrorCodeAccessDenied, "access denied",
+			errors.New("automatic federation registration during PAR requires asymmetric client authentication or a signed request object"))
+	}
+
+	if !slices.Contains(c.ClientRegistrationTypes, goidc.ClientRegistrationTypeAutomatic) {
+		return nil, goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request",
+			errors.New("the client is not registered for automatic federation registration"))
+	}
+
+	if err := client.Authenticate(ctx, c, client.AuthnContextPAR); err != nil {
+		return nil, err
+	}
+
+	return c, nil
+}

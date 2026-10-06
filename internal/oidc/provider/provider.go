@@ -1,0 +1,837 @@
+package provider
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"crypto/x509"
+	"errors"
+	"fmt"
+	"log/slog"
+	"math/big"
+	"net/http"
+	"reflect"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/authorize"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/dcr"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/discovery"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/federation"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/logout"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/storage"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/token"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/userinfo"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/vc"
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
+)
+
+type Provider struct {
+	config                   oidc.Configuration
+	profileValidationEnabled bool
+}
+
+type Config struct {
+	Issuer      string
+	Manager     goidc.GrantManager
+	JWKS        goidc.JWKSFunc
+	IDTokenAlgs []goidc.SignatureAlgorithm
+}
+
+// New creates a new openid provider.
+//
+// The cfg.JWKSFunc parameter provides the server's JSON Web Key Set (JWKS),
+// used for signing, decryption, and exposure via the JWKS endpoint.
+// Typically, it should return both private and public key material.
+// If private keys are unavailable or granular control over signing is required,
+// cfg.JWKSFunc can be configured to return only public key material. In such cases,
+// the [WithSigner] option must be provided to handle signing operations.
+// Similarly, if server-side encryption (e.g., JAR encryption) is enabled,
+// the [WithDecrypter] option must also be configured for decryption support.
+// For operations like signature verification, only the public key material is
+// needed, which can be retrieved using cfg.JWKSFunc.
+//
+// cfg.IDTokenAlgs must contain at least one algorithm; the first element is
+// used as the default signing algorithm. Ensure the JWKS contains keys
+// supporting all declared algorithms.
+//
+// cfg.Manager is optional and defaults to an in-memory implementation.
+// Access tokens are issued as JWTs signed with the first ID token algorithm.
+func New(cfg Config, opts ...Option) (*Provider, error) {
+	if cfg.Issuer == "" {
+		return nil, errors.New("issuer cannot be empty")
+	}
+
+	if cfg.JWKS == nil {
+		return nil, errors.New("the jwks function cannot be empty")
+	}
+
+	if len(cfg.IDTokenAlgs) == 0 {
+		return nil, errors.New("at least one ID token signature algorithm must be provided")
+	}
+
+	op := &Provider{
+		config: oidc.Configuration{
+			GrantManager:         cfg.Manager,
+			Host:                 cfg.Issuer,
+			JWKSFunc:             cfg.JWKS,
+			IDTokenDefaultSigAlg: cfg.IDTokenAlgs[0],
+			IDTokenSigAlgs:       cfg.IDTokenAlgs,
+		},
+	}
+
+	for _, opt := range opts {
+		if err := opt(op); err != nil {
+			return nil, err
+		}
+	}
+
+	if op.config.AuthnMethodDefault != "" && !slices.Contains(op.config.AuthnMethods, op.config.AuthnMethodDefault) {
+		return nil, fmt.Errorf("default authn method %q is not among the enabled authn methods", op.config.AuthnMethodDefault)
+	}
+
+	if !op.config.MTLSEnabled && slices.ContainsFunc(op.config.AuthnMethods, func(method goidc.AuthnMethod) bool {
+		return method == goidc.AuthnMethodTLS || method == goidc.AuthnMethodSelfSignedTLS
+	}) {
+		return nil, errors.New("mtls must be enabled for tls_client_auth or self_signed_tls_client_auth")
+	}
+
+	if op.config.MTLSTokenBindingEnabled && !op.config.MTLSEnabled {
+		return nil, errors.New("mtls must be enabled if tls token binding is enabled")
+	}
+
+	if op.config.TokenBindingRequired && !op.config.DPoPEnabled && !op.config.MTLSTokenBindingEnabled {
+		return nil, errors.New("either dpop or tls binding must be enabled if sender constraining tokens is required")
+	}
+
+	if op.config.PAREnabled && !slices.Contains(op.config.GrantTypes, goidc.GrantAuthorizationCode) {
+		return nil, errors.New("par cannot be enabled without authorization code grant")
+	}
+
+	if op.config.JARByReferenceUnregisteredURIEnabled && !op.config.JARByReferenceEnabled {
+		return nil, errors.New("jar by-reference unregistered uris cannot be enabled without jar by-reference")
+	}
+
+	if op.config.DCRSecretLifetimeSecs != 0 && !slices.ContainsFunc(op.config.AuthnMethods, func(method goidc.AuthnMethod) bool {
+		return method == goidc.AuthnMethodSecretBasic || method == goidc.AuthnMethodSecretPost || method == goidc.AuthnMethodSecretJWT
+	}) {
+		return nil, errors.New("dcr secret lifetime requires a secret-based token authentication method")
+	}
+
+	if op.config.DCRSecretRotationEnabled && !slices.ContainsFunc(op.config.AuthnMethods, func(method goidc.AuthnMethod) bool {
+		return method == goidc.AuthnMethodSecretBasic || method == goidc.AuthnMethodSecretPost || method == goidc.AuthnMethodSecretJWT
+	}) {
+		return nil, errors.New("dcr secret rotation requires a secret-based token authentication method")
+	}
+
+	if op.config.ConsumeJTIFunc == nil {
+		slog.Warn("ConsumeJTIFunc is not configured; JTI replay protection is disabled. Configure provider.WithJTIConsumer for production use.")
+	}
+
+	inmemoryManager := storage.NewManager(defaultStorageMaxSize)
+
+	op.config.GrantManager = nonZeroOrDefault(op.config.GrantManager, goidc.GrantManager(inmemoryManager))
+	if op.config.OpaqueTokenEnabled {
+		op.config.OpaqueTokenManager = nonZeroOrDefault(op.config.OpaqueTokenManager, goidc.OpaqueTokenManager(inmemoryManager))
+		op.config.OpaqueTokenFunc = nonZeroOrDefault(op.config.OpaqueTokenFunc, defaultOpaqueTokenFunc)
+	}
+
+	op.config.Profile = nonZeroOrDefault(op.config.Profile, goidc.ProfileOpenID)
+
+	op.config.Scopes = nonZeroOrDefault(op.config.Scopes, []goidc.Scope{goidc.ScopeOpenID})
+
+	op.config.HTTPClientFunc = nonZeroOrDefault(op.config.HTTPClientFunc, defaultHTTPClientFunc)
+	op.config.TokenOptionsFunc = nonZeroOrDefault(op.config.TokenOptionsFunc, defaultTokenOptionsFunc(op.config.IDTokenDefaultSigAlg))
+
+	op.config.VerifyClientSecretFunc = nonZeroOrDefault(op.config.VerifyClientSecretFunc, goidc.VerifyClientSecretFunc(defaultVerifyClientSecretFunc))
+	op.config.ConsumeJTIFunc = nonZeroOrDefault(op.config.ConsumeJTIFunc, goidc.ConsumeJTIFunc(defaultConsumeJTIFunc))
+	op.config.HandleErrorFunc = nonZeroOrDefault(op.config.HandleErrorFunc, goidc.HandleErrorFunc(defaultHandleErrorFunc))
+	op.config.HandleGrantFunc = nonZeroOrDefault(op.config.HandleGrantFunc, goidc.HandleGrantFunc(defaultHandleGrantFunc))
+	op.config.HandleTokenFunc = nonZeroOrDefault(op.config.HandleTokenFunc, goidc.HandleTokenFunc(defaultHandleTokenFunc))
+	op.config.IDTokenClaimsFunc = nonZeroOrDefault(op.config.IDTokenClaimsFunc, goidc.IDTokenClaimsFunc(defaultIDTokenClaimsFunc))
+	op.config.UserInfoClaimsFunc = nonZeroOrDefault(op.config.UserInfoClaimsFunc, goidc.UserInfoClaimsFunc(defaultUserInfoClaimsFunc))
+	op.config.TokenClaimsFunc = nonZeroOrDefault(op.config.TokenClaimsFunc, goidc.TokenClaimsFunc(defaultTokenClaimsFunc))
+
+	op.config.SubIdentifierTypeDefault = nonZeroOrDefault(op.config.SubIdentifierTypeDefault, goidc.SubIdentifierPublic)
+	op.config.SubIdentifierTypes = nonZeroOrDefault(op.config.SubIdentifierTypes, []goidc.SubIdentifierType{goidc.SubIdentifierPublic})
+	if slices.Contains(op.config.SubIdentifierTypes, goidc.SubIdentifierPairwise) {
+		op.config.PairwiseSubjectFunc = nonZeroOrDefault(op.config.PairwiseSubjectFunc, goidc.PairwiseSubjectFunc(defaultPairwiseSubjectFunc))
+	}
+
+	op.config.ClaimTypes = nonZeroOrDefault(op.config.ClaimTypes, []goidc.ClaimType{goidc.ClaimTypeNormal})
+
+	op.config.IDTokenLifetimeSecs = nonZeroOrDefault(op.config.IDTokenLifetimeSecs, defaultIDTokenLifetimeSecs)
+
+	op.config.JWKSEndpoint = nonZeroOrDefault(op.config.JWKSEndpoint, defaultEndpointJSONWebKeySet)
+
+	op.config.TokenEndpoint = nonZeroOrDefault(op.config.TokenEndpoint, defaultEndpointToken)
+
+	op.config.AuthorizationEndpoint = nonZeroOrDefault(op.config.AuthorizationEndpoint, defaultEndpointAuthorize)
+
+	op.config.UserInfoEndpoint = nonZeroOrDefault(op.config.UserInfoEndpoint, defaultEndpointUserInfo)
+
+	op.config.JWTLifetimeSecs = nonZeroOrDefault(op.config.JWTLifetimeSecs, defaultJWTLifetimeSecs)
+	op.config.GrantIDFunc = nonZeroOrDefault(op.config.GrantIDFunc, defaultGrantIDFunc)
+	op.config.JWTIDFunc = nonZeroOrDefault(op.config.JWTIDFunc, defaultJWTIDFunc)
+	op.config.AuthSessionIDFunc = nonZeroOrDefault(op.config.AuthSessionIDFunc, defaultSessionIDFunc)
+
+	if slices.Contains(op.config.GrantTypes, goidc.GrantAuthorizationCode) {
+		op.config.AuthManager = nonZeroOrDefault(op.config.AuthManager, goidc.AuthManager(inmemoryManager))
+		if !slices.Contains(op.config.ResponseTypes, goidc.ResponseTypeCode) {
+			op.config.ResponseTypes = append([]goidc.ResponseType{goidc.ResponseTypeCode}, op.config.ResponseTypes...)
+		}
+		op.config.AuthTimeoutSecs = nonZeroOrDefault(op.config.AuthTimeoutSecs, defaultAuthnSessionTimeoutSecs)
+		op.config.AuthCodeLifetimeSecs = nonZeroOrDefault(op.config.AuthCodeLifetimeSecs, defaultAuthorizationCodeLifetimeSecs)
+		op.config.AuthCodeFunc = nonZeroOrDefault(op.config.AuthCodeFunc, defaultAuthCodeFunc)
+		if slices.ContainsFunc(op.config.ResponseTypes, func(rt goidc.ResponseType) bool {
+			return rt.IsImplicit()
+		}) {
+			op.config.GrantTypes = append(op.config.GrantTypes, goidc.GrantImplicit)
+		}
+		responseModes := []goidc.ResponseMode{goidc.ResponseModeQuery, goidc.ResponseModeFragment}
+		if slices.Contains(op.config.ResponseModes, goidc.ResponseModeFormPost) {
+			responseModes = append(responseModes, goidc.ResponseModeFormPost)
+		}
+		op.config.ResponseModes = responseModes
+	}
+
+	op.config.AuthnMethods = nonZeroOrDefault(op.config.AuthnMethods, []goidc.AuthnMethod{goidc.AuthnMethodSecretPost})
+
+	if op.config.DCREnabled {
+		op.config.DCRManager = nonZeroOrDefault(op.config.DCRManager, goidc.DCRManager(inmemoryManager))
+		op.config.DCREndpoint = nonZeroOrDefault(op.config.DCREndpoint, defaultEndpointDynamicClient)
+		op.config.DCRClientIDFunc = nonZeroOrDefault(op.config.DCRClientIDFunc, defaultClientIDFunc)
+		op.config.DCRHandleClientFunc = nonZeroOrDefault(op.config.DCRHandleClientFunc, goidc.DCRHandleClientFunc(defaultDCRHandleClientFunc))
+		op.config.DCRValidateInitialTokenFunc = nonZeroOrDefault(op.config.DCRValidateInitialTokenFunc, defaultDCRValidateInitialTokenFunc)
+		op.config.DCRRegistrationTokenFunc = nonZeroOrDefault(op.config.DCRRegistrationTokenFunc, goidc.RandomFunc(defaultDCRRegistrationTokenFunc))
+	}
+
+	if op.config.PAREnabled {
+		op.config.PARManager = nonZeroOrDefault(op.config.PARManager, goidc.PARManager(inmemoryManager))
+		op.config.PARHandleSessionFunc = nonZeroOrDefault(op.config.PARHandleSessionFunc, goidc.HandleSessionFunc(defaultPARHandleSessionFunc))
+		op.config.PARIDFunc = nonZeroOrDefault(op.config.PARIDFunc, defaultPARIDFunc)
+		op.config.PAREndpoint = nonZeroOrDefault(op.config.PAREndpoint, defaultEndpointPushedAuthorizationRequest)
+		op.config.PARLifetimeSecs = nonZeroOrDefault(op.config.PARLifetimeSecs, defaultPARLifetimeSecs)
+	}
+
+	if op.config.JARMEnabled {
+		op.config.JARMLifetimeSecs = nonZeroOrDefault(op.config.JARMLifetimeSecs, defaultJWTLifetimeSecs)
+		op.config.ResponseModes = append(op.config.ResponseModes, goidc.ResponseModeJWT, goidc.ResponseModeQueryJWT, goidc.ResponseModeFragmentJWT)
+		if slices.Contains(op.config.ResponseModes, goidc.ResponseModeFormPost) {
+			op.config.ResponseModes = append(op.config.ResponseModes, goidc.ResponseModeFormPostJWT)
+		}
+	}
+
+	if op.config.TokenIntrospectionEnabled {
+		op.config.TokenIntrospectionEndpoint = nonZeroOrDefault(op.config.TokenIntrospectionEndpoint, defaultEndpointTokenIntrospection)
+		op.config.TokenIntrospectionIsClientAllowedFunc = nonZeroOrDefault(op.config.TokenIntrospectionIsClientAllowedFunc, goidc.IsClientAllowedTokenIntrospectionFunc(defaultTokenIntrospectionIsClientAllowedFunc))
+	}
+
+	if op.config.TokenRevocationEnabled {
+		op.config.TokenRevocationEndpoint = nonZeroOrDefault(op.config.TokenRevocationEndpoint, defaultEndpointTokenRevocation)
+		op.config.TokenRevocationIsClientAllowedFunc = nonZeroOrDefault(op.config.TokenRevocationIsClientAllowedFunc, goidc.IsClientAllowedFunc(defaultTokenRevocationIsClientAllowedFunc))
+	}
+
+	if slices.Contains(op.config.GrantTypes, goidc.GrantCIBA) {
+		op.config.CIBAProfile = nonZeroOrDefault(op.config.CIBAProfile, goidc.CIBAProfileOpenID)
+		op.config.CIBAManager = nonZeroOrDefault(op.config.CIBAManager, goidc.CIBAManager(inmemoryManager))
+		op.config.CIBATokenDeliveryModes = nonZeroOrDefault(op.config.CIBATokenDeliveryModes, []goidc.CIBATokenDeliveryMode{goidc.CIBADeliveryModePoll})
+		op.config.CIBAIDFunc = nonZeroOrDefault(op.config.CIBAIDFunc, defaultCIBAIDFunc)
+		op.config.CIBAHandleSessionFunc = nonZeroOrDefault(op.config.CIBAHandleSessionFunc, goidc.HandleSessionFunc(defaultCIBAHandleSessionFunc))
+		op.config.CIBAEndpoint = nonZeroOrDefault(op.config.CIBAEndpoint, defaultEndpointCIBA)
+		op.config.CIBADefaultSessionLifetimeSecs = nonZeroOrDefault(op.config.CIBADefaultSessionLifetimeSecs, defaultCIBADefaultSessionLifetimeSecs)
+		op.config.CIBAPollingIntervalSecs = nonZeroOrDefault(op.config.CIBAPollingIntervalSecs, defaultCIBAPollingIntervalSecs)
+	}
+
+	if slices.Contains(op.config.GrantTypes, goidc.GrantRefreshToken) {
+		op.config.RefreshTokenManager = nonZeroOrDefault(op.config.RefreshTokenManager, goidc.RefreshTokenManager(inmemoryManager))
+		op.config.RefreshTokenFunc = nonZeroOrDefault(op.config.RefreshTokenFunc, defaultRefreshTokenFunc)
+		op.config.RefreshTokenShouldIssueFunc = nonZeroOrDefault(op.config.RefreshTokenShouldIssueFunc, goidc.RefreshTokenShouldIssueFunc(defaultRefreshTokenShouldIssueFunc))
+	}
+
+	if slices.Contains(op.config.GrantTypes, goidc.GrantDeviceCode) {
+		op.config.DeviceAuthManager = nonZeroOrDefault(op.config.DeviceAuthManager, goidc.DeviceAuthManager(inmemoryManager))
+		op.config.DeviceAuthEndpoint = nonZeroOrDefault(op.config.DeviceAuthEndpoint, defaultEndpointDeviceAuthorization)
+		op.config.DeviceAuthVerificationEndpoint = nonZeroOrDefault(op.config.DeviceAuthVerificationEndpoint, defaultEndpointDeviceVerification)
+		op.config.DeviceAuthLifetimeSecs = nonZeroOrDefault(op.config.DeviceAuthLifetimeSecs, defaultDeviceAuthLifetimeSecs)
+		op.config.DeviceAuthPollingIntervalSecs = nonZeroOrDefault(op.config.DeviceAuthPollingIntervalSecs, defaultDeviceAuthPollingIntervalSecs)
+		op.config.DeviceCodeFunc = nonZeroOrDefault(op.config.DeviceCodeFunc, defaultDeviceCodeFunc)
+		op.config.DeviceAuthGenerateUserCodeFunc = nonZeroOrDefault(op.config.DeviceAuthGenerateUserCodeFunc, defaultGenerateUserCodeFunc())
+	}
+
+	if op.config.OpenIDFedEnabled {
+		op.config.OpenIDFedManager = nonZeroOrDefault(op.config.OpenIDFedManager, goidc.OpenIDFedManager(inmemoryManager))
+		op.config.OpenIDFedSigAlgs = nonZeroOrDefault(op.config.OpenIDFedSigAlgs, []goidc.SignatureAlgorithm{op.config.OpenIDFedSigAlg})
+		op.config.OpenIDFedTrustChainMaxDepth = nonZeroOrDefault(op.config.OpenIDFedTrustChainMaxDepth, defaultOpenIDFedTrustChainMaxDepth)
+		op.config.OpenIDFedClientRegTypes = nonZeroOrDefault(op.config.OpenIDFedClientRegTypes, []goidc.ClientRegistrationType{defaultOpenIDFedRegType})
+		op.config.OpenIDFedJWKSRepresentations = nonZeroOrDefault(op.config.OpenIDFedJWKSRepresentations, []goidc.JWKSRepresentation{goidc.JWKSRepresentationURI})
+		op.config.OpenIDFedRequiredClientTrustMarksFunc = nonZeroOrDefault(op.config.OpenIDFedRequiredClientTrustMarksFunc, goidc.RequiredTrustMarksFunc(defaultOpenIDFedRequiredTrustMarksFunc))
+		op.config.OpenIDFedHandleClientFunc = nonZeroOrDefault(op.config.OpenIDFedHandleClientFunc, goidc.HandleClientFunc(defaultOpenIDFedHandleClientFunc))
+		op.config.OpenIDFedEntityJWKSFunc = federation.FetchEntityConfigurationJWKS
+		if slices.Contains(op.config.OpenIDFedClientRegTypes, goidc.ClientRegistrationTypeExplicit) {
+			op.config.OpenIDFedRegistrationEndpoint = nonZeroOrDefault(op.config.OpenIDFedRegistrationEndpoint, defaultEndpointOpenIDFederationRegistration)
+		}
+		if slices.Contains(op.config.OpenIDFedJWKSRepresentations, goidc.JWKSRepresentationSignedURI) {
+			op.config.OpenIDFedSignedJWKSEndpoint = nonZeroOrDefault(op.config.OpenIDFedSignedJWKSEndpoint, defaultEndpointOpenIDFederationSignedJWKS)
+		}
+	}
+
+	if op.config.LogoutEnabled {
+		op.config.LogoutManager = nonZeroOrDefault(op.config.LogoutManager, goidc.LogoutManager(inmemoryManager))
+		op.config.LogoutEndpoint = nonZeroOrDefault(op.config.LogoutEndpoint, defaultEndpointEndSession)
+		op.config.LogoutSessionTimeoutSecs = nonZeroOrDefault(op.config.LogoutSessionTimeoutSecs, defaultLogoutSessionTimeoutSecs)
+		op.config.LogoutSessionIDFunc = nonZeroOrDefault(op.config.LogoutSessionIDFunc, defaultSessionIDFunc)
+	}
+
+	if op.config.RAREnabled {
+		op.config.RARValidateDetailFunc = nonZeroOrDefault(op.config.RARValidateDetailFunc, goidc.RARValidateDetailFunc(defaultRARValidateDetailFunc))
+		op.config.RARCompareDetailsFunc = nonZeroOrDefault(op.config.RARCompareDetailsFunc, defaultCompareAuthDetailsFunc)
+	}
+
+	if op.config.MTLSEnabled {
+		op.config.ClientCertFunc = nonZeroOrDefault(op.config.ClientCertFunc, goidc.ClientCertFunc(defaultClientCertFunc))
+	}
+
+	if op.config.VCIEnabled {
+		if op.config.VCISelfEnabled {
+			op.config.VCISelfHost = nonZeroOrDefault(op.config.VCISelfHost, op.config.Host)
+			op.config.VCISelfCredentialEndpoint = nonZeroOrDefault(op.config.VCISelfCredentialEndpoint, defaultEndpointVCICredential)
+			op.config.VCISelfBatchSize = nonZeroOrDefault(op.config.VCISelfBatchSize, 1)
+
+			for id, config := range op.config.VCISelfConfigurations {
+				if config.Format == goidc.VCFormatDCSDJWT {
+					if config.Type == "" {
+						return nil, fmt.Errorf("credential configuration %q requires Type when Format is %q", id, goidc.VCFormatDCSDJWT)
+					}
+
+					if !op.config.VCISelfJWTIssuerEnabled {
+						return nil, fmt.Errorf("credential configuration %q with Format %q requires WithVCISelfJWTIssuer", id, goidc.VCFormatDCSDJWT)
+					}
+				}
+			}
+
+			// The self issuer should go first. This is just a convention.
+			op.config.VCIIssuers = append([]goidc.VCIssuer{{
+				Issuer: op.config.VCISelfHost,
+				Configurations: func() []goidc.VCConfiguration {
+					selfConfigs := make([]goidc.VCConfiguration, 0, len(op.config.VCISelfConfigurations))
+					for _, config := range op.config.VCISelfConfigurations {
+						selfConfigs = append(selfConfigs, config)
+					}
+					return selfConfigs
+				}(),
+			}}, op.config.VCIIssuers...)
+
+			if op.config.VCISelfOffersEnabled {
+				op.config.VCISelfOfferManager = nonZeroOrDefault(op.config.VCISelfOfferManager, goidc.VCOfferManager(inmemoryManager))
+				op.config.VCISelfOfferIDFunc = nonZeroOrDefault(op.config.VCISelfOfferIDFunc, defaultSessionIDFunc)
+			}
+
+			if op.config.VCISelfPreAuthCodeGrantEnabled {
+				op.config.VCISelfPreAuthCodeGrantManager = nonZeroOrDefault(op.config.VCISelfPreAuthCodeGrantManager, goidc.VCPreAuthCodeGrantManager(inmemoryManager))
+				op.config.VCISelfPreAuthCodeFunc = nonZeroOrDefault(op.config.VCISelfPreAuthCodeFunc, defaultPreAuthCodeFunc)
+				op.config.VCISelfPreAuthCodeLifetimeSecs = nonZeroOrDefault(op.config.VCISelfPreAuthCodeLifetimeSecs, defaultPreAuthCodeLifetimeSecs)
+			}
+
+			if op.config.VCISelfDeferredEnabled {
+				op.config.VCISelfDeferredManager = nonZeroOrDefault(op.config.VCISelfDeferredManager, goidc.VCDeferralManager(inmemoryManager))
+				op.config.VCISelfDeferredIDFunc = nonZeroOrDefault(op.config.VCISelfDeferredIDFunc, defaultSessionIDFunc)
+				op.config.VCISelfDeferredCredentialEndpoint = nonZeroOrDefault(op.config.VCISelfDeferredCredentialEndpoint, defaultEndpointVCIDeferredCredential)
+				op.config.VCISelfDeferredIntervalSecs = nonZeroOrDefault(op.config.VCISelfDeferredIntervalSecs, defaultVCIDeferredIntervalSecs)
+			} else {
+				for id, config := range op.config.VCISelfConfigurations {
+					if config.IsDeferred != nil {
+						return nil, fmt.Errorf("credential configuration %q defines IsDeferred but WithVCISelfDeferred was not called", id)
+					}
+				}
+			}
+
+			if op.config.VCISelfNotificationEnabled {
+				op.config.VCISelfNotificationManager = nonZeroOrDefault(op.config.VCISelfNotificationManager, goidc.VCNotificationManager(inmemoryManager))
+				op.config.VCISelfNotificationIDFunc = nonZeroOrDefault(op.config.VCISelfNotificationIDFunc, defaultSessionIDFunc)
+				op.config.VCISelfNotificationEndpoint = nonZeroOrDefault(op.config.VCISelfNotificationEndpoint, defaultEndpointVCINotification)
+			}
+
+			if op.config.VCISelfJWTIssuerEnabled {
+				if op.config.VCISelfJWTIssuerJWKSFunc == nil && op.config.VCISelfJWTIssuerJWKSURI == "" {
+					return nil, errors.New("WithVCISelfJWTIssuer requires either JWKS or JWKS URI")
+				}
+
+				if op.config.VCISelfJWTIssuerJWKSFunc != nil && op.config.VCISelfJWTIssuerJWKSURI != "" {
+					return nil, errors.New("WithVCISelfJWTIssuer requires either JWKS or JWKS URI, not both")
+				}
+			}
+		}
+
+		if op.config.VCIIssuerStateEnabled {
+			if !slices.Contains(op.config.GrantTypes, goidc.GrantAuthorizationCode) {
+				return nil, errors.New("WithVCIIssuerState requires the authorization code grant to be enabled")
+			}
+		}
+
+	}
+
+	if !op.profileValidationEnabled {
+		return op, nil
+	}
+
+	switch op.config.Profile {
+	case goidc.ProfileFAPI1:
+		for _, method := range op.config.AuthnMethods {
+			if !slices.Contains([]goidc.AuthnMethod{
+				goidc.AuthnMethodPrivateKeyJWT,
+				goidc.AuthnMethodSecretJWT,
+				goidc.AuthnMethodTLS,
+				goidc.AuthnMethodNone,
+			}, method) {
+				return nil, fmt.Errorf("[FAPI 1.0 5.2.2] %s is not a valid authentication method", method)
+			}
+		}
+	case goidc.ProfileFAPI2:
+		if slices.Contains(op.config.GrantTypes, goidc.GrantImplicit) {
+			return nil, errors.New("[FAPI 2.0 5.3.1] implicit grant is not allowed")
+		}
+
+		if !op.config.TokenBindingRequired && !op.config.DPoPRequired && !op.config.MTLSTokenBindingRequired {
+			return nil, errors.New("[FAPI 2.0 5.3.1] sender-constrained access tokens must be required")
+		}
+
+		if !slices.Contains(op.config.AuthnMethods, goidc.AuthnMethodPrivateKeyJWT) && !slices.Contains(op.config.AuthnMethods, goidc.AuthnMethodTLS) {
+			return nil, errors.New("[FAPI 2.0 5.3.1] only private_key_jwt or tls_client_auth are allowed")
+		}
+
+		for _, method := range op.config.AuthnMethods {
+			if !slices.Contains([]goidc.AuthnMethod{goidc.AuthnMethodPrivateKeyJWT, goidc.AuthnMethodTLS}, method) {
+				return nil, fmt.Errorf("[FAPI 2.0 5.3.1] %s is not a valid authentication method", method)
+			}
+		}
+
+		if op.config.AuthCodeLifetimeSecs > 60 {
+			return nil, errors.New("[FAPI 2.0 5.3.1] authorization code lifetime must be less than 60 seconds")
+		}
+
+		if !slices.Contains(op.config.GrantTypes, goidc.GrantAuthorizationCode) {
+			return nil, errors.New("[FAPI 2.0 5.3.1] authorization_code grant must be required")
+		}
+
+		if !op.config.PARRequired {
+			return nil, errors.New("[FAPI 2.0 5.3.1] pushed authorization request must be required")
+		}
+
+		if !op.config.PKCERequired {
+			return nil, errors.New("[FAPI 2.0 5.3.1] pkce must be required")
+		}
+
+		if slices.ContainsFunc(op.config.PKCEChallengeMethods, func(method goidc.CodeChallengeMethod) bool {
+			return method != goidc.CodeChallengeMethodSHA256
+		}) {
+			return nil, errors.New("[FAPI 2.0 5.3.1] only pkce S256 code challenge method must be available")
+		}
+
+		if !op.config.IssuerRespParamEnabled {
+			return nil, errors.New("[FAPI 2.0 5.3.1] pkce must be enabled")
+		}
+
+		if op.config.PARLifetimeSecs > 600 {
+			return nil, errors.New("[FAPI 2.0 5.3.1] par request_uri lifetime must be less than 600 seconds")
+		}
+	}
+
+	return op, nil
+}
+
+func (op *Provider) Issuer() string {
+	return op.config.Host
+}
+
+// Handler returns an HTTP handler with all the logic defined for the openid provider.
+// This may be used to add the oidc logic to a HTTP server.
+//
+//	mux := http.NewServeMux()
+//	mux.Handle("/", op.Handler())
+func (op *Provider) Handler(middlewares ...goidc.MiddlewareFunc) http.Handler {
+	mux := http.NewServeMux()
+	op.RegisterRoutes(mux, middlewares...)
+	return mux
+}
+
+func (op Provider) RegisterRoutes(mux *http.ServeMux, middlewares ...goidc.MiddlewareFunc) {
+	middlewares = append(middlewares, cacheControlMiddleware)
+	discovery.RegisterHandlers(mux, &op.config, middlewares...)
+	token.RegisterHandlers(mux, &op.config, middlewares...)
+	authorize.RegisterHandlers(mux, &op.config, middlewares...)
+	userinfo.RegisterHandlers(mux, &op.config, middlewares...)
+	dcr.RegisterHandlers(mux, &op.config, middlewares...)
+	federation.RegisterHandlers(mux, &op.config, middlewares...)
+	logout.RegisterHandlers(mux, &op.config, middlewares...)
+	vc.RegisterHandlers(mux, &op.config, middlewares...)
+}
+
+func (op *Provider) Run(address string, middlewares ...goidc.MiddlewareFunc) error {
+	server := &http.Server{
+		Addr:        address,
+		Handler:     op.Handler(middlewares...),
+		ReadTimeout: 5 * time.Second,
+	}
+	return server.ListenAndServe()
+}
+
+func (op *Provider) Client(ctx context.Context, id string) (*goidc.Client, error) {
+	return client.Client(oidc.NewContext(ctx, &op.config), id)
+}
+
+func (op *Provider) Introspect(ctx context.Context, tkn string) (goidc.TokenInfo, *goidc.Grant, error) {
+	oidcCtx := oidc.NewContext(ctx, &op.config)
+	return token.Introspect(oidcCtx, tkn, nil)
+}
+
+// IDToken parses and validates an ID token issued by this provider, returning
+// its claims as an [goidc.IDToken].
+func (op *Provider) IDToken(ctx context.Context, idToken string) (goidc.IDToken, error) {
+	oidcCtx := oidc.NewContext(ctx, &op.config)
+	return token.IDToken(oidcCtx, idToken)
+}
+
+// GrantCIBARequest resolves an approved CIBA request into a grant and notifies
+// the client according to the delivery mode for which the auth request ID was
+// issued.
+// The behavior varies based on the client's token delivery mode for which the
+// auth request ID was issued:
+//   - "poll": No notification is sent, and no additional processing occurs.
+//     There is no need to call this function for this mode.
+//   - "ping": A ping notification is sent to the client.
+//   - "push": The token response is sent directly to the client's notification endpoint.
+func (op *Provider) GrantCIBARequest(ctx context.Context, authReqID string) error {
+	oidcCtx := oidc.NewContext(ctx, &op.config)
+	return token.GrantCIBARequest(oidcCtx, authReqID)
+}
+
+// DenyCIBARequest denies a CIBA request and notifies the client according to
+// the delivery mode for which the auth request ID was issued.
+// The behavior varies based on the client's token delivery mode:
+//   - "poll": No notification is sent, and no additional processing occurs.
+//   - "ping": A ping notification is sent to the client.
+//   - "push": The token failure response is sent directly to the client's
+//     notification endpoint.
+func (op *Provider) DenyCIBARequest(ctx context.Context, authReqID string, err goidc.Error) error {
+	oidcCtx := oidc.NewContext(ctx, &op.config)
+	return token.DenyCIBARequest(oidcCtx, authReqID, err)
+}
+
+// CreatePreAuthCodeGrant creates a grant that can be redeemed through the
+// pre-authorized code grant.
+func (op *Provider) CreatePreAuthCodeGrant(ctx context.Context, grant *goidc.Grant) error {
+	if !op.config.VCISelfEnabled || !op.config.VCISelfPreAuthCodeGrantEnabled {
+		return errors.New("self pre-authorized code grant is not enabled")
+	}
+	if grant == nil {
+		return errors.New("grant is required")
+	}
+	if grant.PreAuthCodeConsumedAt != 0 {
+		return errors.New("pre-authorized code grant is already consumed")
+	}
+
+	oidcCtx := oidc.NewContext(ctx, &op.config)
+	now := timeutil.TimestampNow()
+	if grant.ID == "" {
+		grant.ID = oidcCtx.GrantID()
+	}
+	if grant.CreatedAt == 0 {
+		grant.CreatedAt = now
+	}
+	if grant.PreAuthCode == "" {
+		grant.PreAuthCode = oidcCtx.PreAuthCode()
+	}
+	if grant.PreAuthCodeExpiresAt == 0 {
+		grant.PreAuthCodeExpiresAt = now + oidcCtx.PreAuthCodeLifetime()
+	}
+	if grant.PreAuthCodeExpiresAt <= now {
+		return errors.New("pre-authorized code expiration must be in the future")
+	}
+	if err := oidcCtx.HandleGrant(goidc.GrantPreAuthorizedCode, grant); err != nil {
+		return err
+	}
+	return oidcCtx.SaveGrant(grant)
+}
+
+// MakeToken generates a new access token based on the provided grant
+// and stores the corresponding grant session and token.
+func (op *Provider) MakeToken(ctx context.Context, grant *goidc.Grant) (string, error) {
+	oidcCtx := oidc.NewContext(ctx, &op.config)
+	c := &goidc.Client{ID: grant.ClientID}
+
+	if grant.ID == "" {
+		grant.ID = oidcCtx.GrantID()
+	}
+
+	if grant.CreatedAt == 0 {
+		grant.CreatedAt = timeutil.TimestampNow()
+	}
+
+	if err := oidcCtx.SaveGrant(grant); err != nil {
+		return "", err
+	}
+
+	_, tokenValue, err := token.Issue(oidcCtx, grant, c, nil)
+	return tokenValue, err
+}
+
+func (op *Provider) CIBAManager() goidc.CIBAManager {
+	return op.config.CIBAManager
+}
+
+func (op *Provider) RevokeToken(ctx context.Context, tkn string) error {
+	return token.Revoke(oidc.NewContext(ctx, &op.config), tkn, nil)
+}
+
+// Resolve builds and resolves a federation trust chain for the given entity ID,
+// returning the resolved entity statement with merged metadata and applied
+// metadata policies.
+func (op *Provider) ResolveFederationEntity(ctx context.Context, id string) (goidc.EntityStatement, error) {
+	return federation.Resolve(oidc.NewContext(ctx, &op.config), id)
+}
+
+// nonZeroOrDefault returns the first argument "s1" if it is non-nil and non-zero.
+// Otherwise, it returns the second argument "s2" as the default value.
+//
+// Example:
+//
+//	nonZeroOrDefault(42, 100) // returns 42
+//	nonZeroOrDefault(0, 100)  // returns 100
+//	nonZeroOrDefault("", "default") // returns "default"
+func nonZeroOrDefault[T any](s1 T, s2 T) T {
+	isNil := func(i any) bool {
+		return i == nil
+	}
+
+	if isNil(s1) || reflect.ValueOf(s1).IsZero() {
+		return s2
+	}
+
+	return s1
+}
+
+const (
+	defaultStorageMaxSize                       = 100
+	defaultAuthnSessionTimeoutSecs              = 1800 // 30 minutes.
+	defaultIDTokenLifetimeSecs                  = 600
+	defaultTokenLifetimeSecs                    = 300
+	defaultJWTLifetimeSecs                      = 600
+	defaultLogoutSessionTimeoutSecs             = 1800 // 30 minutes.
+	defaultPARLifetimeSecs                      = 60   // 1 minute.
+	defaultCIBADefaultSessionLifetimeSecs       = 60
+	defaultCIBAPollingIntervalSecs              = 5
+	defaultDeviceAuthLifetimeSecs               = 300 // 5 minutes.
+	defaultDeviceAuthPollingIntervalSecs        = 5
+	defaultAuthorizationCodeLifetimeSecs        = 60
+	defaultPreAuthCodeLifetimeSecs              = 60
+	defaultVCIDeferredIntervalSecs              = 5
+	defaultOpenIDFedTrustChainMaxDepth          = 5
+	defaultOpenIDFedRegType                     = goidc.ClientRegistrationTypeAutomatic
+	defaultEndpointJSONWebKeySet                = "/jwks"
+	defaultEndpointPushedAuthorizationRequest   = "/par"
+	defaultEndpointAuthorize                    = "/authorize"
+	defaultEndpointToken                        = "/token"
+	defaultEndpointUserInfo                     = "/userinfo"
+	defaultEndpointDynamicClient                = "/register"
+	defaultEndpointTokenIntrospection           = "/introspect"
+	defaultEndpointTokenRevocation              = "/revoke"
+	defaultEndpointCIBA                         = "/bc-authorize"
+	defaultEndpointOpenIDFederationRegistration = "/federation/register"
+	defaultEndpointOpenIDFederationSignedJWKS   = "/signed-jwks"
+	defaultEndpointEndSession                   = "/logout"
+	defaultEndpointDeviceAuthorization          = "/device_authorization"
+	defaultEndpointDeviceVerification           = "/device"
+	defaultEndpointVCICredential                = "/credential"          //nolint:gosec
+	defaultEndpointVCIDeferredCredential        = "/deferred_credential" //nolint:gosec
+	defaultEndpointVCINotification              = "/notification"
+)
+
+func defaultTokenOptionsFunc(alg goidc.SignatureAlgorithm) goidc.TokenOptionsFunc {
+	return func(_ context.Context, _ *goidc.Grant, _ *goidc.Client) goidc.TokenOptions {
+		return goidc.NewJWTTokenOptions(alg, defaultTokenLifetimeSecs)
+	}
+}
+
+func defaultOpaqueTokenFunc(_ context.Context, _ *goidc.Grant) string {
+	return strutil.Random(50)
+}
+
+func defaultRefreshTokenFunc(_ context.Context) string {
+	return strutil.Random(100)
+}
+
+func defaultHTTPClientFunc(_ context.Context) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = 5 * time.Second
+	transport.TLSHandshakeTimeout = 5 * time.Second
+	return &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+func defaultAuthCodeFunc(_ context.Context) string {
+	return strutil.Random(30)
+}
+
+func defaultPreAuthCodeFunc(_ context.Context) string {
+	return strutil.Random(30)
+}
+
+func defaultPARIDFunc(_ context.Context) string {
+	return strutil.Random(30)
+}
+
+func defaultCIBAIDFunc(_ context.Context) string {
+	return strutil.Random(50)
+}
+
+func defaultDeviceCodeFunc(_ context.Context) string {
+	return strutil.Random(30)
+}
+
+func defaultVerifyClientSecretFunc(_ context.Context, stored, presented string) error {
+	if subtle.ConstantTimeCompare([]byte(stored), []byte(presented)) != 1 {
+		return errors.New("invalid client secret")
+	}
+	return nil
+}
+
+func defaultCompareAuthDetailsFunc(_ context.Context, requested, granted []goidc.AuthDetail) error {
+	if !reflect.DeepEqual(requested, granted) {
+		return goidc.NewError(goidc.ErrorCodeInvalidAuthDetails, "invalid authorization details")
+	}
+	return nil
+}
+
+func defaultGenerateUserCodeFunc() goidc.RandomFunc {
+	// [RFC 8628 §6.1].
+	charset := "BCDFGHJKLMNPQRSTVWXZ"
+	charsetLength := big.NewInt(int64(len(charset)))
+	length := 8
+	return func(_ context.Context) string {
+		result := strings.Builder{}
+		for range length {
+			n, err := rand.Int(rand.Reader, charsetLength)
+			if err != nil {
+				panic(err)
+			}
+			result.WriteByte(charset[n.Int64()])
+		}
+		return result.String()
+	}
+}
+
+func defaultDCRValidateInitialTokenFunc(context.Context, string) error {
+	return nil
+}
+
+func defaultDCRRegistrationTokenFunc(context.Context) string {
+	return strutil.Random(50)
+}
+
+func defaultDCRHandleClientFunc(context.Context, string, *goidc.ClientMeta) error {
+	return nil
+}
+
+func defaultConsumeJTIFunc(context.Context, string) error {
+	return nil
+}
+
+func defaultClientCertFunc(context.Context) (*x509.Certificate, error) {
+	return nil, errors.New("the client certificate function was not defined")
+}
+
+func defaultTokenIntrospectionIsClientAllowedFunc(context.Context, *goidc.Client, goidc.TokenInfo) bool {
+	return false
+}
+
+func defaultTokenRevocationIsClientAllowedFunc(context.Context, *goidc.Client) bool {
+	return false
+}
+
+func defaultHandleErrorFunc(context.Context, error) {}
+
+func defaultRARValidateDetailFunc(context.Context, goidc.AuthDetail) error {
+	return nil
+}
+
+func defaultRefreshTokenShouldIssueFunc(context.Context, *goidc.Client, *goidc.Grant) bool {
+	return true
+}
+
+func defaultHandleGrantFunc(context.Context, goidc.GrantType, *goidc.Grant) error {
+	return nil
+}
+
+func defaultHandleTokenFunc(context.Context, *goidc.Token, *goidc.Grant) error {
+	return nil
+}
+
+func defaultIDTokenClaimsFunc(context.Context, *goidc.Grant) map[string]any {
+	return nil
+}
+
+func defaultUserInfoClaimsFunc(context.Context, *goidc.Grant) map[string]any {
+	return nil
+}
+
+func defaultTokenClaimsFunc(context.Context, *goidc.Token, *goidc.Grant) map[string]any {
+	return nil
+}
+
+func defaultPairwiseSubjectFunc(_ context.Context, sub string, _ *goidc.Client) string {
+	return sub
+}
+
+func defaultPARHandleSessionFunc(context.Context, *goidc.AuthnSession, *goidc.Client) error {
+	return nil
+}
+
+func defaultOpenIDFedRequiredTrustMarksFunc(context.Context, *goidc.Client) []goidc.TrustMark {
+	return nil
+}
+
+func defaultOpenIDFedHandleClientFunc(context.Context, *goidc.Client) error {
+	return nil
+}
+
+func defaultCIBAHandleSessionFunc(context.Context, *goidc.AuthnSession, *goidc.Client) error {
+	return errors.New("ciba init back auth function is not set")
+}
+
+func defaultClientIDFunc(ctx context.Context) string {
+	return uuid.NewString()
+}
+
+func defaultGrantIDFunc(_ context.Context) string {
+	return uuid.NewString()
+}
+
+func defaultJWTIDFunc(_ context.Context) string {
+	return uuid.NewString()
+}
+
+func defaultSessionIDFunc(_ context.Context) string {
+	return uuid.NewString()
+}
+
+func cacheControlMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Avoid caching.
+		w.Header().Set("Cache-Control", "no-cache, no-store")
+		w.Header().Set("Pragma", "no-cache")
+
+		next.ServeHTTP(w, r)
+	})
+}
