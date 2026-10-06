@@ -16,9 +16,6 @@ type AuthnSession struct {
 	// grant and returned in the introspection response.
 	Username string `json:"username,omitempty"`
 	ClientID string `json:"client_id"`
-	// PushedAuthReqID is populated when the session is created from a pushed
-	// authorization request (PAR). It is the handle returned as request_uri.
-	PushedAuthReqID string `json:"pushed_auth_req_id,omitempty"`
 	// PolicyID is the id of the authentication policy used to authenticate
 	// the user.
 	PolicyID string `json:"policy_id,omitempty"`

@@ -40,7 +40,6 @@ func main() {
 					goidc.ResponseTypeCodeAndIDTokenAndToken,
 				},
 			},
-			provider.WithPAR(nil),
 			provider.WithJAR(
 				[]goidc.SignatureAlgorithm{goidc.SigAlgRS256, goidc.SigAlgNone},
 				provider.WithJARByReference(nil),

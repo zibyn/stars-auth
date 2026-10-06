@@ -43,7 +43,6 @@ type AuthnContext string
 
 const (
 	AuthnContextToken              AuthnContext = "token"
-	AuthnContextPAR                AuthnContext = "par"
 	AuthnContextTokenIntrospection AuthnContext = "token_introspection"
 	AuthnContextTokenRevocation    AuthnContext = "token_revocation"
 )
@@ -310,7 +309,7 @@ func authenticateSecretJWT(ctx oidc.Context, c *goidc.Client, authnCtx AuthnCont
 func authnSigAlgs(c *goidc.Client, authnCtx AuthnContext, algs []goidc.SignatureAlgorithm) []goidc.SignatureAlgorithm {
 	var clientAlg goidc.SignatureAlgorithm
 	switch authnCtx {
-	case AuthnContextToken, AuthnContextPAR:
+	case AuthnContextToken:
 		clientAlg = c.TokenAuthnSigAlg
 	case AuthnContextTokenIntrospection:
 		clientAlg = c.TokenIntrospectionAuthnSigAlg
@@ -624,8 +623,8 @@ func authenticateAttestationJWT(ctx oidc.Context, c *goidc.Client, authnCtx Auth
 		// [Draft §5.2]: the DPoP proof can replace the attestation PoP when
 		// no OAuth-Client-Attestation-PoP header is present. This is only
 		// allowed at endpoints where the DPoP proof is always fully validated
-		// downstream (token endpoint and PAR).
-		if !ctx.DPoPEnabled || (authnCtx != AuthnContextToken && authnCtx != AuthnContextPAR) {
+		// downstream (token endpoint).
+		if !ctx.DPoPEnabled || authnCtx != AuthnContextToken {
 			return goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client",
 				errors.New(headerAttestionPoP+" header is missing"))
 		}

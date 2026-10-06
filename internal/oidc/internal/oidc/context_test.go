@@ -520,16 +520,12 @@ func TestTokenAndPolicyHooks(t *testing.T) {
 			name: "generated values delegate to funcs",
 			run: func(t *testing.T, ctx oidc.Context) {
 				grant := &goidc.Grant{ID: "grant_id"}
-				ctx.PARIDFunc = func(context.Context) string { return "par" }
 				ctx.GrantIDFunc = func(context.Context) string { return "grant" }
 				ctx.JWTIDFunc = func(context.Context) string { return "jwt" }
 				ctx.AuthCodeFunc = func(context.Context) string { return "code" }
 				ctx.RefreshTokenFunc = func(context.Context) string { return "refresh" }
 				ctx.OpaqueTokenFunc = func(context.Context, *goidc.Grant) string { return "opaque_" + grant.ID }
 
-				if got := ctx.PARID(); got != "par" {
-					t.Fatalf("PARID() = %q, want %q", got, "par")
-				}
 				if got := ctx.GrantID(); got != "grant" {
 					t.Fatalf("GrantID() = %q, want %q", got, "grant")
 				}
@@ -561,12 +557,10 @@ func TestManagerDelegates(t *testing.T) {
 		ctx := oidctest.NewContext(t)
 		manager := storage.NewManager(100)
 		ctx.AuthManager = manager
-		ctx.PARManager = manager
 
 		session := &goidc.AuthnSession{
-			ID:              "session_id",
-			PushedAuthReqID: "par_id",
-			CreatedAt:       1,
+			ID:        "session_id",
+			CreatedAt: 1,
 		}
 		if err := ctx.AuthSaveSession(session); err != nil {
 			t.Fatalf("AuthSaveSession() error = %v", err)
@@ -580,12 +574,8 @@ func TestManagerDelegates(t *testing.T) {
 			t.Fatalf("AuthSession().ID = %q, want %q", got.ID, session.ID)
 		}
 
-		got, err = ctx.PARSessionByPushedAuthReqID(session.PushedAuthReqID)
 		if err != nil {
 			t.Fatalf("PARSessionByPushedAuthReqID() error = %v", err)
-		}
-		if got.PushedAuthReqID != session.PushedAuthReqID {
-			t.Fatalf("PARSessionByPushedAuthReqID() = %q, want %q", got.PushedAuthReqID, session.PushedAuthReqID)
 		}
 
 	})
@@ -794,7 +784,6 @@ func TestSimpleHelpers(t *testing.T) {
 		grant := &goidc.Grant{ID: "grant_id"}
 		token := &goidc.Token{ID: "token_id"}
 		logoutSession := &goidc.LogoutSession{ID: "logout_id"}
-		authSession := &goidc.AuthnSession{ID: "auth_session_id"}
 		authDetail := goidc.AuthDetail{"type": "payment"}
 
 		calledVerify := false
@@ -922,19 +911,6 @@ func TestSimpleHelpers(t *testing.T) {
 		}
 		if diff := cmp.Diff(tokenClaims, ctx.TokenClaims(token, grant)); diff != "" {
 			t.Fatal(diff)
-		}
-
-		if err := ctx.PARHandleSession(authSession, client); err != nil {
-			t.Fatalf("PARHandleSession() default error = %v", err)
-		}
-		ctx.PARHandleSessionFunc = func(_ context.Context, gotSession *goidc.AuthnSession, gotClient *goidc.Client) error {
-			if gotSession.ID != authSession.ID || gotClient.ID != client.ID {
-				t.Fatal("PARHandleSession() received unexpected session or client")
-			}
-			return errors.New("par handle error")
-		}
-		if err := ctx.PARHandleSession(authSession, client); err == nil {
-			t.Fatal("PARHandleSession() error = nil, want non-nil")
 		}
 
 		if got := ctx.ClientSecret(); len(got) != 64 {
@@ -1195,9 +1171,6 @@ func newContext() oidc.Context {
 			},
 			PairwiseSubjectFunc: func(_ context.Context, sub string, _ *goidc.Client) string {
 				return sub
-			},
-			PARHandleSessionFunc: func(context.Context, *goidc.AuthnSession, *goidc.Client) error {
-				return nil
 			},
 		},
 		Request:  httptest.NewRequest(http.MethodGet, "https://example.com", nil),

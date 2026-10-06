@@ -1048,54 +1048,6 @@ func TestAuthenticated(t *testing.T) {
 			wantErr: goidc.ErrorCodeInvalidClient,
 		},
 		{
-			name:     "attestation combined mode at par success",
-			authnCtx: client.AuthnContextPAR,
-			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {
-				ctx, c, issuerKey, clientKey := setUpAttestationAuthn(t)
-				ctx.DPoPEnabled = true
-				ctx.DPoPSigAlgs = []goidc.SignatureAlgorithm{goidc.SigAlgES256}
-				ctx.Request.Method = http.MethodPost
-				ctx.Request.RequestURI = "/par"
-
-				cnfJWK := jose.JSONWebKey{Key: clientKey.Public(), Algorithm: string(goidc.SigAlgES256)}
-				attestation := oidctest.SignWithOptions(t, map[string]any{
-					goidc.ClaimIssuer: "https://attester.example.com", goidc.ClaimSubject: c.ID,
-					goidc.ClaimExpiry: timeutil.TimestampNow() + 300, "cnf": map[string]any{"jwk": cnfJWK},
-				}, issuerKey, (&jose.SignerOptions{}).WithType("oauth-client-attestation+jwt"))
-				ctx.Request.Header.Set("Oauth-Client-Attestation", attestation)
-
-				dpopJWT, _ := oidctest.DPoPProof(t, oidctest.DPoPProofOptions{
-					Method: http.MethodPost, URI: ctx.Host + "/par", Key: clientKey,
-				})
-				ctx.Request.Header.Set(goidc.HeaderDPoP, dpopJWT)
-				return ctx, nil
-			},
-			wantClientID: "random_client_id",
-		},
-		{
-			name:     "private key jwt at par uses token authn sig alg",
-			authnCtx: client.AuthnContextPAR,
-			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {
-				ctx, c, jwk := setUpPrivateKeyJWTAuthn(t)
-				c.TokenAuthnSigAlg = goidc.SigAlgRS256
-				now := timeutil.TimestampNow()
-				claims := map[string]any{
-					goidc.ClaimIssuer:   c.ID,
-					goidc.ClaimSubject:  c.ID,
-					goidc.ClaimAudience: ctx.Issuer(),
-					goidc.ClaimIssuedAt: now,
-					goidc.ClaimExpiry:   now + ctx.JWTLifetimeSecs - 10,
-					goidc.ClaimTokenID:  "par_jti",
-				}
-				ctx.Request.PostForm = map[string][]string{
-					"client_assertion":      {oidctest.Sign(t, claims, jwk)},
-					"client_assertion_type": {string(goidc.AssertionTypeJWTBearer)},
-				}
-				return ctx, nil
-			},
-			wantClientID: "random_client_id",
-		},
-		{
 			name:     "secret jwt at introspection uses introspection sig alg",
 			authnCtx: client.AuthnContextTokenIntrospection,
 			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {

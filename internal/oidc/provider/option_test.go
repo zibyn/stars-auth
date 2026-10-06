@@ -154,30 +154,6 @@ func TestWithAuthorizeEndpoint(t *testing.T) {
 	}
 }
 
-func TestWithPAREndpoint(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithPAREndpoint("/par")(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			PAREndpoint: "/par",
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
 func TestWithUserInfoEndpoint(t *testing.T) {
 	// Given.
 	p := &Provider{
@@ -739,80 +715,6 @@ func TestWithScopes(t *testing.T) {
 
 	if len(p.config.Scopes) != 2 {
 		t.Error("there should be only two scopes")
-	}
-}
-
-func TestWithPAR(t *testing.T) {
-	// Given.
-	manager := storage.NewManager(100)
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithPAR(manager)(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !p.config.PAREnabled {
-		t.Error("PAREnabled should be true")
-	}
-	if p.config.PARManager != manager {
-		t.Error("PARManager should match the configured manager")
-	}
-}
-
-func TestWithPARRequired(t *testing.T) {
-	// Given.
-	manager := storage.NewManager(100)
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithPAR(manager, WithPARRequired())(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !p.config.PAREnabled {
-		t.Error("PAREnabled should be true")
-	}
-
-	if !p.config.PARRequired {
-		t.Error("PARRequired should be true")
-	}
-	if p.config.PARManager != manager {
-		t.Error("PARManager should match the configured manager")
-	}
-}
-
-func TestWithUnregisteredRedirectURIsForPAR(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithPARUnregisteredRedirectURIs()(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			PARUnregisteredRedirectURIEnabled: true,
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
 	}
 }
 
@@ -1690,26 +1592,6 @@ func TestWithGrantID(t *testing.T) {
 
 	if p.config.GrantIDFunc == nil {
 		t.Error("GrantIDFunc cannot be nil")
-	}
-}
-
-func TestWithPARID(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-	idFunc := func(context.Context) string { return "par_id" }
-
-	// When.
-	err := WithPARIDFunc(idFunc)(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if p.config.PARIDFunc == nil {
-		t.Error("WithPARIDFunc cannot be nil")
 	}
 }
 

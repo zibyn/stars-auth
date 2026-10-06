@@ -36,11 +36,6 @@ func NewConfiguration(ctx oidc.Context) goidc.Configuration {
 		DisplayValues:              ctx.DisplayValues,
 	}
 
-	if ctx.PAREnabled {
-		config.PARRequired = ctx.PARRequired
-		config.PAREndpoint = ctx.BaseURL() + ctx.PAREndpoint
-	}
-
 	if ctx.JAREnabled {
 		config.JAREnabled = ctx.JAREnabled
 		config.JARRequired = ctx.JARRequired
@@ -84,17 +79,12 @@ func NewConfiguration(ctx oidc.Context) goidc.Configuration {
 
 		config.MTLSAliases = &struct {
 			TokenEndpoint              string `json:"token_endpoint"`
-			ParEndpoint                string `json:"pushed_authorization_request_endpoint,omitempty"`
 			UserInfoEndpoint           string `json:"userinfo_endpoint"`
 			TokenIntrospectionEndpoint string `json:"introspection_endpoint,omitempty"`
 			TokenRevocationEndpoint    string `json:"revocation_endpoint,omitempty"`
 		}{
 			TokenEndpoint:    ctx.MTLSBaseURL() + ctx.TokenEndpoint,
 			UserInfoEndpoint: ctx.MTLSBaseURL() + ctx.UserInfoEndpoint,
-		}
-
-		if ctx.PAREnabled {
-			config.MTLSAliases.ParEndpoint = ctx.MTLSBaseURL() + ctx.PAREndpoint
 		}
 
 		if ctx.TokenIntrospectionEnabled {

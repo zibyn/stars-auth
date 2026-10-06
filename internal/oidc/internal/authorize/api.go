@@ -27,29 +27,6 @@ func RegisterHandlers(router *http.ServeMux, config *oidc.Configuration, middlew
 			goidc.ApplyMiddlewares(oidc.Handler(config, handlerCallback), middlewares...))
 	}
 
-	if config.PAREnabled {
-		router.Handle("POST "+config.EndpointPrefix+config.PAREndpoint,
-			goidc.ApplyMiddlewares(oidc.Handler(config, handlerPAR), middlewares...))
-	}
-
-}
-
-func handlerPAR(ctx oidc.Context) {
-	if mediaType := ctx.MediaType(); mediaType != "" && mediaType != "application/x-www-form-urlencoded" {
-		ctx.WriteError(goidc.NewError(goidc.ErrorCodeInvalidRequest, "invalid content type").WithStatusCode(http.StatusUnsupportedMediaType))
-		return
-	}
-
-	req := newFormRequest(ctx.Request)
-	resp, err := pushAuth(ctx, req)
-	if err != nil {
-		ctx.WriteError(err)
-		return
-	}
-
-	if err := ctx.Write(resp, http.StatusCreated); err != nil {
-		ctx.WriteError(err)
-	}
 }
 
 func handler(ctx oidc.Context) {

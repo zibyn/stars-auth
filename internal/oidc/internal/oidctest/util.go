@@ -162,9 +162,6 @@ func NewContext(tb testing.TB) oidc.Context {
 		PairwiseSubjectFunc: func(_ context.Context, sub string, _ *goidc.Client) string {
 			return sub
 		},
-		PARHandleSessionFunc: func(context.Context, *goidc.AuthnSession, *goidc.Client) error {
-			return nil
-		},
 		AuthTimeoutSecs: 60,
 		AuthnMethods: []goidc.AuthnMethod{
 			goidc.AuthnMethodNone,
@@ -182,14 +179,10 @@ func NewContext(tb testing.TB) oidc.Context {
 		JWKSEndpoint:               "/jwks",
 		TokenEndpoint:              "/token",
 		AuthorizationEndpoint:      "/authorize",
-		PAREndpoint:                "/par",
 		UserInfoEndpoint:           "/userinfo",
 		TokenIntrospectionEndpoint: "/introspect",
 		JWTLifetimeSecs:            600,
 		GrantIDFunc: func(context.Context) string {
-			return uuid.NewString()
-		},
-		PARIDFunc: func(context.Context) string {
 			return uuid.NewString()
 		},
 		JWTIDFunc: func(context.Context) string {

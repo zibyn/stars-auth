@@ -17,8 +17,6 @@ type Configuration struct {
 	TokenEndpoint                     string                       `json:"token_endpoint"`
 	UserInfoEndpoint                  string                       `json:"userinfo_endpoint"`
 	JWKSEndpoint                      string                       `json:"jwks_uri,omitempty"`
-	PAREndpoint                       string                       `json:"pushed_authorization_request_endpoint,omitempty"`
-	PARRequired                       bool                         `json:"require_pushed_authorization_requests,omitempty"`
 	ResponseTypes                     []ResponseType               `json:"response_types_supported,omitempty"`
 	ResponseModes                     []ResponseMode               `json:"response_modes_supported,omitempty"`
 	GrantTypes                        []GrantType                  `json:"grant_types_supported,omitempty"`
@@ -57,7 +55,6 @@ type Configuration struct {
 	TokenRevocationAuthnSigAlgs       []SignatureAlgorithm         `json:"revocation_endpoint_auth_signing_alg_values_supported,omitempty"`
 	MTLSAliases                       *struct {
 		TokenEndpoint              string `json:"token_endpoint"`
-		ParEndpoint                string `json:"pushed_authorization_request_endpoint,omitempty"`
 		UserInfoEndpoint           string `json:"userinfo_endpoint"`
 		TokenIntrospectionEndpoint string `json:"introspection_endpoint,omitempty"`
 		TokenRevocationEndpoint    string `json:"revocation_endpoint,omitempty"`
@@ -90,14 +87,6 @@ type AuthManager interface {
 	// GrantByAuthCode returns the grant associated with the authorization code.
 	// It must return [ErrNotFound] when the grant does not exist.
 	GrantByAuthCode(context.Context, string) (*Grant, error)
-}
-
-// PARManager resolves pushed authorization request sessions.
-type PARManager interface {
-	// SessionByPushedAuthReqID returns the session associated with the pushed
-	// authorization request identifier.
-	// It must return [ErrNotFound] when the session does not exist.
-	SessionByPushedAuthReqID(context.Context, string) (*AuthnSession, error)
 }
 
 // RefreshTokenManager resolves grants by refresh token.

@@ -13,7 +13,6 @@ import (
 )
 
 const (
-	parRequestURIPrefix string = "urn:ietf:params:oauth:request_uri:"
 	// formPostResponseTemplate is a HTML document intended to be used as the
 	// response mode "form_post".
 	// The parameters that are usually sent to the client via redirect will be
@@ -251,11 +250,6 @@ func newFormRequest(req *http.Request) request {
 		ClientID:                req.PostFormValue("client_id"),
 		AuthorizationParameters: params,
 	}
-}
-
-type parResponse struct {
-	RequestURI string `json:"request_uri"`
-	ExpiresIn  int    `json:"expires_in"`
 }
 
 func newAuthnSession(ctx oidc.Context, params goidc.AuthorizationParameters, c *goidc.Client) *goidc.AuthnSession {

@@ -139,20 +139,6 @@ type Configuration struct {
 	JARContentEncAlgs                    []goidc.ContentEncryptionAlgorithm
 	JARByReferenceHTTPClientFunc         goidc.HTTPClientFunc
 
-	// PAREnabled allows client to push authorization requests.
-	PAREnabled bool
-	// PARRequired indicates that authorization requests can only be made if
-	// they were pushed.
-	PARRequired          bool
-	PARManager           goidc.PARManager
-	PARIDFunc            goidc.RandomFunc
-	PAREndpoint          string
-	PARHandleSessionFunc goidc.HandleSessionFunc
-	PARLifetimeSecs      int
-	// PARUnregisteredRedirectURIEnabled indicates whether the redirect URIs
-	// informed during PAR must be previously registered or not.
-	PARUnregisteredRedirectURIEnabled bool
-
 	MTLSEnabled              bool
 	MTLSHost                 string
 	MTLSTokenBindingEnabled  bool

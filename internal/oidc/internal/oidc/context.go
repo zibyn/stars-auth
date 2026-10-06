@@ -182,10 +182,6 @@ func (ctx Context) AuthnSessionID() string {
 	return ctx.AuthSessionIDFunc(ctx)
 }
 
-func (ctx Context) PARID() string {
-	return ctx.PARIDFunc(ctx)
-}
-
 func (ctx Context) GrantID() string {
 	return ctx.GrantIDFunc(ctx)
 }
@@ -413,14 +409,6 @@ func (ctx Context) JARHTTPClient() *http.Client {
 
 func (ctx Context) PairwiseSubject(sub string, c *goidc.Client) string {
 	return ctx.PairwiseSubjectFunc(ctx, sub, c)
-}
-
-func (ctx Context) PARHandleSession(as *goidc.AuthnSession, c *goidc.Client) error {
-	return ctx.PARHandleSessionFunc(ctx, as, c)
-}
-
-func (ctx Context) PARSessionByPushedAuthReqID(id string) (*goidc.AuthnSession, error) {
-	return ctx.PARManager.SessionByPushedAuthReqID(ctx, id)
 }
 
 func (ctx Context) ClientSecret() string {

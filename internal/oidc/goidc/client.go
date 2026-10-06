@@ -67,7 +67,6 @@ type ClientMeta struct {
 	AuthDetailTypes             []AuthDetailType `json:"authorization_details_types,omitempty"`
 	DefaultMaxAgeSecs           *int             `json:"default_max_age,omitempty"`
 	DefaultACRValues            string           `json:"default_acr_values,omitempty"`
-	PARRequired                 bool             `json:"require_pushed_authorization_requests,omitempty"`
 	OrganizationName            string           `json:"organization_name,omitempty"`
 	PostLogoutRedirectURIs      []string         `json:"post_logout_redirect_uris,omitempty"`
 	DisplayName                 string           `json:"display_name,omitempty"`

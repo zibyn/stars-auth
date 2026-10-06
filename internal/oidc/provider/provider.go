@@ -104,10 +104,6 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 		return nil, errors.New("either dpop or tls binding must be enabled if sender constraining tokens is required")
 	}
 
-	if op.config.PAREnabled && !slices.Contains(op.config.GrantTypes, goidc.GrantAuthorizationCode) {
-		return nil, errors.New("par cannot be enabled without authorization code grant")
-	}
-
 	if op.config.JARByReferenceUnregisteredURIEnabled && !op.config.JARByReferenceEnabled {
 		return nil, errors.New("jar by-reference unregistered uris cannot be enabled without jar by-reference")
 	}
@@ -184,14 +180,6 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 	}
 
 	op.config.AuthnMethods = nonZeroOrDefault(op.config.AuthnMethods, []goidc.AuthnMethod{goidc.AuthnMethodSecretPost})
-
-	if op.config.PAREnabled {
-		op.config.PARManager = nonZeroOrDefault(op.config.PARManager, goidc.PARManager(inmemoryManager))
-		op.config.PARHandleSessionFunc = nonZeroOrDefault(op.config.PARHandleSessionFunc, goidc.HandleSessionFunc(defaultPARHandleSessionFunc))
-		op.config.PARIDFunc = nonZeroOrDefault(op.config.PARIDFunc, defaultPARIDFunc)
-		op.config.PAREndpoint = nonZeroOrDefault(op.config.PAREndpoint, defaultEndpointPushedAuthorizationRequest)
-		op.config.PARLifetimeSecs = nonZeroOrDefault(op.config.PARLifetimeSecs, defaultPARLifetimeSecs)
-	}
 
 	if op.config.JARMEnabled {
 		op.config.JARMLifetimeSecs = nonZeroOrDefault(op.config.JARMLifetimeSecs, defaultJWTLifetimeSecs)
@@ -276,10 +264,6 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 			return nil, errors.New("[FAPI 2.0 5.3.1] authorization_code grant must be required")
 		}
 
-		if !op.config.PARRequired {
-			return nil, errors.New("[FAPI 2.0 5.3.1] pushed authorization request must be required")
-		}
-
 		if !op.config.PKCERequired {
 			return nil, errors.New("[FAPI 2.0 5.3.1] pkce must be required")
 		}
@@ -294,9 +278,6 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 			return nil, errors.New("[FAPI 2.0 5.3.1] pkce must be enabled")
 		}
 
-		if op.config.PARLifetimeSecs > 600 {
-			return nil, errors.New("[FAPI 2.0 5.3.1] par request_uri lifetime must be less than 600 seconds")
-		}
 	}
 
 	return op, nil
@@ -398,22 +379,20 @@ func nonZeroOrDefault[T any](s1 T, s2 T) T {
 }
 
 const (
-	defaultStorageMaxSize                     = 100
-	defaultAuthnSessionTimeoutSecs            = 1800 // 30 minutes.
-	defaultIDTokenLifetimeSecs                = 600
-	defaultTokenLifetimeSecs                  = 300
-	defaultJWTLifetimeSecs                    = 600
-	defaultLogoutSessionTimeoutSecs           = 1800 // 30 minutes.
-	defaultPARLifetimeSecs                    = 60   // 1 minute.
-	defaultAuthorizationCodeLifetimeSecs      = 60
-	defaultEndpointJSONWebKeySet              = "/jwks"
-	defaultEndpointPushedAuthorizationRequest = "/par"
-	defaultEndpointAuthorize                  = "/authorize"
-	defaultEndpointToken                      = "/token"
-	defaultEndpointUserInfo                   = "/userinfo"
-	defaultEndpointTokenIntrospection         = "/introspect"
-	defaultEndpointTokenRevocation            = "/revoke"
-	defaultEndpointEndSession                 = "/logout"
+	defaultStorageMaxSize                = 100
+	defaultAuthnSessionTimeoutSecs       = 1800 // 30 minutes.
+	defaultIDTokenLifetimeSecs           = 600
+	defaultTokenLifetimeSecs             = 300
+	defaultJWTLifetimeSecs               = 600
+	defaultLogoutSessionTimeoutSecs      = 1800 // 30 minutes.
+	defaultAuthorizationCodeLifetimeSecs = 60
+	defaultEndpointJSONWebKeySet         = "/jwks"
+	defaultEndpointAuthorize             = "/authorize"
+	defaultEndpointToken                 = "/token"
+	defaultEndpointUserInfo              = "/userinfo"
+	defaultEndpointTokenIntrospection    = "/introspect"
+	defaultEndpointTokenRevocation       = "/revoke"
+	defaultEndpointEndSession            = "/logout"
 )
 
 func defaultTokenOptionsFunc(alg goidc.SignatureAlgorithm) goidc.TokenOptionsFunc {
@@ -444,10 +423,6 @@ func defaultHTTPClientFunc(_ context.Context) *http.Client {
 }
 
 func defaultAuthCodeFunc(_ context.Context) string {
-	return strutil.Random(30)
-}
-
-func defaultPARIDFunc(_ context.Context) string {
 	return strutil.Random(30)
 }
 
@@ -513,10 +488,6 @@ func defaultTokenClaimsFunc(context.Context, *goidc.Token, *goidc.Grant) map[str
 
 func defaultPairwiseSubjectFunc(_ context.Context, sub string, _ *goidc.Client) string {
 	return sub
-}
-
-func defaultPARHandleSessionFunc(context.Context, *goidc.AuthnSession, *goidc.Client) error {
-	return nil
 }
 
 func defaultGrantIDFunc(_ context.Context) string {

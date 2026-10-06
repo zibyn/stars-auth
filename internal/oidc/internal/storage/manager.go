@@ -8,7 +8,6 @@ import (
 )
 
 var _ goidc.AuthManager = &Manager{}
-var _ goidc.PARManager = &Manager{}
 var _ goidc.RefreshTokenManager = &Manager{}
 var _ goidc.GrantManager = &Manager{}
 var _ goidc.OpaqueTokenManager = &Manager{}
@@ -56,17 +55,6 @@ func (m *Manager) SaveSession(_ context.Context, as *goidc.AuthnSession) error {
 func (m *Manager) Session(_ context.Context, id string) (*goidc.AuthnSession, error) {
 	as, exists := m.firstSession(func(s *goidc.AuthnSession) bool {
 		return s.ID == id
-	})
-	if !exists {
-		return nil, goidc.ErrNotFound
-	}
-
-	return as, nil
-}
-
-func (m *Manager) SessionByPushedAuthReqID(_ context.Context, id string) (*goidc.AuthnSession, error) {
-	as, exists := m.firstSession(func(s *goidc.AuthnSession) bool {
-		return s.PushedAuthReqID == id
 	})
 	if !exists {
 		return nil, goidc.ErrNotFound

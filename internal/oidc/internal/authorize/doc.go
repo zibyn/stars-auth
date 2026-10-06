@@ -1,5 +1,5 @@
 // Package authorize handles the implementation of endpoints for authorization
-// requests and pushed authorization requests.
+// requests.
 //
 // In terms of parameter validation, the redirect URI must ALWAYS be validated
 // first.

@@ -12,35 +12,12 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/internal/dpop"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
-	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/token"
 )
 
 // validateRequest validates the parameters sent in an authorization request.
 func validateRequest(ctx oidc.Context, req request, c *goidc.Client) error {
 	return validateParams(ctx, req.AuthorizationParameters, c)
-}
-
-// validateRequestWithPAR validates the parameters in an authorization request
-// that includes a Pushed Authorization Request (PAR).
-func validateRequestWithPAR(ctx oidc.Context, req request, as *goidc.AuthnSession, c *goidc.Client) error {
-	if as.ClientID != req.ClientID {
-		return goidc.WrapError(goidc.ErrorCodeAccessDenied, "access denied", errors.New("the request_uri belongs to a different client"))
-	}
-
-	if as.Status != goidc.StatusPending {
-		return goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request", errors.New("the request_uri has already been used"))
-	}
-
-	if timeutil.TimestampNow() >= as.ExpiresAt {
-		return goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request", errors.New("the request_uri has expired"))
-	}
-
-	if ctx.PARUnregisteredRedirectURIEnabled && as.RedirectURI != "" {
-		c = clientWithRedirectURI(c, as.RedirectURI)
-	}
-
-	return validateInWithOutParams(ctx, as.AuthorizationParameters, req.AuthorizationParameters, c)
 }
 
 // validateRequestWithJAR validates the parameters in an authorization request
@@ -75,87 +52,10 @@ func validateRequestWithJAR(ctx oidc.Context, req request, jar request, client *
 	return nil
 }
 
-// validatePushedRequestWithJAR validates the parameters sent in a Pushed
-// Authorization Request (PAR) that also includes a JWT Authorization Request (JAR).
-// For FAPI, all required authorization request parameters must be present
-// within the JAR.
-// For OIDC, the JAR parameters are optional, as additional parameters can be
-// supplied later at the authorization endpoint, where they will be merged.
-// For both cases, any parameters outside the JAR are ignored.
-func validatePushedRequestWithJAR(ctx oidc.Context, req request, jar request, c *goidc.Client) error {
-	if req.RequestURI != "" {
-		return goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request", errors.New("request_uri is not allowed during PAR"))
-	}
-
-	if jar.ClientID != c.ID {
-		return goidc.WrapError(goidc.ErrorCodeInvalidRequestObject, "invalid request object", errors.New("client_id in the request object does not match the authenticated client"))
-	}
-
-	if jar.RequestObject != "" || jar.RequestURI != "" {
-		return goidc.WrapError(goidc.ErrorCodeInvalidRequestObject, "invalid request object", errors.New("nested request objects and request_uri are not allowed inside JAR"))
-	}
-
-	// The PAR RFC says:
-	// "...The rules for processing, signing, and encryption of the Request
-	// Object as defined in JAR [RFC9101] apply..."
-	// In turn, the JAR RFC says about the request object:
-	// "...It MUST contain all the parameters (including extension parameters)
-	// used to process the OAuth 2.0 [RFC6749] authorization request..."
-	req.AuthorizationParameters = jar.AuthorizationParameters
-	return validatePushedRequest(ctx, req, c)
-}
-
-func validateSimplePushedRequest(ctx oidc.Context, req request, c *goidc.Client) error {
-	return validatePushedRequest(ctx, req, c)
-}
-
-// validatePushedRequest validates the parameters sent in a Pushed Authorization
-// Request (PAR).
-// In the context of FAPI, all required parameters for the authorization
-// request must be included during PAR.
-// For OpenID Connect, however, the parameters sent during the PAR are considered
-// optional, as any missing parameters can be provided later at the authorization
-// endpoint, where they will be merged.
-func validatePushedRequest(ctx oidc.Context, req request, c *goidc.Client) error {
-	if req.RequestURI != "" {
-		return goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request", errors.New("request_uri is not allowed during PAR"))
-	}
-
-	if ctx.PARUnregisteredRedirectURIEnabled && req.RedirectURI != "" {
-		c = clientWithRedirectURI(c, req.RedirectURI)
-	}
-
-	if ctx.Profile.IsFAPI() {
-		if err := validateParams(ctx, req.AuthorizationParameters, c); err != nil {
-			return err
-		}
-	} else {
-		if err := validateParamsAsOptionals(ctx, req.AuthorizationParameters, c); err != nil {
-			return err
-		}
-	}
-
-	if ctx.Profile == goidc.ProfileFAPI1 {
-		if c.TokenAuthnMethod == goidc.AuthnMethodNone {
-			return goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client", errors.New("public clients are not allowed to use pushed authorization requests"))
-		}
-
-		if ctx.PKCEEnabled && req.CodeChallenge == "" {
-			return goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request", errors.New("code_challenge is required for PAR in this profile"))
-		}
-	}
-
-	if err := validateCodeBindingDPoP(ctx, req.AuthorizationParameters); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // -------------------------------------------------- Helper Functions -------------------------------------------------- //
 
 // validateInWithOutParams validates the combination of inner parameters, those
-// sent during PAR or inside a request object during JAR, and outter parameters,
+// sent inside a request object during JAR, and outter parameters,
 // those sent during the authorization request as query parameters.
 // The inner parameters take priority over the outter ones.
 func validateInWithOutParams(ctx oidc.Context, inParams goidc.AuthorizationParameters, outParams goidc.AuthorizationParameters, c *goidc.Client) error {
@@ -248,7 +148,7 @@ func validateParams(ctx oidc.Context, params goidc.AuthorizationParameters, c *g
 
 // validateParamsAsOptionals validates the parameters of an authorization
 // request considering them as optional.
-// This validation is meant to be shared during PAR and authorization requests.
+// This validation is meant to be shared by all authorization requests.
 // The redirect URI is ALWAYS validated before any other validations, since
 // it determines when or not to redirect errors.
 func validateParamsAsOptionals(ctx oidc.Context, params goidc.AuthorizationParameters, c *goidc.Client) error {
@@ -332,7 +232,7 @@ func validateRedirectURIAsOptional(_ oidc.Context, params goidc.AuthorizationPar
 }
 
 func validateRequestURIAsOptional(ctx oidc.Context, params goidc.AuthorizationParameters, c *goidc.Client) error {
-	if params.RequestURI == "" || strings.HasPrefix(params.RequestURI, parRequestURIPrefix) {
+	if params.RequestURI == "" {
 		return nil
 	}
 

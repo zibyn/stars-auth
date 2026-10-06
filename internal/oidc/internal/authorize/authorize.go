@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
-	"strings"
 
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
@@ -34,41 +33,8 @@ func initAuth(ctx oidc.Context, req request) error {
 	}
 
 	as, err := func() (*goidc.AuthnSession, error) {
-		par := ctx.PAREnabled && (ctx.PARRequired || c.PARRequired || strings.HasPrefix(req.RequestURI, parRequestURIPrefix))
-		if par {
-			if req.RequestURI == "" {
-				return nil, goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request", errors.New("request_uri is required"))
-			}
 
-			as, err := ctx.PARSessionByPushedAuthReqID(strings.TrimPrefix(req.RequestURI, parRequestURIPrefix))
-			if err != nil {
-				if errors.Is(err, goidc.ErrNotFound) {
-					return nil, goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request", errors.New("the pushed authorization request identified by request_uri was not found"))
-				}
-				return nil, fmt.Errorf("could not load the pushed authorization request session: %w", err)
-			}
-
-			if err := validateRequestWithPAR(ctx, req, as, c); err != nil {
-				as.Status = goidc.StatusFailure
-				// If any of the parameters is invalid, we fail the session right away.
-				if saveErr := ctx.AuthSaveSession(as); saveErr != nil {
-					return nil, fmt.Errorf("could not save the invalid pushed authorization request session: %w", saveErr)
-				}
-				return nil, err
-			}
-
-			// For FAPI, only the parameters sent during PAR are considered.
-			if ctx.Profile.IsFAPI() {
-				return as, nil
-			}
-
-			// For OIDC, the parameters sent in the authorization endpoint are merged
-			// with the ones sent during PAR.
-			as.AuthorizationParameters = mergeParams(as.AuthorizationParameters, req.AuthorizationParameters)
-			return as, nil
-		}
-
-		// The jar requirement comes after the par one, because the client may have sent the jar during par.
+		// JAR applies when required or when the request carries a request object.
 		jar := ctx.JAREnabled && (ctx.JARRequired || c.JARRequired || req.RequestObject != "" || (ctx.JARByReferenceEnabled && req.RequestURI != ""))
 		if jar {
 			var jar request
@@ -207,7 +173,7 @@ func authenticate(ctx oidc.Context, as *goidc.AuthnSession, c *goidc.Client) err
 				if !ctx.DPoPEnabled {
 					return ""
 				}
-				// Default to the JWK thumbprint stored in the session (e.g., from a previous PAR).
+				// Default to the JWK thumbprint stored in the session.
 				// If not available, fallback to the thumbprint provided via the dpop_jkt parameter.
 				if as.JWKThumbprint != "" {
 					return as.JWKThumbprint
