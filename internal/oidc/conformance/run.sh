@@ -30,7 +30,7 @@ wait_for() { # url
 
 op=
 cleanup() {
-  [ -n "$op" ] && kill "$op"
+  [ -n "$op" ] && kill "$op" 2>/dev/null
   "${compose[@]}" logs server > "$out/suite.log" 2>&1 || true
   "${compose[@]}" down
 }

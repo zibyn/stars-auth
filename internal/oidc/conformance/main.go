@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/zibyn/stars-auth/internal/oidc/conformance/authutil"
@@ -100,13 +101,23 @@ func main() {
 // client_secret_basic clients and one client_secret_post client.
 func clients() []*goidc.Client {
 	const cb = "https://localhost.emobix.co.uk:8443/test/a/goidc/"
+	scopes := make([]string, len(authutil.Scopes))
+	for i, s := range authutil.Scopes {
+		scopes[i] = s.ID
+	}
 	c := func(id string, m goidc.AuthnMethod) *goidc.Client {
-		c, _ := authutil.Client(id)
-		c.Secret = id + "_secret"
-		c.TokenAuthnMethod = m
-		c.RedirectURIs = []string{cb + "callback"}
-		c.PostLogoutRedirectURIs = []string{cb + "post_logout_redirect"}
-		return c
+		return &goidc.Client{
+			ID:     id,
+			Secret: id + "_secret",
+			ClientMeta: goidc.ClientMeta{
+				TokenAuthnMethod:       m,
+				ScopeIDs:               strings.Join(scopes, " "),
+				GrantTypes:             []goidc.GrantType{goidc.GrantAuthorizationCode, goidc.GrantRefreshToken},
+				ResponseTypes:          []goidc.ResponseType{goidc.ResponseTypeCode},
+				RedirectURIs:           []string{cb + "callback"},
+				PostLogoutRedirectURIs: []string{cb + "post_logout_redirect"},
+			},
+		}
 	}
 	return []*goidc.Client{
 		c("client_one", goidc.AuthnMethodSecretBasic),
