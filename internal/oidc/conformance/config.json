@@ -112,6 +112,22 @@
                 }
             ]
         },
+        "oidcc-unsigned-request-object-supported-correctly-or-rejected-as-unsupported": {
+            "browser": [
+                {
+                    "match": "https://auth.localhost*/authorize*",
+                    "tasks": [
+                        {
+                            "task": "Expect request_not_supported",
+                            "match": "https://localhost.emobix.co.uk:8443/test/a/goidc/callback*",
+                            "commands": [
+                                ["wait", "id", "submission_complete", 10]
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
         "oidcc-response-type-missing": {
             "browser": [
                 {
