@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/zibyn/stars-auth/internal/oidc/conformance/ui"
-	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
 )
 
 func Policy() goidc.AuthnPolicy {

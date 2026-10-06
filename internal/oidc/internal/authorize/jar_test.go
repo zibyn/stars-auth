@@ -8,11 +8,11 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/joseutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidctest"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 func TestJARFromRequestObject(t *testing.T) {

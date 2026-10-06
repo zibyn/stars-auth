@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/authorize"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/dcr"
@@ -29,7 +30,6 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/internal/token"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/userinfo"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/vc"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 type Provider struct {

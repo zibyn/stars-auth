@@ -5,11 +5,11 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidctest"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 func TestRevoke(t *testing.T) {

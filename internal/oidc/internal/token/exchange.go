@@ -6,9 +6,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 func generateExchangeToken(ctx oidc.Context, req request) (response, error) {

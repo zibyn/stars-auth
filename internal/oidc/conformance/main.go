@@ -1,8 +1,9 @@
-// Example oidc demonstrates the implementation of an Authorization Server
-// that complies with the OpenID Connect specifications.
+// Command conformance runs the OP that the OpenID conformance suite tests in
+// CI (see run.sh). Login and consent pages are test fixtures, not product UI.
 package main
 
 import (
+	"cmp"
 	"crypto/tls"
 	"log"
 	"net/http"
@@ -54,9 +55,7 @@ func main() {
 		provider.WithRefreshTokenGrant(nil),
 		provider.WithClaims(authutil.Claims...),
 		provider.WithACRs(authutil.ACRs...),
-		provider.WithDCR(nil,
-			provider.WithDCRClientHandler(authutil.DCRFunc),
-		),
+		provider.WithStaticClients(clients()...),
 		provider.WithTokenOptions(authutil.TokenOptionsFunc(goidc.SigAlgRS256)),
 		provider.WithIDTokenClaims(authutil.IDTokenClaimsFunc()),
 		provider.WithUserInfoClaims(authutil.UserInfoClaimsFunc()),
@@ -84,7 +83,7 @@ func main() {
 	mux.Handle(hostURL.Hostname()+"/", handler)
 
 	server := &http.Server{
-		Addr:              authutil.Port,
+		Addr:              ":" + cmp.Or(hostURL.Port(), "443"),
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		TLSConfig: &tls.Config{
@@ -94,5 +93,24 @@ func main() {
 	}
 	if err := server.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
+	}
+}
+
+// clients are the static clients config.json names: the suite needs two
+// client_secret_basic clients and one client_secret_post client.
+func clients() []*goidc.Client {
+	const cb = "https://localhost.emobix.co.uk:8443/test/a/goidc/"
+	c := func(id string, m goidc.AuthnMethod) *goidc.Client {
+		c, _ := authutil.Client(id)
+		c.Secret = id + "_secret"
+		c.TokenAuthnMethod = m
+		c.RedirectURIs = []string{cb + "callback"}
+		c.PostLogoutRedirectURIs = []string{cb + "post_logout_redirect"}
+		return c
+	}
+	return []*goidc.Client{
+		c("client_one", goidc.AuthnMethodSecretBasic),
+		c("client_two", goidc.AuthnMethodSecretBasic),
+		c("client_three", goidc.AuthnMethodSecretPost),
 	}
 }

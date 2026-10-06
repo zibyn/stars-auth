@@ -6,10 +6,10 @@ import (
 	"slices"
 
 	"github.com/go-jose/go-jose/v4"
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 func registerEntityConfiguration(ctx oidc.Context, signedStatement string) (string, error) {

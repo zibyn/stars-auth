@@ -1,2 +1,4 @@
 .claude/worktrees/
 .env
+/conformance-suite/
+/conformance-results/

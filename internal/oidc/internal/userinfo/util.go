@@ -6,12 +6,12 @@ import (
 	"maps"
 	"slices"
 
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/joseutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/token"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 func handleUserInfoRequest(ctx oidc.Context) (response, error) {

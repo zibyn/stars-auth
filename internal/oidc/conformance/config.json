@@ -4,10 +4,16 @@
         "discoveryUrl": "https://auth.localhost/.well-known/openid-configuration"
     },
     "client": {
-        "client_name": "client_one"
+        "client_id": "client_one",
+        "client_secret": "client_one_secret"
     },
     "client2": {
-        "client_name": "client_two"
+        "client_id": "client_two",
+        "client_secret": "client_two_secret"
+    },
+    "client_secret_post": {
+        "client_id": "client_three",
+        "client_secret": "client_three_secret"
     },
     "browser_verbose": true,
     "browser": [

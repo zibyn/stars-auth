@@ -5,10 +5,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/hashutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidctest"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 func TestValidatePKCE(t *testing.T) {

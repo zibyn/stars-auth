@@ -3,8 +3,8 @@ package discovery
 import (
 	"slices"
 
-	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 )
 
 func NewConfiguration(ctx oidc.Context) goidc.Configuration {

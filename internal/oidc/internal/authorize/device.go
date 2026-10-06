@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/token"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 type deviceResponse struct {

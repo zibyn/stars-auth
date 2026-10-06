@@ -8,13 +8,13 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/dpop"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/token"
 	vcutil "github.com/zibyn/stars-auth/internal/oidc/internal/vc/util"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 // validateRequest validates the parameters sent in an authorization request.

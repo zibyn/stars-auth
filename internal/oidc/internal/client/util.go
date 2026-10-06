@@ -8,9 +8,9 @@ import (
 	"net/http"
 
 	"github.com/go-jose/go-jose/v4/jwt"
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 func Client(ctx oidc.Context, id string) (*goidc.Client, error) {

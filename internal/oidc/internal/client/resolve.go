@@ -10,9 +10,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 const (

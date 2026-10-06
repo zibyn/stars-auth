@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/dpop"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/federation"
@@ -12,7 +13,6 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 func pushAuth(ctx oidc.Context, req request) (parResponse, error) {

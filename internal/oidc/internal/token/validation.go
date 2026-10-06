@@ -6,10 +6,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/dpop"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/hashutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 // ValidateBinding checks both DPoP and TLS binding for issuing a token.

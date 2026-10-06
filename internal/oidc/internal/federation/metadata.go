@@ -1,8 +1,8 @@
 package federation
 
 import (
-	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
 )
 
 type metadata struct {

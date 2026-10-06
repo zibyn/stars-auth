@@ -1,0 +1,37 @@
+name: conformance
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  oidc:
+    runs-on: ubuntu-latest
+    env:
+      CS_VERSION: v5.1.45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/cache@v5
+        id: cache-cs
+        with:
+          path: conformance-suite
+          key: cs-${{ env.CS_VERSION }}
+      - name: Build conformance suite
+        if: steps.cache-cs.outputs.cache-hit != 'true'
+        run: |
+          git clone --branch "release-$CS_VERSION" --single-branch --depth=1 https://gitlab.com/openid/conformance-suite.git
+          docker run --rm -v ./conformance-suite:/usr/src/mymaven -w /usr/src/mymaven maven:3-eclipse-temurin-21 mvn -B clean package -DskipTests=true
+      # The issuer is https://auth.localhost, so the harness binds 443.
+      - run: sudo sysctl -w net.ipv4.ip_unprivileged_port_start=443
+      - run: internal/oidc/conformance/run.sh
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: conformance-results
+          path: |
+            conformance-results/*.zip
+            conformance-results/*.log

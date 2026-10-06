@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-jose/go-jose/v4/jwt"
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/dpop"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/hashutil"
@@ -14,7 +15,6 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/internal/strutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/token"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 // initBackAuth inits an authentication session for CIBA.

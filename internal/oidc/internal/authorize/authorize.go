@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/federation"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
@@ -14,7 +15,6 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/token"
 	vcutil "github.com/zibyn/stars-auth/internal/oidc/internal/vc/util"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 func initAuth(ctx oidc.Context, req request) error {

@@ -3,8 +3,8 @@ package federation
 import (
 	"testing"
 
-	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
 )
 
 func TestMetadata_Merge_SubordinateHasNoClientMetadata(t *testing.T) {

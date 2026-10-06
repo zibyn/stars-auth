@@ -9,8 +9,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
+	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 )
 
 func RegisterHandlers(router *http.ServeMux, config *oidc.Configuration, middlewares ...goidc.MiddlewareFunc) {

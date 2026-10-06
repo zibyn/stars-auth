@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/client"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidctest"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 func TestMetadataPolicy_Validate(t *testing.T) {

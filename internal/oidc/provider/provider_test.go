@@ -8,11 +8,11 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidctest"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/storage"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 func TestNew(t *testing.T) {
@@ -87,41 +87,41 @@ func TestNew(t *testing.T) {
 			setup: func() (Config, []Option) {
 				manager := storage.NewManager(100)
 				return Config{
-						Issuer:      issuer,
-						JWKS:        jwksFunc,
-						IDTokenAlgs: []goidc.SignatureAlgorithm{goidc.SigAlgRS256},
-					}, []Option{
-						WithAuthCodeGrant(AuthCodeGrantConfig{
-							Manager: manager,
-							ResponseTypes: []goidc.ResponseType{goidc.ResponseTypeCode, goidc.ResponseTypeToken,
-								goidc.ResponseTypeIDToken, goidc.ResponseTypeIDTokenAndToken, goidc.ResponseTypeCodeAndIDToken,
-								goidc.ResponseTypeCodeAndToken, goidc.ResponseTypeCodeAndIDTokenAndToken},
-						},
-							WithPAR(manager),
-							WithJAR([]goidc.SignatureAlgorithm{goidc.SigAlgRS256}, WithJAREncryption(
-								[]goidc.KeyEncryptionAlgorithm{goidc.KeyEncRSAOAEP},
-								[]goidc.ContentEncryptionAlgorithm{goidc.ContentEncAlgA128CBCHS256},
-							)),
-							WithJARM([]goidc.SignatureAlgorithm{goidc.SigAlgRS256}),
-							WithFormPostResponseMode(),
-						),
-						WithCIBAGrant(CIBAGrantConfig{
-							Manager:       manager,
-							DeliveryModes: []goidc.CIBATokenDeliveryMode{goidc.CIBADeliveryModePoll},
-						},
-							WithCIBASessionHandler(nil),
-						),
-						WithPrivateKeyJWTAuthn(goidc.SigAlgRS256),
-						WithSecretJWTAuthn(goidc.SigAlgHS256),
-						WithDCR(manager),
-						WithTokenIntrospection(nil),
-						WithTokenRevocation(nil),
-						WithUserInfoSignatureAlgs(goidc.SigAlgPS256),
-						WithUserInfoEncryption(
+					Issuer:      issuer,
+					JWKS:        jwksFunc,
+					IDTokenAlgs: []goidc.SignatureAlgorithm{goidc.SigAlgRS256},
+				}, []Option{
+					WithAuthCodeGrant(AuthCodeGrantConfig{
+						Manager: manager,
+						ResponseTypes: []goidc.ResponseType{goidc.ResponseTypeCode, goidc.ResponseTypeToken,
+							goidc.ResponseTypeIDToken, goidc.ResponseTypeIDTokenAndToken, goidc.ResponseTypeCodeAndIDToken,
+							goidc.ResponseTypeCodeAndToken, goidc.ResponseTypeCodeAndIDTokenAndToken},
+					},
+						WithPAR(manager),
+						WithJAR([]goidc.SignatureAlgorithm{goidc.SigAlgRS256}, WithJAREncryption(
 							[]goidc.KeyEncryptionAlgorithm{goidc.KeyEncRSAOAEP},
 							[]goidc.ContentEncryptionAlgorithm{goidc.ContentEncAlgA128CBCHS256},
-						),
-					}
+						)),
+						WithJARM([]goidc.SignatureAlgorithm{goidc.SigAlgRS256}),
+						WithFormPostResponseMode(),
+					),
+					WithCIBAGrant(CIBAGrantConfig{
+						Manager:       manager,
+						DeliveryModes: []goidc.CIBATokenDeliveryMode{goidc.CIBADeliveryModePoll},
+					},
+						WithCIBASessionHandler(nil),
+					),
+					WithPrivateKeyJWTAuthn(goidc.SigAlgRS256),
+					WithSecretJWTAuthn(goidc.SigAlgHS256),
+					WithDCR(manager),
+					WithTokenIntrospection(nil),
+					WithTokenRevocation(nil),
+					WithUserInfoSignatureAlgs(goidc.SigAlgPS256),
+					WithUserInfoEncryption(
+						[]goidc.KeyEncryptionAlgorithm{goidc.KeyEncRSAOAEP},
+						[]goidc.ContentEncryptionAlgorithm{goidc.ContentEncAlgA128CBCHS256},
+					),
+				}
 			},
 			want: oidc.Configuration{
 				Profile:                  goidc.ProfileOpenID,

@@ -3,6 +3,7 @@
 package authutil
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -13,6 +14,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 
@@ -22,9 +24,10 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
+// Issuer is overridable so the harness can run where port 443 is not bindable.
+var Issuer = cmp.Or(os.Getenv("ISSUER"), "https://auth.localhost")
+
 const (
-	Port                     string = ":443"
-	Issuer                   string = "https://auth.localhost"
 	MTLSHost                 string = "https://matls-auth.localhost"
 	headerXFAPIInteractionID        = "X-Fapi-Interaction-Id"
 )

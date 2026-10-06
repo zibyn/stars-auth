@@ -8,9 +8,9 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidctest"
-	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 func TestGenerateClientCredentialsToken(t *testing.T) {
