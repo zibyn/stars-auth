@@ -57,5 +57,9 @@ _Avoid_: 社交登录, IdP, 第三方登录, 认证服务商
 _Avoid_: 权限点, scope, 授权
 
 **Role**:
-某个 API 上一组 Permission 的命名集合,分配给 User;一个 User 在同一 API 上可持有多个 Role。Stars Auth 自己的管理端也是一个内置 API,带有内置 Role。
+某个 API 上一组 Permission 的命名集合,分配给 User 或 confidential Application;同一 API 上可持有多个 Role。
 _Avoid_: 用户组, 身份, 职位
+
+**Management API**:
+Stars Auth 自带的内置 API,管理 User、Application、Role 与配置;管理端界面和业务后端都通过它操作,权限由其上的内置 Role(所有者、管理员、只读)或自定义 Role 决定。
+_Avoid_: 管理端 API, Admin API, 后台接口
