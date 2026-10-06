@@ -6,6 +6,16 @@ services:
   # CS_DIR is the built conformance-suite checkout (see run.sh).
   mongodb:
     image: mongo:6.0.13
+  # The harness OP's database (internal/oidcstore).
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_PASSWORD: pg
+    ports:
+     - "127.0.0.1:55433:5432"
+    healthcheck:
+      test: [CMD, pg_isready, -U, postgres]
+      interval: 2s
   nginx:
     build:
       context: ${CS_DIR:?}/nginx

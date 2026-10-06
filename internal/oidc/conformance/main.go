@@ -1,26 +1,63 @@
 // Command conformance runs the OP that the OpenID conformance suite tests in
-// CI (see run.sh). Login and consent pages are test fixtures, not product UI.
+// CI (see run.sh), with the production PG storage and signing keys. Login and
+// consent pages are test fixtures, not product UI.
 package main
 
 import (
+	"bytes"
 	"cmp"
+	"context"
 	"crypto/tls"
+	"errors"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/zibyn/stars-auth/internal/crypt"
+	"github.com/zibyn/stars-auth/internal/db"
 	"github.com/zibyn/stars-auth/internal/oidc/conformance/authutil"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidc/provider"
+	"github.com/zibyn/stars-auth/internal/oidcstore"
 )
 
 func main() {
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := db.Migrate(ctx, pool); err != nil {
+		log.Fatal(err)
+	}
+	// A fixed test master key: the conformance database is thrown away.
+	keyring, err := crypt.NewKeyring(1, map[byte][]byte{1: bytes.Repeat([]byte{1}, 32)})
+	if err != nil {
+		log.Fatal(err)
+	}
+	keys := oidcstore.NewKeys(pool, keyring)
+	if err := keys.Ensure(ctx); err != nil {
+		log.Fatal(err)
+	}
+	store := oidcstore.New(pool, keyring)
+	scopes := make([]string, len(authutil.Scopes))
+	for i, s := range authutil.Scopes {
+		scopes[i] = s.ID
+	}
+	store.Scopes = strings.Join(scopes, " ")
+	if err := createClients(ctx, pool, store); err != nil {
+		log.Fatal(err)
+	}
+
 	op, err := provider.New(
 		provider.Config{
 			Issuer:      authutil.Issuer,
-			JWKS:        authutil.PrivateJWKSFunc(),
+			Manager:     store,
+			JWKS:        keys.JWKS,
 			IDTokenAlgs: []goidc.SignatureAlgorithm{goidc.SigAlgRS256, goidc.SigAlgNone},
 		},
 		provider.WithScopes(authutil.Scopes...),
@@ -30,6 +67,7 @@ func main() {
 		provider.WithPrivateKeyJWTAuthn(goidc.SigAlgRS256),
 		provider.WithAuthCodeGrant(
 			provider.AuthCodeGrantConfig{
+				Manager: store,
 				ResponseTypes: []goidc.ResponseType{
 					goidc.ResponseTypeCode,
 					goidc.ResponseTypeIDToken,
@@ -46,10 +84,11 @@ func main() {
 			provider.WithFormPostResponseMode(),
 			provider.WithAuthPolicies(authutil.Policy()),
 		),
-		provider.WithRefreshTokenGrant(nil),
+		provider.WithRefreshTokenGrant(store),
 		provider.WithClaims(authutil.Claims...),
 		provider.WithACRs(authutil.ACRs...),
-		provider.WithStaticClients(clients()...),
+		provider.WithClientManager(store),
+		provider.WithClientSecretVerifier(oidcstore.VerifyClientSecret),
 		provider.WithTokenOptions(authutil.TokenOptionsFunc(goidc.SigAlgRS256)),
 		provider.WithIDTokenClaims(authutil.IDTokenClaimsFunc()),
 		provider.WithUserInfoClaims(authutil.UserInfoClaimsFunc()),
@@ -62,6 +101,7 @@ func main() {
 			provider.WithPairwiseSubjectFunc(authutil.PairwiseSubjectFunc()),
 		),
 		provider.WithLogout(provider.LogoutConfig{
+			Manager:    store,
 			HandleFunc: authutil.HandleLogout(),
 		}, provider.WithLogoutPolicies(authutil.LogoutPolicy())),
 	)
@@ -90,32 +130,26 @@ func main() {
 	}
 }
 
-// clients are the static clients config.json names: the suite needs two
-// client_secret_basic clients and one client_secret_post client.
-func clients() []*goidc.Client {
+// createClients registers the Applications config.json names: two for the
+// client_secret_basic tests and one for client_secret_post.
+func createClients(ctx context.Context, pool *pgxpool.Pool, store *oidcstore.Store) error {
 	const cb = "https://localhost.emobix.co.uk:8443/test/a/goidc/"
-	scopes := make([]string, len(authutil.Scopes))
-	for i, s := range authutil.Scopes {
-		scopes[i] = s.ID
-	}
-	c := func(id string, m goidc.AuthnMethod) *goidc.Client {
-		return &goidc.Client{
-			ID: id,
+	for _, id := range []string{"client_one", "client_two", "client_three"} {
+		if _, err := store.Client(ctx, id); err == nil {
+			continue
+		} else if !errors.Is(err, goidc.ErrNotFound) {
+			return err
+		}
+		if err := oidcstore.CreateApplication(ctx, pool, oidcstore.Application{
+			ClientID: id,
+			Name:     id,
 			// 32+ bytes: the suite derives HS256 keys from it.
-			Secret: id + "_secret_0123456789abcdefghijklmnopqrstuvwxyz",
-			ClientMeta: goidc.ClientMeta{
-				TokenAuthnMethod:       m,
-				ScopeIDs:               strings.Join(scopes, " "),
-				GrantTypes:             []goidc.GrantType{goidc.GrantAuthorizationCode, goidc.GrantRefreshToken},
-				ResponseTypes:          []goidc.ResponseType{goidc.ResponseTypeCode},
-				RedirectURIs:           []string{cb + "callback"},
-				PostLogoutRedirectURIs: []string{cb + "post_logout_redirect"},
-			},
+			Secret:                 id + "_secret_0123456789abcdefghijklmnopqrstuvwxyz",
+			RedirectURIs:           []string{cb + "callback"},
+			PostLogoutRedirectURIs: []string{cb + "post_logout_redirect"},
+		}); err != nil {
+			return err
 		}
 	}
-	return []*goidc.Client{
-		c("client_one", goidc.AuthnMethodSecretBasic),
-		c("client_two", goidc.AuthnMethodSecretBasic),
-		c("client_three", goidc.AuthnMethodSecretPost),
-	}
+	return nil
 }

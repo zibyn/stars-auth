@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Runs the Basic OP, Config OP and RP-Initiated Logout conformance plans
-# against the harness OP. Used by CI and for local regression runs.
+# against the harness OP (PG-backed, see compose.yaml). Used by CI and for
+# local regression runs.
 #
 #   CS_DIR   built conformance-suite checkout (default ./conformance-suite):
 #            git clone --branch release-v5.1.45 --depth=1 https://gitlab.com/openid/conformance-suite.git
@@ -36,9 +37,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-"${compose[@]}" up -d --build
+"${compose[@]}" up -d --build --wait
 (cd "$root" && go build -o "$out/op" ./internal/oidc/conformance)
-"$out/op" > "$out/op.log" 2>&1 &
+DATABASE_URL=postgres://postgres:pg@127.0.0.1:55433/postgres "$out/op" > "$out/op.log" 2>&1 &
 op=$!
 wait_for https://localhost:8443/api/runner/available
 wait_for "$ISSUER/.well-known/openid-configuration"

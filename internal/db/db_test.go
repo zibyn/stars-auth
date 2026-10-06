@@ -2,49 +2,15 @@ package db
 
 import (
 	"context"
-	"os"
 	"testing"
 	"testing/fstest"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/zibyn/stars-auth/internal/db/dbtest"
 	"golang.org/x/sync/errgroup"
 )
 
-// freshDB creates an empty database on STARS_AUTH_TEST_DATABASE_URL's server.
-func freshDB(t *testing.T) *pgxpool.Pool {
-	url := os.Getenv("STARS_AUTH_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("STARS_AUTH_TEST_DATABASE_URL not set")
-	}
-	ctx := context.Background()
-	admin, err := pgx.Connect(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer admin.Close(ctx) //nolint:errcheck
-	name := pgx.Identifier{"t_" + t.Name()}.Sanitize()
-	if _, err := admin.Exec(ctx, "DROP DATABASE IF EXISTS "+name+" WITH (FORCE)"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := pgxpool.ParseConfig(url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.ConnConfig.Database = "t_" + t.Name()
-	pool, err := pgxpool.NewWithConfig(ctx, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	return pool
-}
-
 func TestMigrateConcurrentReplicas(t *testing.T) {
-	pool := freshDB(t)
+	pool := dbtest.Fresh(t)
 	ctx := context.Background()
 
 	// Upgrade an already-migrated database (a fresh one is accidentally
@@ -73,7 +39,7 @@ func TestMigrateConcurrentReplicas(t *testing.T) {
 }
 
 func TestMigrateEmbedded(t *testing.T) {
-	pool := freshDB(t)
+	pool := dbtest.Fresh(t)
 	if err := Migrate(context.Background(), pool); err != nil {
 		t.Fatal(err)
 	}

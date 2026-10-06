@@ -6,7 +6,6 @@ import (
 	"cmp"
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -14,7 +13,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"strings"
 
 	"github.com/zibyn/stars-auth/internal/oidc/conformance/keys"
 	"github.com/zibyn/stars-auth/internal/oidc/conformance/ui"
@@ -40,85 +38,6 @@ var (
 var (
 	errLogoutCancelled error = errors.New("logout cancelled by the user")
 )
-
-func ClientPrivateKeyJWT(id string) (*goidc.Client, goidc.JSONWebKeySet) {
-	client, jwks := Client(id)
-	client.TokenAuthnMethod = goidc.AuthnMethodPrivateKeyJWT
-	return client, jwks
-}
-
-func ClientSecretPost(id, secret string, scopes ...goidc.Scope) *goidc.Client {
-	client, _ := Client(id, scopes...)
-	client.TokenAuthnMethod = goidc.AuthnMethodSecretPost
-	client.Secret = secret
-	return client
-}
-
-func Client(id string, scopes ...goidc.Scope) (*goidc.Client, goidc.JSONWebKeySet) {
-	// Extract the public client JWKS.
-	jwks := privateJWKS(id)
-
-	// Extract scopes IDs.
-	scopes = append(scopes, Scopes...)
-	scopesIDs := make([]string, len(scopes))
-	for i, scope := range scopes {
-		scopesIDs[i] = scope.ID
-	}
-
-	publicJWKS := jwks.Public()
-	return &goidc.Client{
-		ID: id,
-		ClientMeta: goidc.ClientMeta{
-			ScopeIDs: strings.Join(scopesIDs, " "),
-			JWKS:     &publicJWKS,
-			GrantTypes: []goidc.GrantType{
-				goidc.GrantAuthorizationCode,
-				goidc.GrantRefreshToken,
-				goidc.GrantImplicit,
-				goidc.GrantClientCredentials,
-			},
-			ResponseTypes: []goidc.ResponseType{
-				goidc.ResponseTypeCode,
-				goidc.ResponseTypeCodeAndIDToken,
-			},
-			RedirectURIs: []string{
-				"https://localhost/callback",
-				"https://localhost.emobix.co.uk:8443/test/a/goidc/callback",
-				"https://localhost.emobix.co.uk:8443/test/a/goidc/callback?dummy1=lorem&dummy2=ipsum",
-			},
-		},
-	}, jwks
-}
-
-func PrivateJWKSFunc() goidc.JWKSFunc {
-	jwksBytes, err := keys.FS.ReadFile("server.jwks")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var jwks goidc.JSONWebKeySet
-	if err := json.Unmarshal(jwksBytes, &jwks); err != nil {
-		log.Fatal(err)
-	}
-
-	return func(ctx context.Context) (goidc.JSONWebKeySet, error) {
-		return jwks, nil
-	}
-}
-
-func privateJWKS(clientID string) goidc.JSONWebKeySet {
-	jwksBytes, err := keys.FS.ReadFile(clientID + ".jwks")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var jwks goidc.JSONWebKeySet
-	if err := json.Unmarshal(jwksBytes, &jwks); err != nil {
-		log.Fatal(err)
-	}
-
-	return jwks
-}
 
 func ServerCert() tls.Certificate {
 	certBytes, err := keys.FS.ReadFile("server.crt")
