@@ -22,7 +22,6 @@ type Token struct {
 	Resources      Resources          `json:"resources,omitempty"`
 	JWKThumbprint  string             `json:"jwk_thumbprint,omitempty"`
 	CertThumbprint string             `json:"cert_thumbprint,omitempty"`
-	Actor          *Actor             `json:"act,omitempty"`
 }
 
 // LifetimeSecs returns the token's total lifetime in seconds.

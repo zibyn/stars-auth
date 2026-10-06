@@ -23,7 +23,6 @@ type GrantOptions struct {
 	AuthCodeExpiresAt    int
 	JWKThumbprint        string
 	ClientCertThumbprint string
-	Actor                *goidc.Actor
 	AuthParams           goidc.AuthorizationParameters
 	Store                map[string]any
 }
@@ -36,7 +35,6 @@ func NewGrant(ctx oidc.Context, c *goidc.Client, opts GrantOptions) (*goidc.Gran
 		Subject:           opts.Subject,
 		Username:          opts.Username,
 		ClientID:          opts.ClientID,
-		Actor:             opts.Actor,
 		Scopes:            opts.Scopes,
 		Store:             opts.Store,
 		JWKThumbprint:     opts.JWKThumbprint,
@@ -91,42 +89,18 @@ type request struct {
 	resources    goidc.Resources
 	authDetails  []goidc.AuthDetail
 	assertion    string
-	// audience is the logical name of the target service where the client
-	// intends to use the requested security token.
-	// Multiple audience values indicate the token is intended for multiple
-	// audiences.
-	audience []string
-	// requestedTokenType is an identifier for the type of the requested security token.
-	requestedTokenType goidc.TokenTypeIdentifier
-	// subjectToken is a security token that represents the identity of the
-	// party on behalf of whom the request is being made.
-	subjectToken string
-	// subjectTokenType is an identifier that indicates the type of the security
-	// token in the "subject_token" parameter.
-	subjectTokenType goidc.TokenTypeIdentifier
-	// actorToken is a security token that represents the identity of the acting party.
-	actorToken string
-	// actorTokenType is an identifier that indicates the type of the security
-	// token in the "actor_token" parameter.
-	actorTokenType goidc.TokenTypeIdentifier
 }
 
 func newRequest(r *http.Request) request {
 	req := request{
-		grantType:          goidc.GrantType(r.PostFormValue("grant_type")),
-		scopes:             r.PostFormValue("scope"),
-		code:               r.PostFormValue("code"),
-		redirectURI:        r.PostFormValue("redirect_uri"),
-		refreshToken:       r.PostFormValue("refresh_token"),
-		codeVerifier:       r.PostFormValue("code_verifier"),
-		resources:          r.PostForm["resource"],
-		assertion:          r.PostFormValue("assertion"),
-		subjectToken:       r.PostFormValue("subject_token"),
-		subjectTokenType:   goidc.TokenTypeIdentifier(r.PostFormValue("subject_token_type")),
-		actorToken:         r.PostFormValue("actor_token"),
-		actorTokenType:     goidc.TokenTypeIdentifier(r.PostFormValue("actor_token_type")),
-		audience:           r.PostForm["audience"],
-		requestedTokenType: goidc.TokenTypeIdentifier(r.PostFormValue("requested_token_type")),
+		grantType:    goidc.GrantType(r.PostFormValue("grant_type")),
+		scopes:       r.PostFormValue("scope"),
+		code:         r.PostFormValue("code"),
+		redirectURI:  r.PostFormValue("redirect_uri"),
+		refreshToken: r.PostFormValue("refresh_token"),
+		codeVerifier: r.PostFormValue("code_verifier"),
+		resources:    r.PostForm["resource"],
+		assertion:    r.PostFormValue("assertion"),
 	}
 
 	if authDetails := r.PostFormValue("authorization_details"); authDetails != "" {
@@ -148,8 +122,6 @@ type response struct {
 	Scopes               string             `json:"scope,omitempty"`
 	AuthorizationDetails []goidc.AuthDetail `json:"authorization_details,omitempty"`
 	Resources            goidc.Resources    `json:"resources,omitempty"`
-	// IssuedTokenType is an identifier for the representation of the issued security token.
-	IssuedTokenType goidc.TokenTypeIdentifier `json:"issued_token_type,omitempty"`
 }
 
 type queryRequest struct {

@@ -1905,55 +1905,6 @@ func TestWithJWTBearerGrant(t *testing.T) {
 	}
 }
 
-func TestWithTokenExchangeGrant(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithTokenExchangeGrant(func(_ context.Context, _ goidc.TokenExchangeRequest) (goidc.TokenExchangeResult, error) {
-		return goidc.TokenExchangeResult{}, nil
-	})(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !slices.Contains(p.config.GrantTypes, goidc.GrantTokenExchange) {
-		t.Error("GrantTokenExchange should be in GrantTypes")
-	}
-
-	if p.config.TokenExchangeHandleFunc == nil {
-		t.Error("TokenExchangeHandleFunc cannot be nil")
-	}
-}
-
-func TestWithTokenExchangeClientAuthnRequired(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithTokenExchangeClientAuthnRequired()(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			TokenExchangeClientAuthnRequired: true,
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
 func TestWithGrantID(t *testing.T) {
 	// Given.
 	p := &Provider{

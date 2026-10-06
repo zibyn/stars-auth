@@ -148,8 +148,7 @@ const (
 	GrantAuthorizationCode GrantType = "authorization_code"
 	GrantRefreshToken      GrantType = "refresh_token"
 	GrantImplicit          GrantType = "implicit"
-	GrantJWTBearer         GrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer"     //nolint:gosec
-	GrantTokenExchange     GrantType = "urn:ietf:params:oauth:grant-type:token-exchange" //nolint:gosec
+	GrantJWTBearer         GrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer" //nolint:gosec
 )
 
 type ResponseType string
@@ -274,8 +273,6 @@ const (
 	ClaimStateHash           string = "s_hash"
 	ClaimRefreshTokenHash    string = "urn:openid:params:jwt:claim:rt_hash" //nolint:gosec
 	ClaimGrantID             string = "grant_id"
-	ClaimAct                 string = "act"
-	ClaimMayAct              string = "may_act"
 	ClaimConfirmation        string = "cnf"
 	ClaimJWK                 string = "jwk"
 )
@@ -588,7 +585,6 @@ type TokenInfo struct {
 	NotBefore        int                `json:"nbf,omitempty"`
 	ExpiresAt        int                `json:"exp,omitempty"`
 	Confirmation     *TokenConfirmation `json:"cnf,omitempty"`
-	Actor            *Actor             `json:"act,omitempty"`
 	AdditionalClaims map[string]any     `json:"-"`
 }
 
@@ -871,43 +867,6 @@ type AttestationIssuer struct {
 	SigAlgs []SignatureAlgorithm
 }
 
-// TokenTypeIdentifier indicates the type of a security token as defined in [RFC 8693 §3].
-type TokenTypeIdentifier string
-
-const (
-	TokenTypeIdentifierJWT          TokenTypeIdentifier = "urn:ietf:params:oauth:token-type:jwt"           //nolint:gosec
-	TokenTypeIdentifierAccessToken  TokenTypeIdentifier = "urn:ietf:params:oauth:token-type:access_token"  //nolint:gosec
-	TokenTypeIdentifierRefreshToken TokenTypeIdentifier = "urn:ietf:params:oauth:token-type:refresh_token" //nolint:gosec
-	TokenTypeIdentifierIDToken      TokenTypeIdentifier = "urn:ietf:params:oauth:token-type:id_token"      //nolint:gosec
-	TokenTypeIdentifierSAML1        TokenTypeIdentifier = "urn:ietf:params:oauth:token-type:saml1"         //nolint:gosec
-	TokenTypeIdentifierSAML2        TokenTypeIdentifier = "urn:ietf:params:oauth:token-type:saml2"         //nolint:gosec
-)
-
-type TokenExchangeRequest struct {
-	RequestedTokenType TokenTypeIdentifier
-	// SubjectToken is a security token that represents the identity of the
-	// party on behalf of whom the request is being made.
-	SubjectToken     string
-	SubjectTokenType TokenTypeIdentifier
-	// ActorToken is a security token that represents the identity of the acting party.
-	ActorToken     string
-	ActorTokenType TokenTypeIdentifier
-	// Audience is the logical name of the target service where the client
-	// intends to use the requested security token.
-	Audience []string
-	// Resource is a URI that indicates the target service or resource where
-	// the client intends to use the requested security token.
-	Resource Resources
-}
-
-type TokenExchangeResult struct {
-	Subject string
-	Actor   *Actor
-	Store   map[string]any
-}
-
-type TokenExchangeHandleFunc func(context.Context, TokenExchangeRequest) (TokenExchangeResult, error)
-
 // IDToken represents a parsed and validated OpenID Connect ID Token.
 type IDToken struct {
 	Subject   string    `json:"sub"`
@@ -950,10 +909,4 @@ func (t *IDToken) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
-}
-
-type Actor struct {
-	Subject string `json:"sub,omitempty"`
-	Issuer  string `json:"iss,omitempty"`
-	Actor   *Actor `json:"act,omitempty"`
 }

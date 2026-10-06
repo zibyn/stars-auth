@@ -618,10 +618,6 @@ func (ctx Context) Decrypt(
 	return string(jws), nil
 }
 
-func (ctx Context) TokenExchangeHandle(req goidc.TokenExchangeRequest) (goidc.TokenExchangeResult, error) {
-	return ctx.TokenExchangeHandleFunc(ctx, req)
-}
-
 func (ctx Context) AuthnMethodAttestationJWTHTTPClient() *http.Client {
 	if ctx.AuthnMethodAttestationJWTHTTPClientFunc == nil {
 		return ctx.HTTPClient()

@@ -119,7 +119,6 @@ func Introspect(ctx oidc.Context, tkn string, c *goidc.Client) (goidc.TokenInfo,
 			NotBefore:         token.CreatedAt,
 			ExpiresAt:         token.ExpiresAt,
 			Confirmation:      cnf,
-			Actor:             token.Actor,
 			ResourceAudiences: token.Resources,
 			AdditionalClaims:  ctx.TokenClaims(token, grant),
 		}, grant, nil

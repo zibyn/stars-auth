@@ -206,7 +206,4 @@ type Configuration struct {
 	LogoutPolicies              []goidc.LogoutPolicy
 	LogoutSessionIDFunc         goidc.RandomFunc
 	HandleDefaultPostLogoutFunc goidc.HandleDefaultPostLogoutFunc
-
-	TokenExchangeClientAuthnRequired bool
-	TokenExchangeHandleFunc          goidc.TokenExchangeHandleFunc
 }

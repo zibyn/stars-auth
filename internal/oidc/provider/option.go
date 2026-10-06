@@ -1075,38 +1075,6 @@ func WithJWTBearerClientAuthnRequired() JWTBearerGrantOption {
 	}
 }
 
-// ── Token Exchange Grant ──────────────────────────────────────────────────────
-
-// TokenExchangeGrantOption is an option for [WithTokenExchangeGrant].
-type TokenExchangeGrantOption Option
-
-// WithTokenExchangeGrant enables the token exchange grant type (RFC 8693).
-//
-// The handler receives the token exchange request parameters and must validate
-// the subject and actor tokens according to the deployment rules. It returns
-// the subject to use for the resulting grant.
-func WithTokenExchangeGrant(f goidc.TokenExchangeHandleFunc, opts ...TokenExchangeGrantOption) Option {
-	return func(p *Provider) error {
-		p.config.GrantTypes = append(p.config.GrantTypes, goidc.GrantTokenExchange)
-		p.config.TokenExchangeHandleFunc = f
-		for _, opt := range opts {
-			if err := opt(p); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-}
-
-// WithTokenExchangeClientAuthnRequired makes client authentication required
-// for the token exchange grant type.
-func WithTokenExchangeClientAuthnRequired() TokenExchangeGrantOption {
-	return func(p *Provider) error {
-		p.config.TokenExchangeClientAuthnRequired = true
-		return nil
-	}
-}
-
 // ── DCR ───────────────────────────────────────────────────────────────────────
 
 // DCROption is an optional configuration for Dynamic Client Registration.
