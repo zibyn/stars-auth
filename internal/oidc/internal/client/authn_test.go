@@ -138,6 +138,40 @@ func TestAuthenticated(t *testing.T) {
 			wantClientID: "random_client_id",
 		},
 		{
+			name: "basic secret client may post its secret",
+			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {
+				ctx, c := setUpSecretAuthn(t, goidc.AuthnMethodSecretBasic)
+				ctx.Request.PostForm = map[string][]string{
+					"client_id":     {c.ID},
+					"client_secret": {c.Secret},
+				}
+				return ctx, nil
+			},
+			wantClientID: "random_client_id",
+		},
+		{
+			name: "post secret client may use basic auth",
+			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {
+				ctx, c := setUpSecretAuthn(t, goidc.AuthnMethodSecretPost)
+				ctx.Request.SetBasicAuth(c.ID, c.Secret)
+				return ctx, nil
+			},
+			wantClientID: "random_client_id",
+		},
+		{
+			name: "posted secret rejected when secret post is disabled",
+			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {
+				ctx, c := setUpSecretAuthn(t, goidc.AuthnMethodSecretBasic)
+				ctx.AuthnMethods = []goidc.AuthnMethod{goidc.AuthnMethodSecretBasic}
+				ctx.Request.PostForm = map[string][]string{
+					"client_id":     {c.ID},
+					"client_secret": {c.Secret},
+				}
+				return ctx, nil
+			},
+			wantErr: goidc.ErrorCodeInvalidClient,
+		},
+		{
 			name: "basic secret authn invalid secret",
 			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {
 				ctx, c := setUpSecretAuthn(t, goidc.AuthnMethodSecretBasic)

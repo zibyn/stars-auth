@@ -159,10 +159,26 @@ func Authenticate(ctx oidc.Context, c *goidc.Client, authnCtx AuthnContext) erro
 	switch c.TokenAuthnMethod {
 	case goidc.AuthnMethodNone:
 		return nil
-	case goidc.AuthnMethodSecretPost:
+	case goidc.AuthnMethodSecretBasic, goidc.AuthnMethodSecretPost:
+		// A client with a secret may present it either way, as long as the
+		// way it chose is enabled.
+		method := goidc.AuthnMethodSecretPost
+		if _, _, ok := ctx.Request.BasicAuth(); ok {
+			// [RFC 6749 §2.3] Only one authentication method per request.
+			if ctx.Request.PostFormValue(formPostParamSecret) != "" {
+				return goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client",
+					errors.New("the client secret was sent more than once"))
+			}
+			method = goidc.AuthnMethodSecretBasic
+		}
+		if !slices.Contains(ctx.AuthnMethods, method) {
+			return goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client",
+				fmt.Errorf("%s is not supported", method))
+		}
+		if method == goidc.AuthnMethodSecretBasic {
+			return authenticateSecretBasic(ctx, c)
+		}
 		return authenticateSecretPost(ctx, c)
-	case goidc.AuthnMethodSecretBasic:
-		return authenticateSecretBasic(ctx, c)
 	case goidc.AuthnMethodPrivateKeyJWT:
 		return authenticatePrivateKeyJWT(ctx, c, authnCtx)
 	case goidc.AuthnMethodSecretJWT:

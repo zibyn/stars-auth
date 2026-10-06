@@ -48,6 +48,7 @@ type Configuration struct {
 	SubIdentifierTypeDefault goidc.SubIdentifierType
 	SubIdentifierTypes       []goidc.SubIdentifierType
 	PairwiseSubjectFunc      goidc.PairwiseSubjectFunc
+	ClientManager            goidc.ClientManager
 	StaticClients            []*goidc.Client
 	// IssuerRespParamEnabled indicates if the "iss" parameter will be
 	// returned when redirecting the user back to the client application.

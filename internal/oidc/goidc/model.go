@@ -52,6 +52,13 @@ type Configuration struct {
 	JWKS                           *JSONWebKeySet        `json:"jwks,omitempty"`
 }
 
+// ClientManager resolves clients that are not configured statically.
+type ClientManager interface {
+	// Client returns the client identified by id.
+	// It must return [ErrNotFound] when the client does not exist.
+	Client(context.Context, string) (*Client, error)
+}
+
 // GrantManager stores grants.
 type GrantManager interface {
 	SaveGrant(context.Context, *Grant) error

@@ -1002,6 +1002,14 @@ func WithDisplayValues(values ...goidc.DisplayValue) Option {
 	}
 }
 
+// WithClientManager resolves clients that are not static from m.
+func WithClientManager(m goidc.ClientManager) Option {
+	return func(p *Provider) error {
+		p.config.ClientManager = m
+		return nil
+	}
+}
+
 // WithStaticClients adds static clients to the provider.
 // The static clients are kept in memory only and are checked before consulting
 // the client manager.

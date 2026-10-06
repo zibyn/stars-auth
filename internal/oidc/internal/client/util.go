@@ -22,6 +22,10 @@ func Client(ctx oidc.Context, id string) (*goidc.Client, error) {
 		}
 	}
 
+	if ctx.ClientManager != nil {
+		return ctx.ClientManager.Client(ctx, id)
+	}
+
 	return nil, goidc.ErrNotFound
 }
 

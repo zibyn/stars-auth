@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -29,6 +30,24 @@ func TestClient(t *testing.T) {
 				return ctx, staticClient.ID
 			},
 			wantClientID: "static_client",
+		},
+		{
+			name: "client manager",
+			setup: func(t *testing.T) (oidc.Context, string) {
+				ctx := oidctest.NewContext(t)
+				ctx.ClientManager = clientManager{"managed_client": {ID: "managed_client"}}
+				return ctx, "managed_client"
+			},
+			wantClientID: "managed_client",
+		},
+		{
+			name: "client manager not found",
+			setup: func(t *testing.T) (oidc.Context, string) {
+				ctx := oidctest.NewContext(t)
+				ctx.ClientManager = clientManager{}
+				return ctx, "missing_client"
+			},
+			wantErr: goidc.ErrNotFound,
 		},
 		{
 			name: "not found",
@@ -184,4 +203,13 @@ func TestJWKByAlg(t *testing.T) {
 			}
 		})
 	}
+}
+
+type clientManager map[string]*goidc.Client
+
+func (m clientManager) Client(_ context.Context, id string) (*goidc.Client, error) {
+	if c, ok := m[id]; ok {
+		return c, nil
+	}
+	return nil, goidc.ErrNotFound
 }
