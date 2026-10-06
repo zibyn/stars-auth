@@ -37,7 +37,7 @@ cleanup() {
 trap cleanup EXIT
 
 "${compose[@]}" up -d --build
-go build -o "$out/op" "$here"
+(cd "$root" && go build -o "$out/op" ./internal/oidc/conformance)
 "$out/op" > "$out/op.log" 2>&1 &
 op=$!
 wait_for https://localhost:8443/api/runner/available
