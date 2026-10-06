@@ -11,10 +11,13 @@ import (
 	"strings"
 )
 
-// New returns the root handler. web serves the SPA for every path no other
-// route claims.
-func New(ping func(context.Context) error, web http.Handler, trusted []netip.Prefix) http.Handler {
+// New returns the root handler. Each of routes adds its own; web serves the
+// SPA for every path no route claims.
+func New(ping func(context.Context) error, web http.Handler, trusted []netip.Prefix, routes ...func(*http.ServeMux)) http.Handler {
 	mux := http.NewServeMux()
+	for _, add := range routes {
+		add(mux)
+	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := ping(r.Context()); err != nil {
 			http.Error(w, "database unavailable", http.StatusServiceUnavailable)

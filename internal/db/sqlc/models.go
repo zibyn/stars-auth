@@ -28,6 +28,12 @@ type Application struct {
 	CreatedAt              pgtype.Timestamptz
 }
 
+type Identifier struct {
+	UserID string
+	Kind   string
+	Value  string
+}
+
 type OidcAuthnSession struct {
 	ID        string
 	ExpiresAt pgtype.Timestamptz
@@ -48,8 +54,46 @@ type OidcLogoutSession struct {
 	Data      []byte
 }
 
+type Password struct {
+	UserID string
+	Hash   string
+}
+
+type Role struct {
+	Api     string
+	Key     string
+	Name    string
+	Builtin bool
+}
+
+type Session struct {
+	IDHash     []byte
+	UserID     string
+	AuthTime   pgtype.Timestamptz
+	Amr        []string
+	LastSeenAt pgtype.Timestamptz
+}
+
+type Setting struct {
+	ID            bool
+	PasswordLogin string
+	SetupToken    []byte
+	SetupDone     bool
+}
+
 type SigningKey struct {
 	Kid       string
 	CreatedAt pgtype.Timestamptz
 	Sealed    []byte
+}
+
+type User struct {
+	ID        string
+	CreatedAt pgtype.Timestamptz
+}
+
+type UserRole struct {
+	UserID string
+	Api    string
+	Role   string
 }

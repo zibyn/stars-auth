@@ -24,3 +24,23 @@ Tests needing PostgreSQL run when `STARS_AUTH_TEST_DATABASE_URL` is set
 databases.
 
 Full deployment: `compose.yaml` (Stars Auth + PostgreSQL + Caddy).
+
+## First start
+
+Until an admin exists, every start logs the setup link:
+
+```bash
+docker compose logs stars-auth | grep setup
+# WARN no admin yet: open the setup page to create the owner url="https://localhost/setup?token=..."
+```
+
+Open it and set the owner's username and password; the page then closes for
+good. The owner signs in on the hosted login page at `/authorize`.
+
+To try the OIDC flow before the console can register Applications, add a
+public test client by hand and run a code + PKCE flow against it:
+
+```bash
+docker compose exec postgres psql -U stars -c "INSERT INTO applications (client_id, name, type, redirect_uris)
+  VALUES ('test-rp', 'Test RP', 'public', '{https://rp.example/cb}')"
+```

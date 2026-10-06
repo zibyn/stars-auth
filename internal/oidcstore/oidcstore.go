@@ -87,11 +87,12 @@ type Application struct {
 
 func CreateApplication(ctx context.Context, pool *pgxpool.Pool, app Application) error {
 	params := sqlc.CreateApplicationParams{
-		ClientID:               app.ClientID,
-		Name:                   app.Name,
-		Type:                   "public",
-		RedirectUris:           app.RedirectURIs,
-		PostLogoutRedirectUris: app.PostLogoutRedirectURIs,
+		ClientID: app.ClientID,
+		Name:     app.Name,
+		Type:     "public",
+		// Non-nil: pgx writes a nil slice as NULL.
+		RedirectUris:           append([]string{}, app.RedirectURIs...),
+		PostLogoutRedirectUris: append([]string{}, app.PostLogoutRedirectURIs...),
 	}
 	if app.Secret != "" {
 		params.Type = "confidential"

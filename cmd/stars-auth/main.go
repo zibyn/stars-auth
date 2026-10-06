@@ -21,6 +21,8 @@ import (
 	"github.com/zibyn/stars-auth/internal/config"
 	"github.com/zibyn/stars-auth/internal/crypt"
 	"github.com/zibyn/stars-auth/internal/db"
+	"github.com/zibyn/stars-auth/internal/identity"
+	"github.com/zibyn/stars-auth/internal/login"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
 	"github.com/zibyn/stars-auth/internal/server"
 	"github.com/zibyn/stars-auth/web"
@@ -65,6 +67,15 @@ func serve() error {
 	if err := oidcstore.NewKeys(pool, keyring).Ensure(ctx); err != nil {
 		return fmt.Errorf("signing key: %w", err)
 	}
+	if token, err := identity.New(pool, keyring).SetupToken(ctx); err != nil {
+		return fmt.Errorf("setup token: %w", err)
+	} else if token != "" {
+		slog.Warn("no admin yet: open the setup page to create the owner", "url", cfg.Issuer+"/setup?token="+token)
+	}
+	auth, err := login.New(pool, keyring, cfg.Issuer)
+	if err != nil {
+		return err
+	}
 
 	spa, err := webHandler(cfg.DevWebURL)
 	if err != nil {
@@ -72,7 +83,7 @@ func serve() error {
 	}
 	srv := &http.Server{
 		Addr:              cfg.Listen,
-		Handler:           server.New(pool.Ping, spa, cfg.TrustedProxies),
+		Handler:           server.New(pool.Ping, spa, cfg.TrustedProxies, auth.Register),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go runCleanup(ctx, pool)
@@ -116,6 +127,7 @@ func webHandler(devURL string) (http.Handler, error) {
 // grants). Each feature adds its own as its table lands.
 var cleanupTasks = []func(context.Context, *pgxpool.Pool) error{
 	oidcstore.DeleteExpired,
+	login.DeleteIdleSessions,
 }
 
 // runCleanup runs cleanupTasks once an hour.

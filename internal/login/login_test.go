@@ -1,0 +1,288 @@
+package login_test
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
+	"html"
+	"io"
+	"net/http"
+	"net/http/cookiejar"
+	"net/http/httptest"
+	"net/url"
+	"regexp"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
+
+	"github.com/zibyn/stars-auth/internal/crypt"
+	"github.com/zibyn/stars-auth/internal/db"
+	"github.com/zibyn/stars-auth/internal/db/dbtest"
+	"github.com/zibyn/stars-auth/internal/identity"
+	"github.com/zibyn/stars-auth/internal/login"
+	"github.com/zibyn/stars-auth/internal/oidcstore"
+	"github.com/zibyn/stars-auth/internal/server"
+)
+
+const (
+	clientID = "rp"
+	callback = "https://rp.example/cb"
+	verifier = "a-pkce-code-verifier-that-is-at-least-43-characters-long"
+)
+
+type env struct {
+	t      *testing.T
+	issuer string
+	client *http.Client // a browser: keeps cookies, stops at redirects
+	ids    *identity.Store
+}
+
+// start runs the whole HTTP surface against a fresh database, with one public
+// Application registered.
+func start(t *testing.T) *env {
+	t.Helper()
+	ctx := context.Background()
+	pool := dbtest.Fresh(t)
+	if err := db.Migrate(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	keyring, err := crypt.NewKeyring(1, map[byte][]byte{1: bytes.Repeat([]byte{7}, 32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := oidcstore.NewKeys(pool, keyring).Ensure(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := oidcstore.CreateApplication(ctx, pool, oidcstore.Application{
+		ClientID: clientID, Name: "Test RP", RedirectURIs: []string{callback},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewUnstartedServer(nil)
+	ts.StartTLS()
+	t.Cleanup(ts.Close)
+	auth, err := login.New(pool, keyring, ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts.Config.Handler = server.New(pool.Ping, http.NotFoundHandler(), nil, auth.Register)
+	e := &env{t: t, issuer: ts.URL, client: ts.Client(), ids: identity.New(pool, keyring)}
+	e.newBrowser()
+	return e
+}
+
+func (e *env) newBrowser() {
+	jar, _ := cookiejar.New(nil)
+	c := *e.client
+	c.Jar = jar
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	e.client = &c
+}
+
+func (e *env) do(method, path string, form url.Values) (*http.Response, string) {
+	e.t.Helper()
+	u := path
+	if !strings.HasPrefix(u, "https://") {
+		u = e.issuer + path
+	}
+	req, err := http.NewRequest(method, u, strings.NewReader(form.Encode()))
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	if form != nil {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	resp, err := e.client.Do(req)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	body, _ := io.ReadAll(resp.Body)
+	return resp, string(body)
+}
+
+// authorize starts a code flow with extra parameters.
+func (e *env) authorize(extra string) (*http.Response, string) {
+	sum := sha256.Sum256([]byte(verifier))
+	q := url.Values{
+		"client_id":             {clientID},
+		"response_type":         {"code"},
+		"scope":                 {"openid"},
+		"redirect_uri":          {callback},
+		"state":                 {"st"},
+		"nonce":                 {"n"},
+		"code_challenge":        {base64.RawURLEncoding.EncodeToString(sum[:])},
+		"code_challenge_method": {"S256"},
+	}
+	return e.do("GET", "/authorize?"+q.Encode()+extra, nil)
+}
+
+var actionRE = regexp.MustCompile(`<form[^>]*action="([^"]+)"`)
+
+// submit posts the login form found in page.
+func (e *env) submit(page, username, password string) (*http.Response, string) {
+	e.t.Helper()
+	m := actionRE.FindStringSubmatch(page)
+	if m == nil {
+		e.t.Fatalf("no login form in:\n%s", page)
+	}
+	return e.do("POST", html.UnescapeString(m[1]), url.Values{"username": {username}, "password": {password}})
+}
+
+// code returns the authorization code a response redirects back with.
+func (e *env) code(resp *http.Response) string {
+	e.t.Helper()
+	loc, _ := url.Parse(resp.Header.Get("Location"))
+	if resp.StatusCode/100 != 3 || !strings.HasPrefix(loc.String(), callback) || loc.Query().Get("code") == "" {
+		e.t.Fatalf("want a redirect with a code, got %d %q", resp.StatusCode, loc)
+	}
+	return loc.Query().Get("code")
+}
+
+func (e *env) idToken(code string) map[string]any {
+	e.t.Helper()
+	resp, body := e.do("POST", "/token", url.Values{
+		"grant_type": {"authorization_code"}, "code": {code}, "redirect_uri": {callback},
+		"client_id": {clientID}, "code_verifier": {verifier},
+	})
+	if resp.StatusCode != 200 {
+		e.t.Fatalf("token: %d %s", resp.StatusCode, body)
+	}
+	var tok struct {
+		IDToken string `json:"id_token"`
+	}
+	if err := json.Unmarshal([]byte(body), &tok); err != nil {
+		e.t.Fatal(err)
+	}
+	_, jwksBody := e.do("GET", "/jwks", nil)
+	var jwks jose.JSONWebKeySet
+	if err := json.Unmarshal([]byte(jwksBody), &jwks); err != nil {
+		e.t.Fatal(err)
+	}
+	parsed, err := jwt.ParseSigned(tok.IDToken, []jose.SignatureAlgorithm{jose.RS256})
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	var claims map[string]any
+	if err := parsed.Claims(jwks.Key(parsed.Headers[0].KeyID)[0].Key, &claims); err != nil {
+		e.t.Fatal(err)
+	}
+	return claims
+}
+
+// bootstrap creates the owner through the setup page.
+func (e *env) bootstrap(username, password string) {
+	e.t.Helper()
+	token, err := e.ids.SetupToken(context.Background())
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	resp, page := e.do("GET", "/setup?token="+token, nil)
+	if resp.StatusCode != 200 || !strings.Contains(page, `value="`+token+`"`) {
+		e.t.Fatalf("setup page: %d %s", resp.StatusCode, page)
+	}
+	if !strings.Contains(page, `autocomplete="new-password"`) {
+		e.t.Errorf("setup page lacks autocomplete hints")
+	}
+	resp, page = e.do("POST", "/setup", url.Values{"token": {token}, "username": {username}, "password": {password}})
+	if resp.StatusCode != 200 || strings.Contains(page, "<form") {
+		e.t.Fatalf("setup: %d %s", resp.StatusCode, page)
+	}
+}
+
+func TestSetupThenPasswordLogin(t *testing.T) {
+	e := start(t)
+	token, _ := e.ids.SetupToken(context.Background())
+
+	// A wrong token is turned away and the form shown again.
+	resp, page := e.do("POST", "/setup", url.Values{"token": {"nope"}, "username": {"owner"}, "password": {"password1"}})
+	if !strings.Contains(page, identity.ErrSetupToken.Error()) || !strings.Contains(page, "<form") {
+		t.Fatalf("wrong token: %d %s", resp.StatusCode, page)
+	}
+
+	e.bootstrap("owner", "password1")
+
+	// The setup page is closed for good, and the token is dead.
+	if resp, _ := e.do("GET", "/setup?token="+token, nil); resp.StatusCode != 404 {
+		t.Errorf("setup page after bootstrap: %d", resp.StatusCode)
+	}
+	if resp, _ := e.do("POST", "/setup", url.Values{"token": {token}, "username": {"x"}, "password": {"password1"}}); resp.StatusCode != 404 {
+		t.Errorf("setup again: %d", resp.StatusCode)
+	}
+
+	resp, page = e.authorize("")
+	if resp.StatusCode != 200 {
+		t.Fatalf("authorize: %d %s", resp.StatusCode, page)
+	}
+	for _, want := range []string{`autocomplete="username"`, `autocomplete="current-password"`, `method="post"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("login page lacks %s", want)
+		}
+	}
+
+	resp, page = e.submit(page, "owner", "wrong-password")
+	if resp.StatusCode != 200 || !strings.Contains(page, identity.ErrBadCredentials.Error()) {
+		t.Fatalf("wrong password: %d %s", resp.StatusCode, page)
+	}
+	resp, _ = e.submit(page, "owner", "password1")
+	claims := e.idToken(e.code(resp))
+	sub, _ := claims["sub"].(string)
+	if sub == "" || !slices.Equal(claims["amr"].([]any), []any{"pwd"}) || claims["auth_time"] == nil || claims["nonce"] != "n" {
+		t.Errorf("id token claims: %v", claims)
+	}
+
+	// The browser Session signs the next request in silently.
+	resp, _ = e.authorize("")
+	if again := e.idToken(e.code(resp)); again["sub"] != sub || again["auth_time"] != claims["auth_time"] {
+		t.Errorf("silent SSO: %v", again)
+	}
+	resp, _ = e.authorize("&prompt=none")
+	e.code(resp)
+
+	// These ask for the password again, even with a Session.
+	for _, extra := range []string{"&prompt=login", "&prompt=select_account", "&max_age=0"} {
+		if resp, page := e.authorize(extra); resp.StatusCode != 200 || !actionRE.MatchString(page) {
+			t.Errorf("%s: want the login form, got %d", extra, resp.StatusCode)
+		}
+	}
+	resp, _ = e.authorize("&prompt=none+login")
+	if loc, _ := url.Parse(resp.Header.Get("Location")); loc.Query().Get("error") != "invalid_request" {
+		t.Errorf("prompt=none login: %d %q", resp.StatusCode, loc)
+	}
+	// prompt=consent is accepted and ignored: no consent page.
+	resp, _ = e.authorize("&prompt=consent")
+	e.code(resp)
+
+	// Without a Session, prompt=none fails back to the Application.
+	e.newBrowser()
+	resp, _ = e.authorize("&prompt=none")
+	loc, _ := url.Parse(resp.Header.Get("Location"))
+	if !strings.HasPrefix(loc.String(), callback) || loc.Query().Get("error") != "login_required" {
+		t.Errorf("prompt=none without a Session: %d %q", resp.StatusCode, loc)
+	}
+}
+
+// A login form posted from another site is refused (login CSRF).
+func TestLoginFormRejectsCrossSitePost(t *testing.T) {
+	e := start(t)
+	e.bootstrap("owner", "password1")
+	_, page := e.authorize("")
+	m := actionRE.FindStringSubmatch(page)
+	req, _ := http.NewRequest("POST", e.issuer+html.UnescapeString(m[1]),
+		strings.NewReader(url.Values{"username": {"owner"}, "password": {"password1"}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	resp, err := e.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode/100 == 3 && strings.Contains(resp.Header.Get("Location"), "code=") {
+		t.Errorf("cross-site login went through")
+	}
+}
