@@ -1,0 +1,33 @@
+# Stars Auth
+
+为自有应用提供统一认证的中心化身份服务:一个用户池,所有应用共用,应用自身不再处理认证复杂度。
+
+## Language
+
+**Stars Auth**:
+独立部署的中心化身份服务,所有 Application 的 User 身份都由它持有和验证。
+_Avoid_: 认证库, 认证框架, SSO 平台
+
+**Operator**:
+部署并运营一个 Stars Auth 实例的个人或团队,负责配置登录方式与通道。
+_Avoid_: 管理员, 站长, 租户
+
+**User**:
+一个自然人在 Stars Auth 中的唯一账号,跨所有 Application 是同一个。
+_Avoid_: 账户, 会员, 成员
+
+**Application**:
+在 Stars Auth 注册、委托其认证 User 的一个接入方(App、小程序或 Web 端)。
+_Avoid_: Client, 租户, 项目
+
+**First-party Application**:
+由该实例的 Operator 自己开发和运营的 Application;当前所有 Application 都属于此类。
+_Avoid_: 内部应用, 自有客户端
+
+**API**:
+Operator 登记的一个受保护业务后端,以一个标识字符串区分;Stars Auth 签发给 Application 的 access token 指明它供哪个 API 使用,多个 Application 可共用同一个 API。
+_Avoid_: Resource Server, 资源, 后端服务
+
+**Session**:
+一个 User 在一台设备或一个浏览器上的一次登录;App 中由 refresh token 承载,浏览器中由 cookie 承载,终止它即让该设备下线。
+_Avoid_: 登录态, 会话令牌, 设备
