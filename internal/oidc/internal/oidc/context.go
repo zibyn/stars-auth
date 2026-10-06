@@ -424,10 +424,6 @@ func (ctx Context) TokenClaims(tkn *goidc.Token, grant *goidc.Grant) map[string]
 	return ctx.TokenClaimsFunc(ctx, tkn, grant)
 }
 
-func (ctx Context) JWTBearerHandleAssertion(assertion string) (goidc.JWTBearerResult, error) {
-	return ctx.JWTBearerHandleAssertionFunc(ctx, assertion)
-}
-
 func (ctx Context) HTTPClient() *http.Client {
 	return ctx.HTTPClientFunc(ctx)
 }

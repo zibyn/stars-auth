@@ -88,7 +88,6 @@ func NewContext(tb testing.TB) oidc.Context {
 			goidc.GrantClientCredentials,
 			goidc.GrantImplicit,
 			goidc.GrantRefreshToken,
-			goidc.GrantJWTBearer,
 		},
 		ResponseTypes: []goidc.ResponseType{
 			goidc.ResponseTypeCode,

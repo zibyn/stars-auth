@@ -148,7 +148,6 @@ const (
 	GrantAuthorizationCode GrantType = "authorization_code"
 	GrantRefreshToken      GrantType = "refresh_token"
 	GrantImplicit          GrantType = "implicit"
-	GrantJWTBearer         GrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer" //nolint:gosec
 )
 
 type ResponseType string
@@ -793,13 +792,6 @@ func (d AuthDetail) Locations() []string {
 	}
 	return locs
 }
-
-type JWTBearerResult struct {
-	Subject string
-	Store   map[string]any
-}
-
-type JWTBearerHandleAssertionFunc func(context.Context, string) (JWTBearerResult, error)
 
 type IsClientAllowedFunc func(context.Context, *Client) bool
 

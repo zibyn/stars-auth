@@ -1880,31 +1880,6 @@ func TestWithHTTPClientFunc(t *testing.T) {
 	}
 }
 
-func TestWithJWTBearerGrant(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithJWTBearerGrant(func(_ context.Context, assertion string) (goidc.JWTBearerResult, error) {
-		return goidc.JWTBearerResult{}, nil
-	})(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !slices.Contains(p.config.GrantTypes, goidc.GrantJWTBearer) {
-		t.Error("GrantJWTBearer should be in GrantTypes")
-	}
-
-	if p.config.JWTBearerHandleAssertionFunc == nil {
-		t.Error("JWTBearerHandleAssertionFunc cannot be nil")
-	}
-}
-
 func TestWithGrantID(t *testing.T) {
 	// Given.
 	p := &Provider{
@@ -2030,30 +2005,6 @@ func TestWithClaimsParameter(t *testing.T) {
 	want := &Provider{
 		config: oidc.Configuration{
 			ClaimsParamEnabled: true,
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
-func TestWithJWTBearerGrantClientAuthnRequired(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithJWTBearerClientAuthnRequired()(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			JWTBearerClientAuthnRequired: true,
 		},
 	}
 	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {

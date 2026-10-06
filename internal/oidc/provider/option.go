@@ -1041,40 +1041,6 @@ func WithClientCredentialsGrant() Option {
 	}
 }
 
-// ── JWT Bearer Grant ──────────────────────────────────────────────────────────
-
-// JWTBearerGrantOption is an option for [WithJWTBearerGrant].
-type JWTBearerGrantOption Option
-
-// WithJWTBearerGrant enables the `urn:ietf:params:oauth:grant-type:jwt-bearer`
-// grant type.
-//
-// The handler receives the raw assertion from the token request and must
-// validate it according to the deployment rules. If the assertion is accepted,
-// it returns the subject represented by that assertion so the provider can
-// create a grant and issue a token from it.
-func WithJWTBearerGrant(f goidc.JWTBearerHandleAssertionFunc, opts ...JWTBearerGrantOption) Option {
-	return func(p *Provider) error {
-		p.config.GrantTypes = append(p.config.GrantTypes, goidc.GrantJWTBearer)
-		p.config.JWTBearerHandleAssertionFunc = f
-		for _, opt := range opts {
-			if err := opt(p); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-}
-
-// WithJWTBearerClientAuthnRequired makes client authentication required
-// for the JWT bearer grant type.
-func WithJWTBearerClientAuthnRequired() JWTBearerGrantOption {
-	return func(p *Provider) error {
-		p.config.JWTBearerClientAuthnRequired = true
-		return nil
-	}
-}
-
 // ── DCR ───────────────────────────────────────────────────────────────────────
 
 // DCROption is an optional configuration for Dynamic Client Registration.

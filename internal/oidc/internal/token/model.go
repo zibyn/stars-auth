@@ -88,7 +88,6 @@ type request struct {
 	codeVerifier string
 	resources    goidc.Resources
 	authDetails  []goidc.AuthDetail
-	assertion    string
 }
 
 func newRequest(r *http.Request) request {
@@ -100,7 +99,6 @@ func newRequest(r *http.Request) request {
 		refreshToken: r.PostFormValue("refresh_token"),
 		codeVerifier: r.PostFormValue("code_verifier"),
 		resources:    r.PostForm["resource"],
-		assertion:    r.PostFormValue("assertion"),
 	}
 
 	if authDetails := r.PostFormValue("authorization_details"); authDetails != "" {

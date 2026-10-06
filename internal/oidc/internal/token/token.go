@@ -228,8 +228,6 @@ func generateToken(ctx oidc.Context, req request) (response, error) {
 		return generateAuthCodeToken(ctx, req)
 	case goidc.GrantRefreshToken:
 		return generateRefreshToken(ctx, req)
-	case goidc.GrantJWTBearer:
-		return generateJWTBearerToken(ctx, req)
 	default:
 		return response{}, goidc.NewError(goidc.ErrorCodeUnsupportedGrantType, "unsupported grant type")
 	}

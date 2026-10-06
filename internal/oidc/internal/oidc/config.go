@@ -194,9 +194,6 @@ type Configuration struct {
 	HTTPClientFunc goidc.HTTPClientFunc
 	ConsumeJTIFunc goidc.ConsumeJTIFunc
 
-	JWTBearerClientAuthnRequired bool
-	JWTBearerHandleAssertionFunc goidc.JWTBearerHandleAssertionFunc
-
 	ErrorURI string
 
 	LogoutEnabled               bool

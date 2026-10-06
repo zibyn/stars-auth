@@ -1020,16 +1020,6 @@ func TestSimpleHelpers(t *testing.T) {
 			t.Fatal(diff)
 		}
 
-		ctx.JWTBearerHandleAssertionFunc = func(_ context.Context, assertion string) (goidc.JWTBearerResult, error) {
-			if assertion != "assertion" {
-				t.Fatalf("JWTBearerHandleAssertion() assertion = %q, want %q", assertion, "assertion")
-			}
-			return goidc.JWTBearerResult{Subject: "subject"}, nil
-		}
-		if got, err := ctx.JWTBearerHandleAssertion("assertion"); err != nil || got.Subject != "subject" {
-			t.Fatalf("JWTBearerHandleAssertion() = %q, %v; want %q, nil", got.Subject, err, "subject")
-		}
-
 		if err := ctx.PARHandleSession(authSession, client); err != nil {
 			t.Fatalf("PARHandleSession() default error = %v", err)
 		}
