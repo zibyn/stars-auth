@@ -37,9 +37,17 @@ User 用来登录、并能接收验证码的手机号或邮箱;在用户池内�
 _Avoid_: 账号, 用户名, 联系方式
 
 **External Identity**:
-由插件接入的认证服务商认定的一个用户(服务商 + 其侧用户 ID,如微信 openid、Apple `sub`),绑定在某个 User 上。
+某个 Provider 认定的一个用户(Provider 实例 + 其侧用户 ID,如微信 openid、Apple `sub`),绑定在某个 User 上。
 _Avoid_: 社交账号, 第三方账号, Identity
 
 **Credential**:
 User 持有、用于证明身份的秘密,如密码、Passkey、TOTP;本身不能定位 User,须配合 Identifier 或由设备提供。
 _Avoid_: 密钥, 因子
+
+**Channel**:
+把验证码送达 Identifier 的外部投递服务(短信或邮件),由 Operator 选择并配置;每种 Identifier 同时只启用一个。
+_Avoid_: 网关, 短信服务商, 发送器
+
+**Provider**:
+替 Stars Auth 证明"这是谁"的外部认证服务(如微信、运营商一键登录、Apple、任意 OIDC 上游),认证结果是一个已验证的 Identifier 或一个 External Identity;Operator 可配置多个实例。
+_Avoid_: 社交登录, IdP, 第三方登录, 认证服务商
