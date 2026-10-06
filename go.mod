@@ -3,6 +3,7 @@ module github.com/zibyn/stars-auth
 go 1.27
 
 require (
+	github.com/altcha-org/altcha-lib-go/v2 v2.4.0
 	github.com/danielgtaylor/huma/v2 v2.39.1
 	github.com/go-jose/go-jose/v4 v4.1.4
 	github.com/google/go-cmp v0.7.0

@@ -28,3 +28,6 @@ DELETE FROM channel_secrets WHERE kind = $1;
 
 -- name: DeleteChannel :exec
 DELETE FROM channels WHERE kind = $1;
+
+-- name: ChannelKinds :many
+SELECT kind FROM channels;

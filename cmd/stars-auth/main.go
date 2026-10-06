@@ -29,6 +29,8 @@ import (
 	"github.com/zibyn/stars-auth/internal/login"
 	"github.com/zibyn/stars-auth/internal/management"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
+	"github.com/zibyn/stars-auth/internal/otp"
+	"github.com/zibyn/stars-auth/internal/pow"
 	"github.com/zibyn/stars-auth/internal/server"
 	"github.com/zibyn/stars-auth/web"
 )
@@ -133,6 +135,8 @@ func webHandler(devURL string) (http.Handler, error) {
 var cleanupTasks = []func(context.Context, *pgxpool.Pool) error{
 	oidcstore.DeleteExpired,
 	login.DeleteIdleSessions,
+	otp.DeleteExpired,
+	pow.DeleteExpired,
 }
 
 // runCleanup runs cleanupTasks once an hour.

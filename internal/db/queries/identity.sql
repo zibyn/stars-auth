@@ -43,3 +43,14 @@ DELETE FROM sessions WHERE id_hash = $1;
 
 -- name: DeleteIdleSessions :exec
 DELETE FROM sessions WHERE last_seen_at < @idle_since;
+
+-- name: UserByIdentifier :one
+SELECT user_id FROM identifiers WHERE value = $1;
+
+-- name: UserIdentifiers :many
+SELECT kind, value FROM identifiers WHERE user_id = $1;
+
+-- name: NeedsPhone :one
+-- The instance requires a phone number and the User has none.
+SELECT (s.require_phone AND NOT EXISTS (SELECT 1 FROM identifiers i WHERE i.user_id = $1 AND i.kind = 'phone'))::boolean
+FROM settings s;

@@ -114,6 +114,19 @@ func (q *Queries) LockSetup(ctx context.Context) (LockSetupRow, error) {
 	return i, err
 }
 
+const needsPhone = `-- name: NeedsPhone :one
+SELECT (s.require_phone AND NOT EXISTS (SELECT 1 FROM identifiers i WHERE i.user_id = $1 AND i.kind = 'phone'))::boolean
+FROM settings s
+`
+
+// The instance requires a phone number and the User has none.
+func (q *Queries) NeedsPhone(ctx context.Context, userID string) (bool, error) {
+	row := q.db.QueryRow(ctx, needsPhone, userID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const passwordByIdentifier = `-- name: PasswordByIdentifier :one
 SELECT i.user_id, p.hash,
        EXISTS (SELECT 1 FROM user_roles r
@@ -192,4 +205,44 @@ func (q *Queries) TouchSession(ctx context.Context, arg TouchSessionParams) (Tou
 	var i TouchSessionRow
 	err := row.Scan(&i.UserID, &i.AuthTime, &i.Amr)
 	return i, err
+}
+
+const userByIdentifier = `-- name: UserByIdentifier :one
+SELECT user_id FROM identifiers WHERE value = $1
+`
+
+func (q *Queries) UserByIdentifier(ctx context.Context, value string) (string, error) {
+	row := q.db.QueryRow(ctx, userByIdentifier, value)
+	var user_id string
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
+const userIdentifiers = `-- name: UserIdentifiers :many
+SELECT kind, value FROM identifiers WHERE user_id = $1
+`
+
+type UserIdentifiersRow struct {
+	Kind  string
+	Value string
+}
+
+func (q *Queries) UserIdentifiers(ctx context.Context, userID string) ([]UserIdentifiersRow, error) {
+	rows, err := q.db.Query(ctx, userIdentifiers, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UserIdentifiersRow
+	for rows.Next() {
+		var i UserIdentifiersRow
+		if err := rows.Scan(&i.Kind, &i.Value); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

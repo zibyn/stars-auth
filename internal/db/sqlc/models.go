@@ -28,6 +28,14 @@ type Application struct {
 	CreatedAt              pgtype.Timestamptz
 }
 
+type AuditLog struct {
+	ID     int64
+	At     pgtype.Timestamptz
+	Event  string
+	Sub    pgtype.Text
+	Detail []byte
+}
+
 type Channel struct {
 	Kind      string
 	Plugin    string
@@ -40,6 +48,13 @@ type ChannelSecret struct {
 	Field     string
 	Value     []byte
 	UpdatedAt pgtype.Timestamptz
+}
+
+type Code struct {
+	Identifier string
+	Code       string
+	Attempts   int32
+	ExpiresAt  pgtype.Timestamptz
 }
 
 type Identifier struct {
@@ -80,6 +95,11 @@ type Permission struct {
 	Builtin bool
 }
 
+type PowSpent struct {
+	Signature string
+	ExpiresAt pgtype.Timestamptz
+}
+
 type Role struct {
 	Api     string
 	Key     string
@@ -93,6 +113,12 @@ type RolePermission struct {
 	Permission string
 }
 
+type Send struct {
+	Identifier string
+	Ip         string
+	SentAt     pgtype.Timestamptz
+}
+
 type Session struct {
 	IDHash     []byte
 	UserID     string
@@ -102,10 +128,13 @@ type Session struct {
 }
 
 type Setting struct {
-	ID            bool
-	PasswordLogin string
-	SetupToken    []byte
-	SetupDone     bool
+	ID             bool
+	PasswordLogin  string
+	SetupToken     []byte
+	SetupDone      bool
+	DailySendLimit int32
+	RequirePhone   bool
+	PowSecret      string
 }
 
 type SigningKey struct {

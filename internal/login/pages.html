@@ -14,6 +14,8 @@ label { display: grid; gap: .25rem; font-size: .875rem; }
 input, button { font: inherit; padding: .5rem .75rem; border-radius: .375rem; border: 1px solid #8888; }
 button { cursor: pointer; background: CanvasText; color: Canvas; border: 0; }
 .error { color: #d33; font-size: .875rem; }
+details { margin-top: 1.5rem; }
+summary { cursor: pointer; font-size: .875rem; margin-bottom: .75rem; }
 </style>
 </head>
 <body>
@@ -26,18 +28,49 @@ button { cursor: pointer; background: CanvasText; color: Canvas; border: 0; }
 {{end}}
 
 {{define "login"}}{{template "head" "登录"}}
-<h1>登录</h1>
+{{if .Bind}}<h1>绑定手机号</h1>
+<p>继续之前,请先绑定一个手机号。</p>
+{{else}}<h1>登录</h1>
 {{with .Client}}<p>继续前往 {{.}}</p>{{end}}
+{{end}}
+{{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+{{if and .CodeKinds .CodeSent}}
 <form method="post" action="{{.Action}}">
-  <label>用户名
-    <input name="username" autocomplete="username" autocapitalize="none" required value="{{.Username}}"{{if not .Username}} autofocus{{end}}>
+  <input type="hidden" name="op" value="verify">
+  <input type="hidden" name="identifier" value="{{.Identifier}}">
+  <p>验证码已发送至 {{.Identifier}},5 分钟内有效。</p>
+  <label>验证码
+    <input name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autofocus>
+  </label>
+  <button>{{if .Bind}}绑定{{else}}登录{{end}}</button>
+  <a href="{{.Action}}">重新获取</a>
+</form>
+{{else if .CodeKinds}}
+<form method="post" action="{{.Action}}">
+  <input type="hidden" name="op" value="send">
+  <label>{{.CodeKinds}}
+    <input name="identifier" {{if eq .CodeKinds "邮箱"}}type="email" autocomplete="email"{{else if eq .CodeKinds "手机号"}}type="tel" autocomplete="tel"{{else}}autocomplete="username"{{end}} autocapitalize="none" required autofocus value="{{.Identifier}}">
+  </label>
+  <altcha-widget challenge="/altcha/challenge" name="altcha" auto="onsubmit" language="zh-cn"></altcha-widget>
+  <button>获取验证码</button>
+</form>
+<script type="module" src="/altcha/altcha.js"></script>
+{{end}}
+{{if not .Bind}}
+<details{{if or (not .CodeKinds) .Username}} open{{end}}>
+<summary>使用密码登录</summary>
+<form method="post" action="{{.Action}}">
+  <input type="hidden" name="op" value="password">
+  <label>用户名、手机号或邮箱
+    <input name="username" autocomplete="username" autocapitalize="none" required value="{{.Username}}">
   </label>
   <label>密码
-    <input name="password" type="password" autocomplete="current-password" required{{if .Username}} autofocus{{end}}>
+    <input name="password" type="password" autocomplete="current-password" required>
   </label>
-  {{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
   <button>登录</button>
 </form>
+</details>
+{{end}}
 {{template "foot"}}{{end}}
 
 {{define "setup"}}{{template "head" "首次引导"}}

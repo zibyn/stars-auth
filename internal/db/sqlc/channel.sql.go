@@ -11,6 +11,30 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const channelKinds = `-- name: ChannelKinds :many
+SELECT kind FROM channels
+`
+
+func (q *Queries) ChannelKinds(ctx context.Context) ([]string, error) {
+	rows, err := q.db.Query(ctx, channelKinds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var kind string
+		if err := rows.Scan(&kind); err != nil {
+			return nil, err
+		}
+		items = append(items, kind)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const channelSecrets = `-- name: ChannelSecrets :many
 SELECT field, value FROM channel_secrets WHERE kind = $1
 `

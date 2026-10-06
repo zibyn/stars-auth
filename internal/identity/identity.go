@@ -6,10 +6,13 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"errors"
 	"regexp"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/zibyn/stars-auth/internal/crypt"
@@ -125,7 +128,11 @@ func (s *Store) Bootstrap(ctx context.Context, token, username, password string)
 // phone or email) whose password matches, if the password login setting lets
 // them in.
 func (s *Store) CheckPassword(ctx context.Context, identifier, password string) (string, error) {
-	row, err := s.q.PasswordByIdentifier(ctx, strings.ToLower(strings.TrimSpace(identifier)))
+	value := strings.ToLower(strings.TrimSpace(identifier))
+	if _, v, err := ParseIdentifier(identifier); err == nil {
+		value = v // a phone number typed without +86
+	}
+	row, err := s.q.PasswordByIdentifier(ctx, value)
 	if err != nil {
 		_, _ = verifyPassword(dummyHash, password) // unknown Identifiers take as long as known ones
 		return "", ErrBadCredentials
@@ -153,4 +160,69 @@ func checkUsername(s string) (string, error) {
 		return "", ErrUsername
 	}
 	return s, nil
+}
+
+const (
+	ErrIdentifier      Invalid = "请输入 +86 手机号或邮箱"
+	ErrPhone           Invalid = "请输入 +86 手机号"
+	ErrIdentifierTaken Invalid = "这个手机号或邮箱已属于另一个 User"
+)
+
+var (
+	phoneRE = regexp.MustCompile(`^(?:\+?86)?(1[3-9]\d{9})$`)
+	emailRE = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
+)
+
+// ParseIdentifier reads what a person typed as a phone number (+86 only,
+// stored E.164) or an email (stored lowercase).
+func ParseIdentifier(s string) (kind, value string, err error) {
+	s = strings.TrimSpace(s)
+	if strings.Contains(s, "@") {
+		s = strings.ToLower(s)
+		if !emailRE.MatchString(s) || len(s) > 254 {
+			return "", "", ErrIdentifier
+		}
+		return "email", s, nil
+	}
+	m := phoneRE.FindStringSubmatch(strings.NewReplacer(" ", "", "-", "").Replace(s))
+	if m == nil {
+		return "", "", ErrIdentifier
+	}
+	return "phone", "+86" + m[1], nil
+}
+
+// SignIn returns the User holding a phone number or email that was just
+// verified, creating one if nobody does: logging in is signing up.
+func (s *Store) SignIn(ctx context.Context, kind, value string) (string, error) {
+	sub, err := s.q.UserByIdentifier(ctx, value)
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return sub, err
+	}
+	sub = rand.Text()
+	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		if err := q.CreateUser(ctx, sub); err != nil {
+			return err
+		}
+		return q.AddIdentifier(ctx, sqlc.AddIdentifierParams{UserID: sub, Kind: kind, Value: value})
+	})
+	if isUniqueViolation(err) { // signed up a moment ago by a concurrent request
+		return s.q.UserByIdentifier(ctx, value)
+	}
+	return sub, err
+}
+
+// AddIdentifier binds a verified phone number or email to sub; never one
+// another User holds (ADR 0003).
+func (s *Store) AddIdentifier(ctx context.Context, sub, kind, value string) error {
+	err := s.q.AddIdentifier(ctx, sqlc.AddIdentifierParams{UserID: sub, Kind: kind, Value: value})
+	if isUniqueViolation(err) {
+		return ErrIdentifierTaken
+	}
+	return err
+}
+
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
 }

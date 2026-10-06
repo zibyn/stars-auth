@@ -34,6 +34,7 @@ const (
 	ErrorCodeRequestNotSupported      ErrorCode = "request_not_supported"
 	ErrorCodeRequestURINotSupported   ErrorCode = "request_uri_not_supported"
 	ErrorCodeLoginRequired            ErrorCode = "login_required"
+	ErrorCodeInteractionRequired      ErrorCode = "interaction_required"
 	ErrorCodeAuthPending              ErrorCode = "authorization_pending"
 	ErrorCodeSlowDown                 ErrorCode = "slow_down"
 	ErrorCodeExpiredToken             ErrorCode = "expired_token"

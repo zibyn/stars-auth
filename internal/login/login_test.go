@@ -19,7 +19,9 @@ import (
 
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
+	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/zibyn/stars-auth/internal/channel"
 	"github.com/zibyn/stars-auth/internal/crypt"
 	"github.com/zibyn/stars-auth/internal/db"
 	"github.com/zibyn/stars-auth/internal/db/dbtest"
@@ -40,6 +42,8 @@ type env struct {
 	issuer string
 	client *http.Client // a browser: keeps cookies, stops at redirects
 	ids    *identity.Store
+	pool   *pgxpool.Pool
+	inbox  *inbox
 }
 
 // start runs the whole HTTP surface against a fresh database, with one public
@@ -71,8 +75,15 @@ func start(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	ts.Config.Handler = server.New(pool.Ping, http.NotFoundHandler(), nil, auth.Register)
-	e := &env{t: t, issuer: ts.URL, client: ts.Client(), ids: identity.New(pool, keyring)}
+	e := &env{t: t, issuer: ts.URL, client: ts.Client(), ids: identity.New(pool, keyring), pool: pool, inbox: &inbox{codes: map[string]string{}}}
 	e.newBrowser()
+	hook := httptest.NewServer(e.inbox)
+	t.Cleanup(hook.Close)
+	for _, kind := range []string{"phone", "email"} {
+		if err := channel.NewStore(pool, keyring).Put(ctx, kind, "webhook", map[string]string{"url": hook.URL, "secret": "s"}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return e
 }
 
@@ -113,6 +124,7 @@ func (e *env) authorize(extra string) (*http.Response, string) {
 
 func (e *env) authorizeAs(client, redirect, extra string) (*http.Response, string) {
 	sum := sha256.Sum256([]byte(verifier))
+	over, _ := url.ParseQuery(extra)
 	q := url.Values{
 		"client_id":             {client},
 		"response_type":         {"code"},
@@ -123,19 +135,28 @@ func (e *env) authorizeAs(client, redirect, extra string) (*http.Response, strin
 		"code_challenge":        {base64.RawURLEncoding.EncodeToString(sum[:])},
 		"code_challenge_method": {"S256"},
 	}
-	return e.do("GET", "/authorize?"+q.Encode()+extra, nil)
+	for k, v := range over {
+		q[k] = v
+	}
+	return e.do("GET", "/authorize?"+q.Encode(), nil)
 }
 
 var actionRE = regexp.MustCompile(`<form[^>]*action="([^"]+)"`)
 
-// submit posts the login form found in page.
+// submit posts the password form found in page.
 func (e *env) submit(page, username, password string) (*http.Response, string) {
+	e.t.Helper()
+	return e.post(page, url.Values{"op": {"password"}, "username": {username}, "password": {password}})
+}
+
+// post posts form to the login page's form action.
+func (e *env) post(page string, form url.Values) (*http.Response, string) {
 	e.t.Helper()
 	m := actionRE.FindStringSubmatch(page)
 	if m == nil {
 		e.t.Fatalf("no login form in:\n%s", page)
 	}
-	return e.do("POST", html.UnescapeString(m[1]), url.Values{"username": {username}, "password": {password}})
+	return e.do("POST", html.UnescapeString(m[1]), form)
 }
 
 // code returns the authorization code a response redirects back with.

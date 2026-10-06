@@ -1,0 +1,151 @@
+// Package otp makes, sends and checks verification codes, within the send
+// limits of docs/spec/security-compliance.md. Channels only deliver them.
+package otp
+
+import (
+	"cmp"
+	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"errors"
+	"fmt"
+	"log/slog"
+	"math/big"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/zibyn/stars-auth/internal/channel"
+	"github.com/zibyn/stars-auth/internal/db/sqlc"
+	"github.com/zibyn/stars-auth/internal/identity"
+)
+
+const (
+	ErrNoChannel  identity.Invalid = "暂不支持向这类手机号或邮箱发送验证码"
+	ErrTooSoon    identity.Invalid = "发送太频繁,请 60 秒后再试"
+	ErrTooMany    identity.Invalid = "发送次数过多,请稍后再试"
+	ErrDailyCap   identity.Invalid = "今日验证码发送量已达上限,请明天再试"
+	ErrSendFailed identity.Invalid = "验证码发送失败,请稍后再试"
+	ErrWrongCode  identity.Invalid = "验证码错误或已失效"
+)
+
+const (
+	ttl           = 5 * time.Minute
+	auditDailyCap = "send.daily_cap_reached"
+)
+
+type Service struct {
+	pool     *pgxpool.Pool
+	channels *channel.Store
+	now      func() time.Time
+}
+
+func New(pool *pgxpool.Pool, channels *channel.Store) *Service {
+	return &Service{pool: pool, channels: channels, now: time.Now}
+}
+
+// Send makes a code for value, an Identifier of kind (phone or email)
+// already normalised, and sends it from a request by ip.
+func (s *Service) Send(ctx context.Context, kind, value, ip string) error {
+	ch, err := s.channels.Channel(ctx, kind)
+	if errors.Is(err, channel.ErrNotConfigured) {
+		return ErrNoChannel
+	} else if err != nil {
+		return err
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))
+	if err != nil {
+		return err
+	}
+	code := fmt.Sprintf("%06d", n)
+	if err := s.reserve(ctx, value, ip, code); err != nil {
+		return err
+	}
+	if err := ch.Send(ctx, value, code); err != nil {
+		slog.Error("send code", "kind", kind, "err", err)
+		return ErrSendFailed
+	}
+	return nil
+}
+
+// reserve counts a send against the limits and stores its code.
+func (s *Service) reserve(ctx context.Context, value, ip, code string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after Commit
+	q := sqlc.New(tx)
+	if err := q.LockSends(ctx); err != nil {
+		return err
+	}
+	now := s.now()
+	c, err := q.SendCounts(ctx, sqlc.SendCountsParams{
+		Identifier: value,
+		Ip:         ip,
+		MinuteAgo:  ts(now.Add(-time.Minute)),
+		HourAgo:    ts(now.Add(-time.Hour)),
+		DayAgo:     ts(now.Add(-24 * time.Hour)),
+	})
+	if err != nil {
+		return err
+	}
+	switch {
+	case c.IdentifierMinute >= 1:
+		return ErrTooSoon
+	case c.IdentifierHour >= 5, c.IdentifierDay >= 10, c.IpHour >= 20:
+		return ErrTooMany
+	case c.InstanceDay >= int64(c.DailyLimit):
+		// Audit the first refusal of the day, not each one.
+		audited, err := q.AuditedSince(ctx, sqlc.AuditedSinceParams{Event: auditDailyCap, At: ts(now.Add(-24 * time.Hour))})
+		if err != nil {
+			return err
+		}
+		if !audited {
+			detail := fmt.Appendf(nil, `{"limit": %d}`, c.DailyLimit)
+			if err := q.Audit(ctx, sqlc.AuditParams{Event: auditDailyCap, Detail: detail}); err != nil {
+				return err
+			}
+			if err := tx.Commit(ctx); err != nil {
+				return err
+			}
+		}
+		return ErrDailyCap
+	}
+	if err := q.RecordSend(ctx, sqlc.RecordSendParams{Identifier: value, Ip: ip, SentAt: ts(now)}); err != nil {
+		return err
+	}
+	if err := q.PutCode(ctx, sqlc.PutCodeParams{Identifier: value, Code: code, ExpiresAt: ts(now.Add(ttl))}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// Check spends value's code if it matches; five tries kill it.
+func (s *Service) Check(ctx context.Context, value, code string) error {
+	q := sqlc.New(s.pool)
+	want, err := q.TryCode(ctx, sqlc.TryCodeParams{Identifier: value, Now: ts(s.now())})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrWrongCode
+	} else if err != nil {
+		return err
+	}
+	if subtle.ConstantTimeCompare([]byte(want), []byte(code)) != 1 {
+		return ErrWrongCode
+	}
+	// Only one of two parallel right answers gets to delete it.
+	if n, err := q.DeleteCode(ctx, sqlc.DeleteCodeParams{Identifier: value, Code: want}); err != nil || n != 1 {
+		return cmp.Or(err, error(ErrWrongCode))
+	}
+	return nil
+}
+
+// DeleteExpired removes dead codes and day-old send counts; run by the
+// hourly cleanup.
+func DeleteExpired(ctx context.Context, pool *pgxpool.Pool) error {
+	return sqlc.New(pool).DeleteExpiredOTP(ctx)
+}
+
+func ts(t time.Time) pgtype.Timestamptz { return pgtype.Timestamptz{Time: t, Valid: true} }
