@@ -55,3 +55,6 @@ SELECT kid, sealed FROM signing_keys ORDER BY created_at DESC, kid LIMIT 2;
 DELETE FROM signing_keys WHERE kid NOT IN (
     SELECT kid FROM signing_keys ORDER BY created_at DESC, kid LIMIT 2
 );
+
+-- name: LockSigningKeys :exec
+SELECT pg_advisory_xact_lock(hashtext('signing_keys'));

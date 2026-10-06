@@ -17,29 +17,42 @@ import (
 // key signs; the previous one stays published so tokens it signed verify
 // until they expire.
 type Keys struct {
+	pool    *pgxpool.Pool
 	q       *sqlc.Queries
 	keyring *crypt.Keyring
 }
 
 func NewKeys(pool *pgxpool.Pool, keyring *crypt.Keyring) *Keys {
-	return &Keys{q: sqlc.New(pool), keyring: keyring}
+	return &Keys{pool: pool, q: sqlc.New(pool), keyring: keyring}
 }
 
-// Ensure creates the first signing key if there is none. Replicas starting
-// together may each create one; that is harmless, the newest signs.
+// Ensure creates the first signing key if there is none. A lock keeps
+// replicas starting together from each adding one.
 func (k *Keys) Ensure(ctx context.Context) error {
-	keys, err := k.q.SigningKeys(ctx)
+	tx, err := k.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after Commit
+	q := k.q.WithTx(tx)
+	if err := q.LockSigningKeys(ctx); err != nil {
+		return err
+	}
+	keys, err := q.SigningKeys(ctx)
 	if err != nil || len(keys) > 0 {
 		return err
 	}
-	return k.add(ctx)
+	if err := add(ctx, q, k.keyring); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // Rotate makes a new key current and retires all but the previous one.
 // ponytail: rotating twice within an access token lifetime (10 min) cuts off
 // tokens from the retired key; guard in the console if that bites.
 func (k *Keys) Rotate(ctx context.Context) error {
-	if err := k.add(ctx); err != nil {
+	if err := add(ctx, k.q, k.keyring); err != nil {
 		return err
 	}
 	return k.q.DeleteRetiredSigningKeys(ctx)
@@ -73,7 +86,7 @@ func (k *Keys) JWKS(ctx context.Context) (goidc.JSONWebKeySet, error) {
 	return jwks, nil
 }
 
-func (k *Keys) add(ctx context.Context) error {
+func add(ctx context.Context, q *sqlc.Queries, keyring *crypt.Keyring) error {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return err
@@ -83,11 +96,11 @@ func (k *Keys) add(ctx context.Context) error {
 		return err
 	}
 	kid := rand.Text()
-	sealed, err := k.keyring.Seal(der, keyAAD(kid))
+	sealed, err := keyring.Seal(der, keyAAD(kid))
 	if err != nil {
 		return err
 	}
-	return k.q.InsertSigningKey(ctx, sqlc.InsertSigningKeyParams{Kid: kid, Sealed: sealed})
+	return q.InsertSigningKey(ctx, sqlc.InsertSigningKeyParams{Kid: kid, Sealed: sealed})
 }
 
 func keyAAD(kid string) []byte { return []byte("signing_key:" + kid) }

@@ -724,10 +724,6 @@ type IsClientAllowedTokenIntrospectionFunc func(context.Context, *Client, TokenI
 
 type PairwiseSubjectFunc func(ctx context.Context, sub string, client *Client) string
 
-const ()
-
-const ()
-
 type HandleSessionFunc func(context.Context, *AuthnSession, *Client) error
 
 type LogoutParameters struct {

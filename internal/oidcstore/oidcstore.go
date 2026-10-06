@@ -164,6 +164,8 @@ func (s *Store) openGrant(row sqlc.OidcGrant, err error) (*goidc.Grant, error) {
 	return &g, nil
 }
 
+// SaveSession stores go-oidc's in-flight authorization state; not a
+// glossary Session (a User's login on a device).
 func (s *Store) SaveSession(ctx context.Context, as *goidc.AuthnSession) error {
 	data, err := json.Marshal(as)
 	if err != nil {

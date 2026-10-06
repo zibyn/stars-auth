@@ -162,6 +162,15 @@ func (q *Queries) InsertSigningKey(ctx context.Context, arg InsertSigningKeyPara
 	return err
 }
 
+const lockSigningKeys = `-- name: LockSigningKeys :exec
+SELECT pg_advisory_xact_lock(hashtext('signing_keys'))
+`
+
+func (q *Queries) LockSigningKeys(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, lockSigningKeys)
+	return err
+}
+
 const logoutSession = `-- name: LogoutSession :one
 SELECT data FROM oidc_logout_sessions WHERE id = $1 AND expires_at > now()
 `

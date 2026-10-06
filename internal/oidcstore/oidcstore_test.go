@@ -10,6 +10,7 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/zibyn/stars-auth/internal/crypt"
 	"github.com/zibyn/stars-auth/internal/db"
@@ -331,5 +332,24 @@ func TestClient(t *testing.T) {
 
 	if _, err := s.Client(ctx, "missing"); !errors.Is(err, goidc.ErrNotFound) {
 		t.Fatalf("missing client: err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestReplicasStartingTogetherCreateOneKey(t *testing.T) {
+	pool, keyring := setup(t)
+	ctx := context.Background()
+	var g errgroup.Group
+	for range 4 {
+		g.Go(func() error { return NewKeys(pool, keyring).Ensure(ctx) })
+	}
+	if err := g.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM signing_keys`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("signing keys = %d, want 1", n)
 	}
 }
