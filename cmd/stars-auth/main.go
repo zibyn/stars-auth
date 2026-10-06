@@ -21,6 +21,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/config"
 	"github.com/zibyn/stars-auth/internal/crypt"
 	"github.com/zibyn/stars-auth/internal/db"
+	"github.com/zibyn/stars-auth/internal/oidcstore"
 	"github.com/zibyn/stars-auth/internal/server"
 	"github.com/zibyn/stars-auth/web"
 )
@@ -46,9 +47,10 @@ func serve() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Fail fast on a bad master key. Version 1 until rotate-master-key (phase 2);
-	// features that store secrets take the keyring from here.
-	if _, err := crypt.NewKeyring(1, map[byte][]byte{1: cfg.MasterKey}); err != nil {
+	// Version 1 until rotate-master-key (phase 2); features that store
+	// secrets take the keyring from here.
+	keyring, err := crypt.NewKeyring(1, map[byte][]byte{1: cfg.MasterKey})
+	if err != nil {
 		return err
 	}
 
@@ -59,6 +61,9 @@ func serve() error {
 	defer pool.Close()
 	if err := db.Migrate(ctx, pool); err != nil {
 		return fmt.Errorf("migrate: %w", err)
+	}
+	if err := oidcstore.NewKeys(pool, keyring).Ensure(ctx); err != nil {
+		return fmt.Errorf("signing key: %w", err)
 	}
 
 	spa, err := webHandler(cfg.DevWebURL)
@@ -108,8 +113,10 @@ func webHandler(devURL string) (http.Handler, error) {
 }
 
 // cleanupTasks delete expired short-lived rows (codes, PoW, rate limits,
-// grants). Each feature appends its own as its table lands.
-var cleanupTasks []func(context.Context, *pgxpool.Pool) error
+// grants). Each feature adds its own as its table lands.
+var cleanupTasks = []func(context.Context, *pgxpool.Pool) error{
+	oidcstore.DeleteExpired,
+}
 
 // runCleanup runs cleanupTasks once an hour.
 func runCleanup(ctx context.Context, pool *pgxpool.Pool) {
