@@ -1,0 +1,62 @@
+# Stars Auth + PostgreSQL 15 + Caddy (automatic HTTPS).
+#
+#   cat > .env <<END
+#   STARS_AUTH_DOMAIN=auth.example.com
+#   STARS_AUTH_MASTER_KEY=$(openssl rand -base64 32)
+#   POSTGRES_PASSWORD=$(openssl rand -hex 16)
+#   END
+#   docker compose up -d
+#
+# BACK UP STARS_AUTH_MASTER_KEY. Losing it makes every encrypted secret
+# (signing keys, TOTP secrets, Channel/Provider secrets) unrecoverable.
+# Leave STARS_AUTH_DOMAIN unset to try it on https://localhost (Caddy's local CA).
+
+services:
+  stars-auth:
+    build: .
+    restart: unless-stopped
+    environment:
+      STARS_AUTH_DATABASE_URL: postgres://stars:${POSTGRES_PASSWORD:?set in .env}@postgres:5432/stars?sslmode=disable
+      STARS_AUTH_MASTER_KEY: ${STARS_AUTH_MASTER_KEY:?set in .env}
+      STARS_AUTH_ISSUER: https://${STARS_AUTH_DOMAIN:-localhost}
+      STARS_AUTH_TRUSTED_PROXIES: 172.31.255.2 # caddy
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [internal]
+
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: stars
+      POSTGRES_DB: stars
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+    volumes: [pg:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD, pg_isready, -U, stars]
+      interval: 5s
+    networks: [internal]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      STARS_AUTH_DOMAIN: ${STARS_AUTH_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy:/data
+    networks:
+      internal:
+        ipv4_address: 172.31.255.2
+
+networks:
+  internal:
+    ipam:
+      # Dynamic IPs come from the upper half, so nothing takes caddy's address.
+      config: [{ subnet: 172.31.255.0/24, ip_range: 172.31.255.128/25 }]
+
+volumes:
+  pg:
+  caddy:
