@@ -840,57 +840,6 @@ func WithJAREncryption(
 	}
 }
 
-// JARMOption is an optional configuration for JWT-Secured Authorization Response Mode.
-// See [WithJARM] for more information.
-type JARMOption Option
-
-// WithJARM allows responses for authorization requests to be sent as signed JWTs.
-// The first algorithm in sigAlgs is used as the default signing algorithm.
-// Clients can choose the algorithm by setting the attribute
-// "authorization_signed_response_alg".
-// By default, the lifetime of a response object is [defaultJWTLifetimeSecs].
-func WithJARM(sigAlgs []goidc.SignatureAlgorithm, opts ...JARMOption) AuthCodeGrantOption {
-	return func(p *Provider) error {
-		if len(sigAlgs) == 0 {
-			return errors.New("at least one signature algorithm is required for JARM")
-		}
-		if slices.Contains(sigAlgs, goidc.SigAlgNone) {
-			return errors.New("'none' algorithm is not allowed for JARM")
-		}
-		p.config.JARMEnabled = true
-		p.config.JARMSigAlgDefault = sigAlgs[0]
-		p.config.JARMSigAlgs = sigAlgs
-		for _, opt := range opts {
-			if err := opt(p); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-}
-
-// WithJARMEncryption allows responses for authorization requests to be sent as encrypted JWTs.
-// The first content encryption algorithm is used as the default.
-// Clients can choose the encryption algorithms by setting the attributes
-// "authorization_encrypted_response_alg" and "authorization_encrypted_response_enc".
-func WithJARMEncryption(
-	keyAlgs []goidc.KeyEncryptionAlgorithm,
-	contentAlgs []goidc.ContentEncryptionAlgorithm,
-) JARMOption {
-	return func(p *Provider) error {
-		if len(keyAlgs) == 0 {
-			return errors.New("at least one key encryption algorithm is required for JARM encryption")
-		}
-		if len(contentAlgs) == 0 {
-			return errors.New("at least one content encryption algorithm is required for JARM encryption")
-		}
-		p.config.JARMEncEnabled = true
-		p.config.JARMKeyEncAlgs = keyAlgs
-		p.config.JARMContentEncAlgs = contentAlgs
-		return nil
-	}
-}
-
 // ── Refresh Token Grant ───────────────────────────────────────────────────────
 
 // RefreshTokenOption is an optional configuration for the refresh token grant.

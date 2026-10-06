@@ -125,11 +125,6 @@ func validateParams(ctx oidc.Context, params goidc.AuthorizationParameters, c *g
 				errors.New("response_type is not supported by this FAPI profile"))
 		}
 
-		if params.ResponseType == goidc.ResponseTypeCode && params.ResponseMode != goidc.ResponseModeJWT {
-			return wrapRedirectionError(goidc.ErrorCodeInvalidRequest, "invalid response_mode", params,
-				errors.New("response_mode jwt is required when response_type is code"))
-		}
-
 		if strutil.ContainsOpenID(params.Scopes) && params.Nonce == "" {
 			return wrapRedirectionError(goidc.ErrorCodeInvalidRequest, "invalid request", params,
 				errors.New("nonce is required for OpenID requests in this FAPI profile"))
@@ -354,12 +349,6 @@ func validateResponseModeAsOptional(ctx oidc.Context, params goidc.Authorization
 	if params.ResponseMode.IsQuery() && params.ResponseType.IsImplicit() {
 		return wrapRedirectionError(goidc.ErrorCodeInvalidRequest, "invalid response_mode", params,
 			errors.New("response_mode query is not allowed with implicit or hybrid response types"))
-	}
-
-	// If the client has defined a signature algorithm for JARM, then JARM is required.
-	if c.JARMSigAlg != "" && params.ResponseMode.IsPlain() {
-		return wrapRedirectionError(goidc.ErrorCodeInvalidRequest, "invalid response_mode", params,
-			errors.New("the client requires a JWT-secured authorization response mode"))
 	}
 
 	return nil

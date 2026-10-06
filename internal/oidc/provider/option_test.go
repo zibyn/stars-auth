@@ -830,93 +830,6 @@ func TestJAREncryptionValidation(t *testing.T) {
 	}
 }
 
-func TestWithJARM(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithJARM([]goidc.SignatureAlgorithm{goidc.SigAlgRS256})(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			JARMEnabled:       true,
-			JARMSigAlgDefault: goidc.SigAlgRS256,
-			JARMSigAlgs:       []goidc.SignatureAlgorithm{goidc.SigAlgRS256},
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
-func TestJARMEncryption(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithJARMEncryption(
-		[]goidc.KeyEncryptionAlgorithm{goidc.KeyEncRSAOAEP},
-		[]goidc.ContentEncryptionAlgorithm{goidc.ContentEncAlgA128GCM},
-	)(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			JARMEncEnabled:     true,
-			JARMKeyEncAlgs:     []goidc.KeyEncryptionAlgorithm{goidc.KeyEncRSAOAEP},
-			JARMContentEncAlgs: []goidc.ContentEncryptionAlgorithm{goidc.ContentEncAlgA128GCM},
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
-func TestJARMEncryptionValidation(t *testing.T) {
-	tests := []struct {
-		name        string
-		keyAlgs     []goidc.KeyEncryptionAlgorithm
-		contentAlgs []goidc.ContentEncryptionAlgorithm
-		wantErr     string
-	}{
-		{
-			name:        "requires key encryption algorithm",
-			contentAlgs: []goidc.ContentEncryptionAlgorithm{goidc.ContentEncAlgA128GCM},
-			wantErr:     "at least one key encryption algorithm is required for JARM encryption",
-		},
-		{
-			name:    "requires content encryption algorithm",
-			keyAlgs: []goidc.KeyEncryptionAlgorithm{goidc.KeyEncRSAOAEP},
-			wantErr: "at least one content encryption algorithm is required for JARM encryption",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			err := WithJARMEncryption(test.keyAlgs, test.contentAlgs)(&Provider{})
-			if err == nil {
-				t.Fatal("WithJARMEncryption() error = nil, want non-nil")
-			}
-			if got := err.Error(); got != test.wantErr {
-				t.Fatalf("WithJARMEncryption() error = %q, want %q", got, test.wantErr)
-			}
-		})
-	}
-}
-
 func TestWithAssertionLifetime(t *testing.T) {
 	// Given.
 	p := &Provider{
@@ -2142,21 +2055,6 @@ func TestWithAttestationJWTAuthnValidation(t *testing.T) {
 				t.Fatalf("WithAttestationJWTAuthn() error = %q, want %q", got, test.wantErr)
 			}
 		})
-	}
-}
-
-func TestWithJARM_NoneAlgorithm(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithJARM([]goidc.SignatureAlgorithm{goidc.SigAlgNone})(p)
-
-	// Then.
-	if err == nil {
-		t.Error("expected error for 'none' algorithm")
 	}
 }
 

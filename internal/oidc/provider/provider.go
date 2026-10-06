@@ -181,14 +181,6 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 
 	op.config.AuthnMethods = nonZeroOrDefault(op.config.AuthnMethods, []goidc.AuthnMethod{goidc.AuthnMethodSecretPost})
 
-	if op.config.JARMEnabled {
-		op.config.JARMLifetimeSecs = nonZeroOrDefault(op.config.JARMLifetimeSecs, defaultJWTLifetimeSecs)
-		op.config.ResponseModes = append(op.config.ResponseModes, goidc.ResponseModeJWT, goidc.ResponseModeQueryJWT, goidc.ResponseModeFragmentJWT)
-		if slices.Contains(op.config.ResponseModes, goidc.ResponseModeFormPost) {
-			op.config.ResponseModes = append(op.config.ResponseModes, goidc.ResponseModeFormPostJWT)
-		}
-	}
-
 	if op.config.TokenIntrospectionEnabled {
 		op.config.TokenIntrospectionEndpoint = nonZeroOrDefault(op.config.TokenIntrospectionEndpoint, defaultEndpointTokenIntrospection)
 		op.config.TokenIntrospectionIsClientAllowedFunc = nonZeroOrDefault(op.config.TokenIntrospectionIsClientAllowedFunc, goidc.IsClientAllowedTokenIntrospectionFunc(defaultTokenIntrospectionIsClientAllowedFunc))

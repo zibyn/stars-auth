@@ -117,15 +117,6 @@ type Configuration struct {
 	RefreshTokenRotationEnabled bool
 	RefreshTokenLifetimeSecs    int
 
-	JARMEnabled       bool
-	JARMSigAlgDefault goidc.SignatureAlgorithm
-	JARMSigAlgs       []goidc.SignatureAlgorithm
-	// JARMLifetimeSecs defines how long response objects are valid for.
-	JARMLifetimeSecs   int
-	JARMEncEnabled     bool
-	JARMKeyEncAlgs     []goidc.KeyEncryptionAlgorithm
-	JARMContentEncAlgs []goidc.ContentEncryptionAlgorithm
-
 	JAREnabled  bool
 	JARRequired bool
 	JARSigAlgs  []goidc.SignatureAlgorithm

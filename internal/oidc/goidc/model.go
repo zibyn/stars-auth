@@ -39,9 +39,6 @@ type Configuration struct {
 	JARContentEncAlgs                 []ContentEncryptionAlgorithm `json:"request_object_encryption_enc_values_supported,omitempty"`
 	JARByReferenceEnabled             bool                         `json:"request_uri_parameter_supported,omitempty"`
 	JARRequestURIRegistrationRequired bool                         `json:"require_request_uri_registration,omitempty"`
-	JARMAlgs                          []SignatureAlgorithm         `json:"authorization_signing_alg_values_supported,omitempty"`
-	JARMKeyEncAlgs                    []KeyEncryptionAlgorithm     `json:"authorization_encryption_alg_values_supported,omitempty"`
-	JARMContentEncAlgs                []ContentEncryptionAlgorithm `json:"authorization_encryption_enc_values_supported,omitempty"`
 	IssuerResponseParamEnabled        bool                         `json:"authorization_response_iss_parameter_supported,omitempty"`
 	ClaimsParamEnabled                bool                         `json:"claims_parameter_supported,omitempty"`
 	AuthDetailsEnabled                bool                         `json:"authorization_details_supported,omitempty"`
@@ -151,35 +148,20 @@ func (rt ResponseType) IsImplicit() bool {
 type ResponseMode string
 
 const (
-	ResponseModeQuery       ResponseMode = "query"
-	ResponseModeFragment    ResponseMode = "fragment"
-	ResponseModeFormPost    ResponseMode = "form_post"
-	ResponseModeQueryJWT    ResponseMode = "query.jwt"
-	ResponseModeFragmentJWT ResponseMode = "fragment.jwt"
-	ResponseModeFormPostJWT ResponseMode = "form_post.jwt"
-	ResponseModeJWT         ResponseMode = "jwt"
+	ResponseModeQuery    ResponseMode = "query"
+	ResponseModeFragment ResponseMode = "fragment"
+	ResponseModeFormPost ResponseMode = "form_post"
 	// Redirectless response modes. These are not part of the official specification,
 	// so use them with caution and only in controlled or experimental environments.
-	ResponseModeJSON    ResponseMode = "json"
-	ResponseModeJSONJWT ResponseMode = "json.jwt"
+	ResponseModeJSON ResponseMode = "json"
 )
 
-func (rm ResponseMode) IsJARM() bool {
-	return rm == ResponseModeQueryJWT || rm == ResponseModeFragmentJWT ||
-		rm == ResponseModeFormPostJWT || rm == ResponseModeJWT || rm == ResponseModeJSONJWT
-}
-
-func (rm ResponseMode) IsPlain() bool {
-	return rm == ResponseModeQuery || rm == ResponseModeFragment ||
-		rm == ResponseModeFormPost || rm == ResponseModeJSON
-}
-
 func (rm ResponseMode) IsQuery() bool {
-	return rm == ResponseModeQuery || rm == ResponseModeQueryJWT
+	return rm == ResponseModeQuery
 }
 
 func (rm ResponseMode) IsJSON() bool {
-	return rm == ResponseModeJSON || rm == ResponseModeJSONJWT
+	return rm == ResponseModeJSON
 }
 
 type AuthnMethod string

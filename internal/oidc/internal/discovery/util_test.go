@@ -149,9 +149,6 @@ func TestOIDCConfig_WithVariants(t *testing.T) {
 		JAREnabled:                      true,
 		JARRequired:                     true,
 		JARSigAlgs:                      []goidc.SignatureAlgorithm{goidc.SigAlgPS256},
-		JARMEnabled:                     true,
-		JARMSigAlgDefault:               goidc.SignatureAlgorithm(jarmKey.Algorithm),
-		JARMSigAlgs:                     []goidc.SignatureAlgorithm{goidc.SignatureAlgorithm(jarmKey.Algorithm)},
 		DPoPEnabled:                     true,
 		DPoPSigAlgs:                     []goidc.SignatureAlgorithm{goidc.SigAlgPS256},
 		TokenIntrospectionEnabled:       true,
@@ -207,9 +204,6 @@ func TestOIDCConfig_WithVariants(t *testing.T) {
 		JAREnabled:  true,
 		JARRequired: true,
 		JARAlgs:     ctx.JARSigAlgs,
-		JARMAlgs: []goidc.SignatureAlgorithm{
-			goidc.SignatureAlgorithm(jarmKey.Algorithm),
-		},
 		DPoPSigAlgs: ctx.DPoPSigAlgs,
 	}
 	if diff := cmp.Diff(got, want); diff != "" {

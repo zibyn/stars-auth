@@ -82,60 +82,12 @@ func TestResponseTypeIsImplicit(t *testing.T) {
 	}
 }
 
-func TestResponseModeIsJARM(t *testing.T) {
-	testCases := []struct {
-		rm   goidc.ResponseMode
-		want bool
-	}{
-		{goidc.ResponseModeQueryJWT, true},
-		{goidc.ResponseModeFragmentJWT, true},
-		{goidc.ResponseModeFormPostJWT, true},
-		{goidc.ResponseModeJWT, true},
-		{goidc.ResponseModeJSONJWT, true},
-		{goidc.ResponseModeQuery, false},
-		{goidc.ResponseModeFragment, false},
-		{goidc.ResponseModeFormPost, false},
-		{goidc.ResponseModeJSON, false},
-	}
-
-	for _, tc := range testCases {
-		t.Run(string(tc.rm), func(t *testing.T) {
-			if got := tc.rm.IsJARM(); got != tc.want {
-				t.Errorf("IsJARM() = %t, want %t", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestResponseModeIsPlain(t *testing.T) {
-	testCases := []struct {
-		rm   goidc.ResponseMode
-		want bool
-	}{
-		{goidc.ResponseModeQuery, true},
-		{goidc.ResponseModeFragment, true},
-		{goidc.ResponseModeFormPost, true},
-		{goidc.ResponseModeJSON, true},
-		{goidc.ResponseModeQueryJWT, false},
-		{goidc.ResponseModeFragmentJWT, false},
-	}
-
-	for _, tc := range testCases {
-		t.Run(string(tc.rm), func(t *testing.T) {
-			if got := tc.rm.IsPlain(); got != tc.want {
-				t.Errorf("IsPlain() = %t, want %t", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestResponseModeIsQuery(t *testing.T) {
 	testCases := []struct {
 		rm   goidc.ResponseMode
 		want bool
 	}{
 		{goidc.ResponseModeQuery, true},
-		{goidc.ResponseModeQueryJWT, true},
 		{goidc.ResponseModeFragment, false},
 		{goidc.ResponseModeFormPost, false},
 	}
@@ -155,7 +107,6 @@ func TestResponseModeIsJSON(t *testing.T) {
 		want bool
 	}{
 		{goidc.ResponseModeJSON, true},
-		{goidc.ResponseModeJSONJWT, true},
 		{goidc.ResponseModeQuery, false},
 	}
 

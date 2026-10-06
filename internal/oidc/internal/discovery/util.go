@@ -50,14 +50,6 @@ func NewConfiguration(ctx oidc.Context) goidc.Configuration {
 		}
 	}
 
-	if ctx.JARMEnabled {
-		config.JARMAlgs = ctx.JARMSigAlgs
-		if ctx.JARMEncEnabled {
-			config.JARMKeyEncAlgs = ctx.JARMKeyEncAlgs
-			config.JARMContentEncAlgs = ctx.JARMContentEncAlgs
-		}
-	}
-
 	if ctx.DPoPEnabled {
 		config.DPoPSigAlgs = ctx.DPoPSigAlgs
 	}

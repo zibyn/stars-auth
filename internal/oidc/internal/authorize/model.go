@@ -39,9 +39,6 @@ const (
 	    {{ if .id_token }}
 		<input type="hidden" name="id_token" value="{{ .id_token }}"/>
 		{{ end }}
-	    {{ if .response }}
-		<input type="hidden" name="response" value="{{ .response }}"/>
-		{{ end }}
 	    {{ if .error }}
 		<input type="hidden" name="error" value="{{ .error }}"/>
 		{{ end }}
@@ -150,7 +147,6 @@ func newRequest(req *http.Request) request {
 }
 
 type response struct {
-	response          string
 	issuer            string
 	accessToken       string
 	tokenType         goidc.TokenType
@@ -163,10 +159,6 @@ type response struct {
 }
 
 func (resp response) parameters() map[string]string {
-	if resp.response != "" {
-		return map[string]string{"response": resp.response}
-	}
-
 	params := make(map[string]string)
 
 	if resp.issuer != "" {

@@ -218,64 +218,6 @@ func TestInitAuth(t *testing.T) {
 			},
 		},
 		{
-			name: "jarm",
-			setup: func(t *testing.T) (oidc.Context, *goidc.Client, request) {
-				ctx, client := setup(t)
-				ctx.JARMEnabled = true
-				ctx.JARMLifetimeSecs = 60
-				ctx.JARMSigAlgDefault = goidc.SignatureAlgorithm(oidctest.PrivateJWKS(t, ctx).Keys[0].Algorithm)
-				ctx.ResponseModes = append(ctx.ResponseModes, goidc.ResponseModeJWT)
-
-				req := request{
-					ClientID: client.ID,
-					AuthorizationParameters: goidc.AuthorizationParameters{
-						RedirectURI:  client.RedirectURIs[0],
-						Scopes:       client.ScopeIDs,
-						ResponseType: goidc.ResponseTypeCode,
-						ResponseMode: goidc.ResponseModeJWT,
-					},
-				}
-				return ctx, client, req
-			},
-			validate: func(t *testing.T, ctx oidc.Context, client *goidc.Client, _ request) {
-				grants := oidctest.Grants(t, ctx)
-				if len(grants) != 1 {
-					t.Fatalf("len(grants) = %d, want 1", len(grants))
-				}
-
-				grant := grants[0]
-				if grant.AuthCode == "" {
-					t.Fatal("expected authorization code to be persisted in the grant")
-				}
-
-				redirectURL, err := url.Parse(ctx.Response.Header().Get("Location"))
-				if err != nil {
-					t.Fatalf("could not parse redirect url: %v", err)
-				}
-
-				responseObject := redirectURL.Query().Get("response")
-				if responseObject == "" {
-					t.Fatal("expected response object in redirect response")
-				}
-
-				claims, err := oidctest.SafeClaims(responseObject, oidctest.PrivateJWKS(t, ctx).Keys[0])
-				if err != nil {
-					t.Fatalf("error parsing claims: %v", err)
-				}
-				now := timeutil.TimestampNow()
-				wantClaims := map[string]any{
-					"iss":  ctx.Issuer(),
-					"aud":  client.ID,
-					"exp":  float64(now + ctx.JARMLifetimeSecs),
-					"iat":  float64(now),
-					"code": grant.AuthCode,
-				}
-				if diff := cmp.Diff(claims, wantClaims, cmpopts.EquateApprox(0, 1)); diff != "" {
-					t.Error(diff)
-				}
-			},
-		},
-		{
 			name: "resource indicators",
 			setup: func(t *testing.T) (oidc.Context, *goidc.Client, request) {
 				ctx, client := setup(t)
