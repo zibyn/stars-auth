@@ -26,7 +26,6 @@ func TestRoutes(t *testing.T) {
 		{"/admin/users", 200, "shell"}, // client route falls back to the shell
 		{"/assets/missing.js", 404, ""},
 		{"/assets/", 200, "shell"}, // never a directory listing
-		{"/", 200, "shell"},
 	} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", tc.path, nil))
@@ -35,8 +34,14 @@ func TestRoutes(t *testing.T) {
 		}
 	}
 
-	dbErr = errors.New("down")
 	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	if w.Code != 302 || w.Header().Get("Location") != "/account" {
+		t.Errorf("/: %d -> %q", w.Code, w.Header().Get("Location"))
+	}
+
+	dbErr = errors.New("down")
+	w = httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", "/healthz", nil))
 	if w.Code != 503 {
 		t.Errorf("healthz with db down: %d", w.Code)

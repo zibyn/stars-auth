@@ -22,6 +22,8 @@ func New(ping func(context.Context) error, web http.Handler, trusted []netip.Pre
 		}
 		_, _ = fmt.Fprint(w, "ok")
 	})
+	// An auth service has no home page; users land in the account center.
+	mux.Handle("GET /{$}", http.RedirectHandler("/account", http.StatusFound))
 	mux.Handle("/", web)
 	return trustProxies(trusted, mux)
 }
