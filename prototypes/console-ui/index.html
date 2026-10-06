@@ -1,0 +1,437 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway. 「管理端与账号中心的界面形态」
+  管理端 3 种 × 账号中心 3 种信息组织方案,切换:?surface=admin|account&variant=A|B|C
+  外观按 shadcn/ui 风格用 Tailwind 手写(单文件、无构建),不含真正的 Base UI 原语;数据全是内存假数据。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Stars Auth 界面原型</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<style>body{font-family:ui-sans-serif,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}</style>
+</head>
+<body class="bg-white text-zinc-900">
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect } = React;
+
+/* ---------- 假数据 ---------- */
+const seed = {
+  users: [
+    { sub: 'u_7Qm2', username: 'admin', phone: null, email: null, ext: [], operator: true, twofa: false, passkeys: 0, status: '正常', created: '2026-10-01', last: '2026-10-06' },
+    { sub: 'u_8f3k', username: null, phone: '+86 138****1234', email: null, ext: [], operator: false, twofa: false, passkeys: 0, status: '正常', created: '2026-10-02', last: '2026-10-06' },
+    { sub: 'u_9a1z', username: null, phone: '+86 139****8888', email: 'li@example.com', ext: ['Google'], operator: false, twofa: true, passkeys: 1, status: '正常', created: '2026-10-03', last: '2026-10-05' },
+    { sub: 'u_b2xx', username: null, phone: null, email: 'wang@example.com', ext: [], operator: false, twofa: false, passkeys: 0, status: '已禁用', created: '2026-10-04', last: '2026-10-04' },
+  ],
+  apps: [
+    { id: 'nav-app', name: '户外导航 App', kind: '原生 App · public', api: 'nav-api', webhook: '', builtin: false },
+    { id: 'nav-admin', name: '导航管理后台', kind: 'Web · confidential', api: 'nav-api', webhook: 'https://admin.nav.example/hooks/auth', builtin: false },
+    { id: 'console', name: 'Stars Auth 管理端', kind: '内置', api: '—', webhook: '', builtin: true },
+  ],
+  apis: [{ id: 'nav-api', name: '导航业务后端', audience: 'https://api.nav.example' }],
+  channels: {
+    sms: { active: 'aliyun-pnvs', options: [{ id: 'aliyun-pnvs', name: '阿里云短信认证' }, { id: 'webhook', name: 'Webhook' }], secretUpdated: '2026-10-02' },
+    email: { active: null, options: [{ id: 'smtp', name: 'SMTP' }, { id: 'aliyun-dm', name: '阿里云邮件推送' }, { id: 'webhook', name: 'Webhook' }], secretUpdated: null },
+  },
+  providers: [{ id: 'p1', plugin: '通用 OIDC', name: 'Google', enabled: false, secretUpdated: '2026-10-03' }],
+  policy: { password: '仅 Operator', passkey: true, twofa: true, requirePhone: false, operator2fa: false },
+  keys: [{ kid: 'k-2026-10', alg: 'RS256', state: '签名中', created: '2026-10-01' }],
+  audit: [
+    { t: '10-06 09:12', who: 'admin', what: '登录管理端', target: '' },
+    { t: '10-05 21:40', who: 'u_9a1z', what: '开启 2FA', target: '' },
+    { t: '10-04 18:02', who: 'admin', what: '禁用 User', target: 'u_b2xx' },
+    { t: '10-02 10:00', who: 'admin', what: '配置短信通道', target: '阿里云短信认证' },
+  ],
+  me: {
+    sub: 'u_9a1z', phone: '+86 139****8888', email: 'li@example.com', username: null,
+    ext: [{ name: 'Google', since: '2026-10-03' }],
+    password: false, passkeys: [{ name: 'iPhone 16 · iCloud 钥匙串', created: '2026-10-03' }], twofa: true, recovery: 8,
+    sessions: [
+      { id: 's1', kind: '户外导航 App · iPhone 16', where: '杭州', last: '刚刚', current: true },
+      { id: 's2', kind: '浏览器 · Chrome / macOS', where: '杭州', last: '2 小时前' },
+      { id: 's3', kind: '户外导航 App · Pixel 8', where: '上海', last: '12 天前' },
+    ],
+  },
+};
+
+/* ---------- shadcn 风格小组件 ---------- */
+const cx = (...a) => a.filter(Boolean).join(' ');
+const Btn = ({ v = 'default', size = 'md', className, ...p }) => (
+  <button {...p} className={cx('inline-flex items-center justify-center rounded-md font-medium transition-colors disabled:opacity-50',
+    size === 'sm' ? 'h-8 px-3 text-xs' : 'h-9 px-4 text-sm',
+    v === 'default' && 'bg-zinc-900 text-white hover:bg-zinc-800',
+    v === 'outline' && 'border border-zinc-200 bg-white hover:bg-zinc-100',
+    v === 'ghost' && 'hover:bg-zinc-100',
+    v === 'destructive' && 'bg-red-600 text-white hover:bg-red-500', className)} />
+);
+const Badge = ({ tone = 'zinc', children }) => (
+  <span className={cx('inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
+    tone === 'zinc' && 'border-zinc-200 text-zinc-700', tone === 'green' && 'border-green-200 bg-green-50 text-green-700',
+    tone === 'red' && 'border-red-200 bg-red-50 text-red-700', tone === 'amber' && 'border-amber-200 bg-amber-50 text-amber-700',
+    tone === 'dark' && 'border-zinc-900 bg-zinc-900 text-white')}>{children}</span>
+);
+const Card = ({ title, desc, action, children, className }) => (
+  <div className={cx('rounded-xl border border-zinc-200 bg-white shadow-sm', className)}>
+    {(title || action) && <div className="flex items-start justify-between gap-4 p-5 pb-3">
+      <div><div className="font-semibold">{title}</div>{desc && <div className="mt-1 text-sm text-zinc-500">{desc}</div>}</div>{action}</div>}
+    <div className={title ? 'px-5 pb-5' : 'p-5'}>{children}</div>
+  </div>
+);
+const Switch = ({ on, onChange }) => (
+  <button onClick={() => onChange(!on)} className={cx('relative h-5 w-9 rounded-full transition-colors', on ? 'bg-zinc-900' : 'bg-zinc-200')}>
+    <span className={cx('absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all', on ? 'left-4' : 'left-0.5')} />
+  </button>
+);
+const Input = (p) => <input {...p} className={cx('h-9 w-full rounded-md border border-zinc-200 px-3 text-sm outline-none focus:ring-2 focus:ring-zinc-300', p.className)} />;
+const Segmented = ({ value, options, onChange }) => (
+  <div className="inline-flex rounded-md bg-zinc-100 p-1">
+    {options.map(o => <button key={o} onClick={() => onChange(o)} className={cx('rounded px-3 py-1 text-xs', value === o ? 'bg-white shadow font-medium' : 'text-zinc-500')}>{o}</button>)}
+  </div>
+);
+const Row = ({ label, hint, children }) => (
+  <div className="flex items-center justify-between gap-4 border-b border-zinc-100 py-3 last:border-0">
+    <div><div className="text-sm font-medium">{label}</div>{hint && <div className="text-xs text-zinc-500">{hint}</div>}</div>
+    <div className="shrink-0">{children}</div>
+  </div>
+);
+function Dialog({ open, title, desc, children, onClose }) {
+  if (!open) return null;
+  return <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()}>
+      <div className="text-lg font-semibold">{title}</div>{desc && <div className="mt-1 text-sm text-zinc-500">{desc}</div>}
+      <div className="mt-4">{children}</div>
+    </div>
+  </div>;
+}
+function Sheet({ open, title, children, onClose, wide }) {
+  if (!open) return null;
+  return <div className="fixed inset-0 z-30 flex justify-end bg-black/30" onClick={onClose}>
+    <div className={cx('h-full overflow-y-auto bg-white p-6 shadow-xl', wide ? 'w-full' : 'w-full max-w-lg')} onClick={e => e.stopPropagation()}>
+      <div className="mb-4 flex items-center justify-between"><div className="text-lg font-semibold">{title}</div><Btn v="ghost" size="sm" onClick={onClose}>关闭</Btn></div>
+      {children}
+    </div>
+  </div>;
+}
+const toastBus = { fn: null };
+const toast = (m) => toastBus.fn && toastBus.fn(m);
+function Toaster() {
+  const [m, setM] = useState(null);
+  useEffect(() => { toastBus.fn = (x) => { setM(x); setTimeout(() => setM(null), 1800); }; }, []);
+  return m ? <div className="fixed right-4 top-4 z-50 rounded-md border bg-white px-4 py-2 text-sm shadow-lg">{m}</div> : null;
+}
+const SecretField = ({ label, updated }) => {
+  const [edit, setEdit] = useState(false);
+  return <Row label={label} hint="密钥字段只写不回显">
+    {edit ? <div className="flex gap-2"><Input type="password" placeholder="输入新值" className="w-48" /><Btn size="sm" onClick={() => { setEdit(false); toast('已替换'); }}>保存</Btn></div>
+      : <div className="flex items-center gap-2"><span className="text-xs text-zinc-500">{updated ? `已设置 · 更新于 ${updated}` : '未设置'}</span><Btn v="outline" size="sm" onClick={() => setEdit(true)}>替换</Btn></div>}
+  </Row>;
+};
+
+/* ---------- 管理端:共享区块 ---------- */
+const ident = u => [u.username && `@${u.username}`, u.phone, u.email].filter(Boolean).join(' · ') || '(仅外部身份)';
+
+function UsersTable({ s, onOpen, filter = '' }) {
+  const rows = s.users.filter(u => (u.sub + ident(u)).includes(filter));
+  return <div className="overflow-hidden rounded-lg border border-zinc-200">
+    <table className="w-full text-sm">
+      <thead className="bg-zinc-50 text-left text-xs text-zinc-500"><tr><th className="p-3">User</th><th className="p-3">Identifier</th><th className="p-3">安全</th><th className="p-3">状态</th><th className="p-3">最近登录</th></tr></thead>
+      <tbody>{rows.map(u => <tr key={u.sub} className="cursor-pointer border-t border-zinc-100 hover:bg-zinc-50" onClick={() => onOpen(u.sub)}>
+        <td className="p-3 font-mono text-xs">{u.sub} {u.operator && <Badge tone="dark">Operator</Badge>}</td>
+        <td className="p-3">{ident(u)}{u.ext.map(e => <span key={e} className="ml-1"><Badge>{e}</Badge></span>)}</td>
+        <td className="p-3 space-x-1">{u.twofa && <Badge tone="green">2FA</Badge>}{u.passkeys > 0 && <Badge tone="green">Passkey</Badge>}</td>
+        <td className="p-3"><Badge tone={u.status === '正常' ? 'zinc' : 'red'}>{u.status}</Badge></td>
+        <td className="p-3 text-zinc-500">{u.last}</td></tr>)}</tbody>
+    </table>
+  </div>;
+}
+
+function UserDetail({ s, set, sub }) {
+  const u = s.users.find(x => x.sub === sub);
+  const [confirm, setConfirm] = useState(null);
+  if (!u) return <div className="text-sm text-zinc-500">选择一个 User</div>;
+  const ops = s.users.filter(x => x.operator && x.status === '正常').length;
+  const patch = (p) => set(st => ({ ...st, users: st.users.map(x => x.sub === sub ? { ...x, ...p } : x) }));
+  const lastOp = u.operator && ops <= 1;
+  return <div className="space-y-4">
+    <div><div className="font-mono text-sm">{u.sub}</div><div className="text-xs text-zinc-500">创建于 {u.created} · 最近登录 {u.last}</div></div>
+    <Card title="Identifier 与外部身份">
+      {u.username && <Row label="用户名" hint="不验证,只能配合密码">@{u.username}</Row>}
+      <Row label="手机号">{u.phone || <span className="text-zinc-400">未绑定</span>}</Row>
+      <Row label="邮箱">{u.email || <span className="text-zinc-400">未绑定</span>}</Row>
+      {u.ext.map(e => <Row key={e} label={`外部身份 · ${e}`}>已绑定</Row>)}
+      <div className="pt-3"><Btn v="outline" size="sm" onClick={() => setConfirm('replace')}>替换 Identifier(人工找回)</Btn></div>
+    </Card>
+    <Card title="安全">
+      <Row label="2FA(TOTP)">{u.twofa ? <Btn v="outline" size="sm" onClick={() => { patch({ twofa: false }); toast('已重置 2FA,已记审计'); }}>重置 2FA</Btn> : <span className="text-xs text-zinc-400">未开启</span>}</Row>
+      <Row label="Passkey">{u.passkeys} 把</Row>
+      <Row label="Operator" hint={lastOp ? '最后一个 Operator 不能去掉标记' : '可进入管理端'}><Switch on={u.operator} onChange={v => lastOp ? toast('最后一个 Operator 不能去掉标记') : patch({ operator: v })} /></Row>
+    </Card>
+    <div className="flex gap-2">
+      {u.status === '正常'
+        ? <Btn v="outline" disabled={lastOp} onClick={() => { patch({ status: '已禁用' }); toast('已禁用并终止全部 Session'); }}>禁用</Btn>
+        : <Btn v="outline" onClick={() => patch({ status: '正常' })}>恢复</Btn>}
+      <Btn v="destructive" disabled={lastOp} onClick={() => setConfirm('delete')}>删除 User</Btn>
+    </div>
+    <Dialog open={confirm === 'delete'} title="删除 User?" desc="等同注销:物理删除并向各 Application 发送 user.deleted webhook,不可恢复。" onClose={() => setConfirm(null)}>
+      <div className="flex justify-end gap-2"><Btn v="outline" onClick={() => setConfirm(null)}>取消</Btn>
+        <Btn v="destructive" onClick={() => { set(st => ({ ...st, users: st.users.filter(x => x.sub !== sub) })); setConfirm(null); toast('已删除'); }}>删除</Btn></div>
+    </Dialog>
+    <Dialog open={confirm === 'replace'} title="替换 Identifier" desc="仅在线下核实身份后使用;操作会写入审计日志。" onClose={() => setConfirm(null)}>
+      <div className="space-y-2"><Input placeholder="新手机号或邮箱" /><div className="flex justify-end gap-2"><Btn v="outline" onClick={() => setConfirm(null)}>取消</Btn><Btn onClick={() => { setConfirm(null); toast('已替换'); }}>替换</Btn></div></div>
+    </Dialog>
+  </div>;
+}
+
+function AppsSection({ s, set }) {
+  return <div className="space-y-3">
+    {s.apps.map(a => <Card key={a.id} title={<span>{a.name} {a.builtin && <Badge>内置</Badge>}</span>} desc={`${a.kind} · client_id: ${a.id}${a.api !== '—' ? ' · 默认 API: ' + a.api : ''}`}>
+      {a.builtin ? <div className="text-sm text-zinc-500">只允许带 Operator 标记的 User 进入。</div> : <>
+        <Row label="注销通知 webhook" hint="发送签名的 user.deleted 事件"><Input defaultValue={a.webhook} placeholder="https://…" className="w-72" /></Row>
+        <SecretField label="webhook 签名密钥" updated={a.webhook ? '2026-10-02' : null} />
+        <Row label="Session 闲置过期">{a.kind.startsWith('原生') ? '90 天' : '30 天'}</Row>
+      </>}
+    </Card>)}
+    <Btn v="outline">+ 注册 Application</Btn>
+  </div>;
+}
+function ApisSection({ s }) {
+  return <Card title="API" desc="access token 的 aud">{s.apis.map(a => <Row key={a.id} label={a.name} hint={a.audience}>{s.apps.filter(x => x.api === a.id).length} 个 Application 使用</Row>)}</Card>;
+}
+function ChannelsSection({ s, set }) {
+  const ch = (k, label) => {
+    const c = s.channels[k];
+    return <Card title={label} desc="同一时间只启用一个" action={c.active ? <Badge tone="green">已启用</Badge> : <Badge tone="amber">未配置</Badge>}>
+      <Row label="通道"><select className="h-9 rounded-md border border-zinc-200 px-2 text-sm" value={c.active || ''} onChange={e => set(st => ({ ...st, channels: { ...st.channels, [k]: { ...c, active: e.target.value || null } } }))}>
+        <option value="">(未启用)</option>{c.options.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select></Row>
+      {c.active && <><Row label="AccessKey ID"><Input defaultValue="LTAI5t****" className="w-48" /></Row><SecretField label="AccessKey Secret" updated={c.secretUpdated} />
+        <Row label="测试发送"><Btn v="outline" size="sm" onClick={() => toast('测试码已发送')}>发送测试码</Btn></Row></>}
+    </Card>;
+  };
+  return <div className="grid gap-4 lg:grid-cols-2">{ch('sms', '短信通道')}{ch('email', '邮件通道')}</div>;
+}
+function ProvidersSection({ s, set }) {
+  return <div className="space-y-3">
+    {s.providers.map(p => <Card key={p.id} title={p.name} desc={`插件:${p.plugin}`} action={<Switch on={p.enabled} onChange={v => set(st => ({ ...st, providers: st.providers.map(x => x.id === p.id ? { ...x, enabled: v } : x) }))} />}>
+      <Row label="Issuer"><Input defaultValue="https://accounts.google.com" className="w-72" /></Row>
+      <Row label="client_id"><Input defaultValue="1234.apps.googleusercontent.com" className="w-72" /></Row>
+      <SecretField label="client_secret" updated={p.secretUpdated} />
+    </Card>)}
+    <Btn v="outline">+ 添加认证服务商(微信小程序 / 一键登录 / Apple / 通用 OIDC …)</Btn>
+  </div>;
+}
+function PolicySection({ s, set }) {
+  const p = s.policy, up = (k, v) => set(st => ({ ...st, policy: { ...st.policy, [k]: v } }));
+  return <Card title="登录策略" desc="核心登录方式的全实例开关">
+    <Row label="密码登录" hint="默认仅 Operator"><Segmented value={p.password} options={['关闭', '仅 Operator', '所有 User']} onChange={v => up('password', v)} /></Row>
+    <Row label="Passkey"><Switch on={p.passkey} onChange={v => up('passkey', v)} /></Row>
+    <Row label="允许 User 开启 2FA(TOTP)"><Switch on={p.twofa} onChange={v => up('twofa', v)} /></Row>
+    <Row label="必须绑定手机号" hint="实名制场景;无手机号的 User 登录时先补绑"><Switch on={p.requirePhone} onChange={v => up('requirePhone', v)} /></Row>
+    <Row label="Operator 必须启用 2FA 或 Passkey"><Switch on={p.operator2fa} onChange={v => up('operator2fa', v)} /></Row>
+  </Card>;
+}
+function KeysSection({ s, set }) {
+  return <Card title="签名密钥" desc="RS256;私钥加密存储,JWKS 新旧并存过渡" action={<Btn v="outline" size="sm" onClick={() => set(st => ({ ...st, keys: [{ kid: 'k-new', alg: 'RS256', state: '签名中', created: '今天' }, ...st.keys.map(k => ({ ...k, state: '仅验签' }))] }))}>轮换</Btn>}>
+    {s.keys.map(k => <Row key={k.kid} label={k.kid} hint={`${k.alg} · 创建于 ${k.created}`}><Badge tone={k.state === '签名中' ? 'green' : 'zinc'}>{k.state}</Badge></Row>)}
+  </Card>;
+}
+function AuditSection({ s }) {
+  return <div className="overflow-hidden rounded-lg border border-zinc-200"><table className="w-full text-sm">
+    <thead className="bg-zinc-50 text-left text-xs text-zinc-500"><tr><th className="p-3">时间</th><th className="p-3">操作者</th><th className="p-3">事件</th><th className="p-3">对象</th></tr></thead>
+    <tbody>{s.audit.map((a, i) => <tr key={i} className="border-t border-zinc-100"><td className="p-3 text-zinc-500">{a.t}</td><td className="p-3 font-mono text-xs">{a.who}</td><td className="p-3">{a.what}</td><td className="p-3 text-zinc-500">{a.target}</td></tr>)}</tbody>
+  </table></div>;
+}
+const AdminTopbar = ({ children }) => <div className="flex h-14 items-center gap-4 border-b border-zinc-200 px-5"><div className="font-semibold">✦ Stars Auth</div>{children}<div className="ml-auto text-sm text-zinc-500">@admin</div></div>;
+
+/* 管理端 A:经典侧栏 */
+function AdminA({ s, set }) {
+  const nav = [['用户', [['users', 'User'], ['operators', 'Operator']]], ['接入', [['apps', 'Application'], ['apis', 'API']]], ['认证', [['channels', '通道'], ['providers', '认证服务商'], ['policy', '登录策略']]], ['系统', [['keys', '签名密钥'], ['audit', '审计日志']]]];
+  const [cur, setCur] = useState('users'); const [open, setOpen] = useState(null);
+  const title = nav.flatMap(g => g[1]).find(x => x[0] === cur)[1];
+  return <div className="flex min-h-screen">
+    <aside className="w-56 shrink-0 border-r border-zinc-200 bg-zinc-50 p-3">
+      <div className="mb-4 px-2 py-2 font-semibold">✦ Stars Auth</div>
+      {nav.map(([g, items]) => <div key={g} className="mb-4"><div className="px-2 pb-1 text-xs text-zinc-400">{g}</div>
+        {items.map(([k, l]) => <button key={k} onClick={() => setCur(k)} className={cx('block w-full rounded-md px-2 py-1.5 text-left text-sm', cur === k ? 'bg-white font-medium shadow-sm' : 'text-zinc-600 hover:bg-zinc-100')}>{l}</button>)}</div>)}
+    </aside>
+    <main className="flex-1 p-8"><h1 className="mb-6 text-2xl font-semibold">{title}</h1>
+      {cur === 'users' && <><div className="mb-3 w-80"><Input placeholder="搜索 sub / 手机号 / 邮箱 / 用户名" /></div><UsersTable s={s} onOpen={setOpen} /></>}
+      {cur === 'operators' && <UsersTable s={{ ...s, users: s.users.filter(u => u.operator) }} onOpen={setOpen} />}
+      {cur === 'apps' && <AppsSection s={s} set={set} />}{cur === 'apis' && <ApisSection s={s} />}
+      {cur === 'channels' && <ChannelsSection s={s} set={set} />}{cur === 'providers' && <ProvidersSection s={s} set={set} />}
+      {cur === 'policy' && <PolicySection s={s} set={set} />}{cur === 'keys' && <KeysSection s={s} set={set} />}{cur === 'audit' && <AuditSection s={s} />}
+    </main>
+    <Sheet open={!!open} title="User 详情" onClose={() => setOpen(null)}><UserDetail s={s} set={set} sub={open} /></Sheet>
+  </div>;
+}
+
+/* 管理端 B:以 User 为中心,配置收进"设置" */
+function AdminB({ s, set }) {
+  const [q, setQ] = useState(''); const [sel, setSel] = useState(s.users[1]?.sub); const [settings, setSettings] = useState(false);
+  const secs = [['apps', 'Application', <AppsSection s={s} set={set} />], ['apis', 'API', <ApisSection s={s} />], ['channels', '通道', <ChannelsSection s={s} set={set} />], ['providers', '认证服务商', <ProvidersSection s={s} set={set} />], ['policy', '登录策略', <PolicySection s={s} set={set} />], ['keys', '签名密钥', <KeysSection s={s} set={set} />], ['audit', '审计日志', <AuditSection s={s} />]];
+  return <div className="flex h-screen flex-col">
+    <AdminTopbar><div className="mx-auto w-full max-w-xl"><Input value={q} onChange={e => setQ(e.target.value)} placeholder="⌘K  查找 User:sub、手机号、邮箱、用户名" /></div><Btn v="outline" size="sm" onClick={() => setSettings(true)}>⚙ 设置</Btn></AdminTopbar>
+    <div className="flex min-h-0 flex-1">
+      <div className="w-96 shrink-0 overflow-y-auto border-r border-zinc-200">
+        {s.users.filter(u => (u.sub + ident(u)).includes(q)).map(u => <button key={u.sub} onClick={() => setSel(u.sub)} className={cx('block w-full border-b border-zinc-100 p-4 text-left', sel === u.sub ? 'bg-zinc-100' : 'hover:bg-zinc-50')}>
+          <div className="flex items-center gap-2 text-sm font-medium">{ident(u)} {u.operator && <Badge tone="dark">Operator</Badge>} {u.status !== '正常' && <Badge tone="red">{u.status}</Badge>}</div>
+          <div className="font-mono text-xs text-zinc-500">{u.sub} · 最近 {u.last}</div></button>)}
+      </div>
+      <div className="flex-1 overflow-y-auto p-8"><div className="max-w-2xl"><UserDetail s={s} set={set} sub={sel} /></div></div>
+    </div>
+    <Sheet open={settings} wide title="设置" onClose={() => setSettings(false)}>
+      <div className="flex gap-8"><nav className="sticky top-0 w-40 shrink-0 space-y-1 self-start">{secs.map(([k, l]) => <a key={k} href={'#sec-' + k} className="block rounded px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100">{l}</a>)}</nav>
+        <div className="max-w-3xl flex-1 space-y-10">{secs.map(([k, l, el]) => <section key={k} id={'sec-' + k}><h2 className="mb-3 text-lg font-semibold">{l}</h2>{el}</section>)}</div></div>
+    </Sheet>
+  </div>;
+}
+
+/* 管理端 C:顶部分组 + 健康清单首页 */
+function AdminC({ s, set }) {
+  const [tab, setTab] = useState('概览'); const [open, setOpen] = useState(null);
+  const ops = s.users.filter(u => u.operator);
+  const checks = [
+    ['短信通道已配置', !!s.channels.sms.active, 'channels'], ['邮件通道已配置', !!s.channels.email.active, 'channels'],
+    ['所有 Operator 已启用 2FA 或 Passkey', ops.every(u => u.twofa || u.passkeys), '身份'], ['至少注册一个 Application', s.apps.some(a => !a.builtin), '接入'],
+    ['签名密钥 90 天内轮换过', true, '安全'],
+  ];
+  const go = (t) => setTab(t === 'channels' ? '安全' : t);
+  return <div className="min-h-screen bg-zinc-50">
+    <AdminTopbar><nav className="flex gap-1">{['概览', '身份', '接入', '安全', '审计'].map(t => <button key={t} onClick={() => setTab(t)} className={cx('rounded-md px-3 py-1.5 text-sm', tab === t ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100')}>{t}</button>)}</nav></AdminTopbar>
+    <main className="mx-auto max-w-5xl space-y-6 p-8">
+      {tab === '概览' && <>
+        <div className="grid grid-cols-4 gap-4">{[['User', s.users.length], ['今日登录', 37], ['活跃 Session', 112], ['Application', s.apps.length]].map(([l, n]) => <Card key={l}><div className="text-xs text-zinc-500">{l}</div><div className="text-3xl font-semibold">{n}</div></Card>)}</div>
+        <Card title="实例健康清单" desc="未完成的项会影响登录可用性或安全">
+          {checks.map(([l, ok, t]) => <Row key={l} label={<span>{ok ? '✅' : '⚠️'} {l}</span>}>{!ok && <Btn v="outline" size="sm" onClick={() => go(t)}>去处理</Btn>}</Row>)}
+        </Card>
+        <Card title="最近事件"><AuditSection s={{ ...s, audit: s.audit.slice(0, 3) }} /></Card>
+      </>}
+      {tab === '身份' && <><Card title="User"><UsersTable s={s} onOpen={setOpen} /></Card><Card title="Operator" desc="带 Operator 标记的 User"><UsersTable s={{ ...s, users: ops }} onOpen={setOpen} /></Card></>}
+      {tab === '接入' && <><AppsSection s={s} set={set} /><ApisSection s={s} /></>}
+      {tab === '安全' && <><PolicySection s={s} set={set} /><ChannelsSection s={s} set={set} /><ProvidersSection s={s} set={set} /><KeysSection s={s} set={set} /></>}
+      {tab === '审计' && <AuditSection s={s} />}
+    </main>
+    <Sheet open={!!open} title="User 详情" onClose={() => setOpen(null)}><UserDetail s={s} set={set} sub={open} /></Sheet>
+  </div>;
+}
+
+/* ---------- 账号中心:共享逻辑 ---------- */
+function useAccount(s, set) {
+  const me = s.me, upd = (p) => set(st => ({ ...st, me: { ...st.me, ...p } }));
+  const [reauthed, setReauthed] = useState(false); const [pending, setPending] = useState(null); const [del, setDel] = useState(false); const [deleted, setDeleted] = useState(false);
+  const guard = (fn) => reauthed ? fn() : setPending(() => fn);
+  const dialogs = <>
+    <Dialog open={!!pending} title="请重新验证身份" desc="敏感操作需要 10 分钟内认证过;你已开启 2FA,需输入 TOTP 或使用 Passkey。" onClose={() => setPending(null)}>
+      <div className="space-y-3"><Input autoComplete="one-time-code" placeholder="6 位验证码(随便填)" />
+        <div className="flex justify-between"><Btn v="outline" onClick={() => { setReauthed(true); pending(); setPending(null); }}>使用 Passkey</Btn>
+          <Btn onClick={() => { setReauthed(true); pending(); setPending(null); }}>验证</Btn></div></div>
+    </Dialog>
+    <Dialog open={del} title="注销账号" desc="立即生效,无冷静期:所有登录方式、设备和数据都会被删除,各应用会收到通知。此操作不可恢复。" onClose={() => setDel(false)}>
+      <div className="space-y-3"><Input id="cfm" placeholder="输入「注销」确认" /><div className="flex justify-end gap-2"><Btn v="outline" onClick={() => setDel(false)}>取消</Btn>
+        <Btn v="destructive" onClick={() => { if (document.getElementById('cfm').value === '注销') { setDel(false); setDeleted(true); } else toast('请输入「注销」'); }}>永久注销</Btn></div></div>
+    </Dialog>
+  </>;
+  const loginPaths = [me.phone, me.email, me.username].filter(Boolean).length + me.ext.length;
+  const a = {
+    me, dialogs, deleted, loginPaths,
+    unbind: (k) => loginPaths <= 1 ? toast('最后一个登录途径不能解绑') : guard(() => { upd({ [k]: null }); toast('已解绑'); }),
+    change: (k) => guard(() => toast(`已向新${k === 'phone' ? '手机号' : '邮箱'}发送验证码(原型)`)),
+    unlinkExt: (n) => loginPaths <= 1 ? toast('最后一个登录途径不能解绑') : guard(() => upd({ ext: me.ext.filter(e => e.name !== n) })),
+    addPasskey: () => { upd({ passkeys: [...me.passkeys, { name: 'MacBook · iCloud 钥匙串', created: '今天' }] }); toast('已添加 Passkey'); },
+    toggle2fa: () => guard(() => upd({ twofa: !me.twofa, recovery: me.twofa ? 0 : 10 })),
+    regen: () => guard(() => { upd({ recovery: 10 }); toast('已生成新的 10 个恢复码'); }),
+    kick: (id) => upd({ sessions: me.sessions.filter(x => x.id !== id) }),
+    askDelete: () => guard(() => setDel(true)),
+  };
+  return a;
+}
+const Deleted = () => <div className="flex min-h-screen items-center justify-center text-center"><div><div className="text-2xl font-semibold">账号已注销</div><div className="mt-2 text-sm text-zinc-500">sub 不会被复用;同一手机号可重新注册为新账号。</div></div></div>;
+
+const IdentRows = ({ a }) => <>
+  <Row label="手机号" hint="用于验证码登录">{a.me.phone ? <span className="flex items-center gap-2 text-sm">{a.me.phone}<Btn v="ghost" size="sm" onClick={() => a.change('phone')}>更换</Btn><Btn v="ghost" size="sm" onClick={() => a.unbind('phone')}>解绑</Btn></span> : <Btn v="outline" size="sm">绑定</Btn>}</Row>
+  <Row label="邮箱">{a.me.email ? <span className="flex items-center gap-2 text-sm">{a.me.email}<Btn v="ghost" size="sm" onClick={() => a.change('email')}>更换</Btn><Btn v="ghost" size="sm" onClick={() => a.unbind('email')}>解绑</Btn></span> : <Btn v="outline" size="sm">绑定</Btn>}</Row>
+  {a.me.ext.map(e => <Row key={e.name} label={e.name} hint={`绑定于 ${e.since}`}><Btn v="ghost" size="sm" onClick={() => a.unlinkExt(e.name)}>解除绑定</Btn></Row>)}
+  <Row label="绑定其他账号" hint="由 Operator 启用的认证服务商"><Btn v="outline" size="sm">+ 微信 / Apple</Btn></Row>
+</>;
+const SecurityRows = ({ a }) => <>
+  <Row label="Passkey" hint="用指纹 / 面容直接登录">
+    <div className="text-right">{a.me.passkeys.map(p => <div key={p.name} className="text-sm">{p.name}</div>)}<Btn v="outline" size="sm" className="mt-1" onClick={a.addPasskey}>+ 添加</Btn></div></Row>
+  <Row label="两步验证(TOTP)" hint={a.me.twofa ? `已开启 · 剩余恢复码 ${a.me.recovery} 个` : '登录时额外输入验证器中的 6 位码'}>
+    <div className="flex gap-2">{a.me.twofa && <Btn v="ghost" size="sm" onClick={a.regen}>重新生成恢复码</Btn>}<Switch on={a.me.twofa} onChange={a.toggle2fa} /></div></Row>
+</>;
+const SessionRows = ({ a }) => <>{a.me.sessions.map(x => <Row key={x.id} label={<span>{x.kind} {x.current && <Badge tone="green">本设备</Badge>}</span>} hint={`${x.where} · ${x.last}`}>{!x.current && <Btn v="ghost" size="sm" onClick={() => a.kick(x.id)}>下线</Btn>}</Row>)}</>;
+const Danger = ({ a }) => <Row label="注销账号" hint="立即生效,不可恢复"><Btn v="destructive" size="sm" onClick={a.askDelete}>注销</Btn></Row>;
+
+/* 账号中心 A:单页长滚动 */
+function AccountA({ s, set }) {
+  const a = useAccount(s, set); if (a.deleted) return <Deleted />;
+  return <div className="min-h-screen bg-zinc-50"><div className="mx-auto max-w-2xl space-y-6 px-4 py-10">
+    <div className="flex items-center gap-4"><div className="flex h-14 w-14 items-center justify-center rounded-full bg-zinc-900 text-xl text-white">李</div>
+      <div><div className="text-xl font-semibold">{a.me.phone}</div><div className="text-sm text-zinc-500">Stars Auth 账号 · 用于户外导航 App 等应用</div></div></div>
+    <Card title="登录方式"><IdentRows a={a} /></Card>
+    <Card title="安全"><SecurityRows a={a} /></Card>
+    <Card title="设备与会话" desc="不限设备数,可逐个下线"><SessionRows a={a} /></Card>
+    <Card title="危险操作" className="border-red-200"><Danger a={a} /></Card>
+    {a.dialogs}</div></div>;
+}
+/* 账号中心 B:左侧分栏 */
+function AccountB({ s, set }) {
+  const a = useAccount(s, set); const [t, setT] = useState('登录方式'); if (a.deleted) return <Deleted />;
+  const tabs = { '登录方式': <IdentRows a={a} />, '安全': <SecurityRows a={a} />, '设备与会话': <SessionRows a={a} />, '注销账号': <Danger a={a} /> };
+  return <div className="min-h-screen"><div className="flex h-14 items-center border-b px-6 font-semibold">✦ 账号中心</div>
+    <div className="mx-auto flex max-w-4xl gap-10 px-6 py-10">
+      <nav className="w-44 shrink-0 space-y-1">{Object.keys(tabs).map(k => <button key={k} onClick={() => setT(k)} className={cx('block w-full rounded-md px-3 py-2 text-left text-sm', t === k ? 'bg-zinc-100 font-medium' : 'text-zinc-600 hover:bg-zinc-50', k === '注销账号' && 'text-red-600')}>{k}</button>)}</nav>
+      <div className="flex-1"><h1 className="mb-1 text-2xl font-semibold">{t}</h1><p className="mb-6 text-sm text-zinc-500">sub: {a.me.sub}</p>{tabs[t]}</div></div>{a.dialogs}</div>;
+}
+/* 账号中心 C:手机端逐级进入 */
+function AccountC({ s, set }) {
+  const a = useAccount(s, set); const [page, setPage] = useState(null); if (a.deleted) return <Deleted />;
+  const pages = { '登录方式': <IdentRows a={a} />, '密码与安全': <SecurityRows a={a} />, '登录设备': <SessionRows a={a} />, '注销账号': <Danger a={a} /> };
+  const sub = { '登录方式': `${a.loginPaths} 种`, '密码与安全': a.me.twofa ? '已开启两步验证' : '未开启两步验证', '登录设备': `${a.me.sessions.length} 台`, '注销账号': '' };
+  return <div className="flex min-h-screen items-center justify-center bg-zinc-200 py-8">
+    <div className="relative h-[780px] w-[390px] overflow-hidden rounded-[2.5rem] border-8 border-zinc-900 bg-zinc-100">
+      <div className="flex h-12 items-center justify-center border-b bg-white text-sm font-semibold">{page ? <><button className="absolute left-4 text-zinc-500" onClick={() => setPage(null)}>‹ 返回</button>{page}</> : '账号与安全'}</div>
+      <div className="h-full overflow-y-auto p-4 pb-20">
+        {page ? <div className="rounded-xl bg-white px-4">{pages[page]}</div> : <>
+          <div className="mb-4 flex items-center gap-3 rounded-xl bg-white p-4"><div className="flex h-12 w-12 items-center justify-center rounded-full bg-zinc-900 text-white">李</div><div><div className="font-medium">{a.me.phone}</div><div className="text-xs text-zinc-500">{a.me.email}</div></div></div>
+          <div className="divide-y rounded-xl bg-white">{Object.keys(pages).map(k => <button key={k} onClick={() => setPage(k)} className={cx('flex w-full items-center justify-between px-4 py-4 text-left text-sm', k === '注销账号' && 'text-red-600')}><span>{k}</span><span className="text-xs text-zinc-400">{sub[k]} ›</span></button>)}</div></>}
+      </div>{a.dialogs}</div></div>;
+}
+
+/* ---------- 切换器 ---------- */
+const VARIANTS = {
+  admin: [['A', '经典侧栏', AdminA], ['B', '以 User 为中心', AdminB], ['C', '健康清单 + 顶部分组', AdminC]],
+  account: [['A', '单页长滚动', AccountA], ['B', '左侧分栏', AccountB], ['C', '手机端逐级进入', AccountC]],
+};
+function App() {
+  const qs = new URLSearchParams(location.search);
+  const [surface, setSurface] = useState(qs.get('surface') === 'account' ? 'account' : 'admin');
+  const [v, setV] = useState(qs.get('variant') || 'A');
+  const [s, set] = useState(seed);
+  const list = VARIANTS[surface]; const i = Math.max(0, list.findIndex(x => x[0] === v)); const [key, name, Comp] = list[i];
+  const go = (sf, vv) => { setSurface(sf); setV(vv); history.replaceState(null, '', `?surface=${sf}&variant=${vv}`); };
+  const step = (d) => go(surface, list[(i + d + list.length) % list.length][0]);
+  useEffect(() => {
+    const h = (e) => { if (e.target.closest('input,textarea,select,[contenteditable]')) return; if (e.key === 'ArrowLeft') step(-1); if (e.key === 'ArrowRight') step(1); };
+    addEventListener('keydown', h); return () => removeEventListener('keydown', h);
+  });
+  return <>
+    <Comp key={surface + key} s={s} set={set} />
+    <Toaster />
+    <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full bg-fuchsia-600 px-2 py-1.5 text-sm text-white shadow-2xl">
+      {['admin', 'account'].map(sf => <button key={sf} onClick={() => go(sf, 'A')} className={cx('rounded-full px-3 py-1', surface === sf ? 'bg-white text-fuchsia-700' : 'hover:bg-fuchsia-500')}>{sf === 'admin' ? '管理端' : '账号中心'}</button>)}
+      <span className="mx-1 h-5 w-px bg-fuchsia-300" />
+      <button onClick={() => step(-1)} className="rounded-full px-2 hover:bg-fuchsia-500">←</button>
+      <span className="min-w-[10rem] text-center">{key}({name})</span>
+      <button onClick={() => step(1)} className="rounded-full px-2 hover:bg-fuchsia-500">→</button>
+    </div>
+  </>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
