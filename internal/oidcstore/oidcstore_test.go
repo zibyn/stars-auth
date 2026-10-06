@@ -159,7 +159,7 @@ func TestGrant(t *testing.T) {
 		AuthCode:          "the-auth-code",
 		AuthCodeExpiresAt: int(time.Now().Add(time.Minute).Unix()),
 		RefreshToken:      "the-refresh-token",
-		Store:             map[string]any{"claim": "value"},
+		Store:             map[string]any{"claim": "value", "auth_time": 1791302791, "nested": map[string]any{"n": 2}, "ratio": 0.5},
 	}
 	if err := s.SaveGrant(ctx, g); err != nil {
 		t.Fatal(err)
@@ -176,6 +176,11 @@ func TestGrant(t *testing.T) {
 		}
 		if got.ID != g.ID || got.AuthCode != g.AuthCode || got.RefreshToken != g.RefreshToken || got.Store["claim"] != "value" {
 			t.Fatalf("%s: got %+v", name, got)
+		}
+		// Integers must stay integers: claims such as auth_time are re-signed
+		// from the store, and a float would be serialised as 1.791302791e+09.
+		if got.Store["auth_time"] != int64(1791302791) || got.Store["nested"].(map[string]any)["n"] != int64(2) || got.Store["ratio"] != 0.5 {
+			t.Fatalf("%s: store numbers = %#v", name, got.Store)
 		}
 	}
 
@@ -252,11 +257,11 @@ func TestSessions(t *testing.T) {
 	later := int(time.Now().Add(time.Minute).Unix())
 	earlier := int(time.Now().Add(-time.Minute).Unix())
 
-	if err := s.SaveSession(ctx, &goidc.AuthnSession{ID: "as", ExpiresAt: later, Store: map[string]any{"k": "v"}}); err != nil {
+	if err := s.SaveSession(ctx, &goidc.AuthnSession{ID: "as", ExpiresAt: later, Store: map[string]any{"k": "v", "auth_time": later}}); err != nil {
 		t.Fatal(err)
 	}
 	as, err := s.Session(ctx, "as")
-	if err != nil || as.Store["k"] != "v" {
+	if err != nil || as.Store["k"] != "v" || as.Store["auth_time"] != int64(later) {
 		t.Fatalf("authn session = %+v, %v", as, err)
 	}
 	if err := s.SaveLogoutSession(ctx, &goidc.LogoutSession{ID: "ls", ExpiresAt: later, ClientID: "c"}); err != nil {

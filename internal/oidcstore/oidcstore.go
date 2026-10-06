@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -156,11 +157,13 @@ func (s *Store) openGrant(row sqlc.OidcGrant, err error) (*goidc.Grant, error) {
 		return nil, err
 	}
 	var g goidc.Grant
-	return &g, json.Unmarshal(data, &g)
+	if err := json.Unmarshal(data, &g); err != nil {
+		return nil, err
+	}
+	ints(g.Store)
+	return &g, nil
 }
 
-// SaveSession stores as as JSON: values in as.Store come back JSON-typed
-// (numbers as float64).
 func (s *Store) SaveSession(ctx context.Context, as *goidc.AuthnSession) error {
 	data, err := json.Marshal(as)
 	if err != nil {
@@ -175,7 +178,11 @@ func (s *Store) Session(ctx context.Context, id string) (*goidc.AuthnSession, er
 		return nil, notFound(err)
 	}
 	var as goidc.AuthnSession
-	return &as, json.Unmarshal(data, &as)
+	if err := json.Unmarshal(data, &as); err != nil {
+		return nil, err
+	}
+	ints(as.Store)
+	return &as, nil
 }
 
 func (s *Store) SaveLogoutSession(ctx context.Context, ls *goidc.LogoutSession) error {
@@ -193,6 +200,27 @@ func (s *Store) LogoutSession(ctx context.Context, id string) (*goidc.LogoutSess
 	}
 	var ls goidc.LogoutSession
 	return &ls, json.Unmarshal(data, &ls)
+}
+
+// ints turns integral numbers in a decoded Store back into int64. JSON has one
+// number type, and claims kept there (auth_time) are re-signed later: go-jose
+// would write a float64 as 1.791302791e+09, which is not a NumericDate.
+func ints(v any) any {
+	switch v := v.(type) {
+	case float64:
+		if v == math.Trunc(v) && math.Abs(v) <= 1<<53 {
+			return int64(v)
+		}
+	case map[string]any:
+		for k, e := range v {
+			v[k] = ints(e)
+		}
+	case []any:
+		for i, e := range v {
+			v[i] = ints(e)
+		}
+	}
+	return v
 }
 
 // hash indexes a bearer secret; nil (SQL NULL) when there is none.

@@ -416,13 +416,13 @@ func mapify(as any) map[string]any {
 	return m
 }
 
-// storedAuthTime reads auth_time back from the session store; once the
-// session has been persisted as JSON, numbers come back as float64.
+// storedAuthTime reads auth_time back from the session store: an int until
+// the session is persisted, an int64 after (internal/oidcstore).
 func storedAuthTime(as *goidc.AuthnSession) (int, bool) {
 	switch v := as.Store[paramAuthTime].(type) {
 	case int:
 		return v, true
-	case float64:
+	case int64:
 		return int(v), true
 	}
 	return 0, false
