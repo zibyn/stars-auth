@@ -31,3 +31,15 @@ _Avoid_: Resource Server, 资源, 后端服务
 **Session**:
 一个 User 在一台设备或一个浏览器上的一次登录;App 中由 refresh token 承载,浏览器中由 cookie 承载,终止它即让该设备下线。
 _Avoid_: 登录态, 会话令牌, 设备
+
+**Identifier**:
+User 用来登录、并能接收验证码的手机号或邮箱;在用户池内唯一,只存已验证的。
+_Avoid_: 账号, 用户名, 联系方式
+
+**External Identity**:
+由插件接入的认证服务商认定的一个用户(服务商 + 其侧用户 ID,如微信 openid、Apple `sub`),绑定在某个 User 上。
+_Avoid_: 社交账号, 第三方账号, Identity
+
+**Credential**:
+User 持有、用于证明身份的秘密,如密码、Passkey、TOTP;本身不能定位 User,须配合 Identifier 或由设备提供。
+_Avoid_: 密钥, 因子
