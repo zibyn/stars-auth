@@ -192,10 +192,6 @@ func MakeIDToken(ctx oidc.Context, c *goidc.Client, opts IDTokenOptions) (string
 		claims[goidc.ClaimNonce] = opts.Nonce
 	}
 
-	if opts.AuthReqID != "" {
-		claims[goidc.ClaimAuthReqID] = opts.AuthReqID
-	}
-
 	maps.Copy(claims, opts.Claims)
 
 	idToken, err := ctx.Sign(claims, alg, nil)
@@ -239,8 +235,6 @@ func generateToken(ctx oidc.Context, req request) (response, error) {
 		return generateRefreshToken(ctx, req)
 	case goidc.GrantJWTBearer:
 		return generateJWTBearerToken(ctx, req)
-	case goidc.GrantCIBA:
-		return generateCIBAToken(ctx, req)
 	case goidc.GrantDeviceCode:
 		return generateDeviceCodeToken(ctx, req)
 	case goidc.GrantTokenExchange:

@@ -104,15 +104,6 @@ func Resolve(ctx oidc.Context, c *Meta) (err error) {
 			return err
 		}
 
-		if slices.Contains(ctx.GrantTypes, goidc.GrantCIBA) {
-			c.CIBAJARSigAlg, err = resolveChoice(c.CIBAJARSigAlgs, c.CIBAJARSigAlg, ctx.CIBAJARSigAlgs, "backchannel_authentication_request_signing_alg_values_supported")
-			if err != nil {
-				return err
-			}
-		} else {
-			c.CIBAJARSigAlgs = nil
-		}
-
 		if ctx.JARMEnabled {
 			c.JARMSigAlg, err = resolveChoice(c.JARMSigAlgs, c.JARMSigAlg, ctx.JARMSigAlgs, "authorization_signing_alg_values_supported")
 			if err != nil {
@@ -617,88 +608,6 @@ func Resolve(ctx oidc.Context, c *Meta) (err error) {
 		}
 	}
 
-	if slices.Contains(c.GrantTypes, goidc.GrantCIBA) {
-		if c.TokenAuthnMethod == goidc.AuthnMethodNone {
-			return goidc.WrapError(goidc.ErrorCodeInvalidClientMetadata, "invalid client metadata",
-				errors.New("token_endpoint_auth_method none is not allowed for ciba"))
-		}
-
-		if c.CIBATokenDeliveryMode == "" {
-			return goidc.WrapError(goidc.ErrorCodeInvalidClientMetadata, "invalid client metadata",
-				errors.New("backchannel_token_delivery_mode is required"))
-		}
-
-		if !slices.Contains(ctx.CIBATokenDeliveryModes, c.CIBATokenDeliveryMode) {
-			return goidc.WrapError(goidc.ErrorCodeInvalidClientMetadata, "invalid client metadata",
-				fmt.Errorf("backchannel_token_delivery_mode %s is not allowed", c.CIBATokenDeliveryMode))
-		}
-
-		if c.CIBATokenDeliveryMode.IsNotificationMode() {
-			if c.CIBANotificationEndpoint == "" {
-				return goidc.WrapError(goidc.ErrorCodeInvalidClientMetadata, "invalid client metadata",
-					errors.New("backchannel_client_notification_endpoint is required for ping and push delivery modes"))
-			}
-
-			if err := validateURL("backchannel_client_notification_endpoint", c.CIBANotificationEndpoint); err != nil {
-				return err
-			}
-		} else {
-			c.CIBANotificationEndpoint = ""
-		}
-
-		if !ctx.CIBAUserCodeEnabled {
-			c.CIBAUserCodeEnabled = false
-		}
-
-		if ctx.CIBAJAREnabled {
-			if c.CIBAJARSigAlg != "" && !slices.Contains(ctx.CIBAJARSigAlgs, c.CIBAJARSigAlg) {
-				return goidc.WrapError(goidc.ErrorCodeInvalidClientMetadata, "invalid client metadata",
-					fmt.Errorf("backchannel_authentication_request_signing_alg %s is not allowed", c.CIBAJARSigAlg))
-			}
-		} else {
-			c.CIBAJARSigAlg = ""
-		}
-
-		// For pairwise subjects, if the CIBA grant type is used with non-push modes, jwks_uri is required.
-		// Also, make sure jwks_uri ownership will be validated at the /bc-authorize
-		// endpoint via one of these methods:
-		//    - private_key_jwt for token authentication.
-		//    - self_signed_tls_client_auth for token authentication.
-		//    - Usage of signed request objects.
-		if c.SubIdentifierType == goidc.SubIdentifierPairwise && c.CIBATokenDeliveryMode != goidc.CIBADeliveryModePush {
-			if c.JWKSURI == "" {
-				return goidc.WrapError(goidc.ErrorCodeInvalidClientMetadata, "invalid client metadata",
-					errors.New("jwks_uri is required for ciba with non-push delivery modes when using pairwise subject identifiers"))
-			}
-
-			jwksURIOwnershipIsGuaranteed := func() bool {
-				if c.TokenAuthnMethod == goidc.AuthnMethodPrivateKeyJWT {
-					return true
-				}
-
-				if c.TokenAuthnMethod == goidc.AuthnMethodSelfSignedTLS {
-					return true
-				}
-
-				if c.CIBAJARSigAlg != "" {
-					return true
-				}
-
-				return false
-			}()
-			if !jwksURIOwnershipIsGuaranteed {
-				return goidc.WrapError(goidc.ErrorCodeInvalidClientMetadata, "invalid client metadata",
-					errors.New("the client must demonstrate control of jwks_uri when using pairwise subject identifiers"))
-			}
-		}
-	} else {
-		c.CIBATokenDeliveryMode = ""
-		c.CIBANotificationEndpoint = ""
-		c.CIBAJARSigAlg = ""
-		c.CIBAUserCodeEnabled = false
-		c.CIBAJARSigAlgs = nil
-	}
-
 	if c.SectorIdentifierURI != "" {
 		if err := validateURL("sector_identifier_uri", c.SectorIdentifierURI); err != nil {
 			return err
@@ -725,14 +634,6 @@ func Resolve(ctx oidc.Context, c *Meta) (err error) {
 			return gt == goidc.GrantAuthorizationCode || gt == goidc.GrantImplicit
 		}) {
 			wantedURIs = append(wantedURIs, c.RedirectURIs...)
-		}
-
-		if slices.Contains(c.GrantTypes, goidc.GrantCIBA) {
-			if c.CIBATokenDeliveryMode == goidc.CIBADeliveryModePush {
-				wantedURIs = append(wantedURIs, c.CIBANotificationEndpoint)
-			} else if c.JWKSURI != "" {
-				wantedURIs = append(wantedURIs, c.JWKSURI)
-			}
 		}
 
 		for _, uri := range wantedURIs {

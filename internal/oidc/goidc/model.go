@@ -57,10 +57,6 @@ type Configuration struct {
 	TokenRevocationAuthnMethods       []AuthnMethod                `json:"revocation_endpoint_auth_methods_supported,omitempty"`
 	TokenRevocationAuthnSigAlgs       []SignatureAlgorithm         `json:"revocation_endpoint_auth_signing_alg_values_supported,omitempty"`
 	DeviceAuthorizationEndpoint       string                       `json:"device_authorization_endpoint,omitempty"`
-	CIBATokenDeliveryModes            []CIBATokenDeliveryMode      `json:"backchannel_token_delivery_modes_supported,omitempty"`
-	CIBAEndpoint                      string                       `json:"backchannel_authentication_endpoint,omitempty"`
-	CIBAJARSigAlgs                    []SignatureAlgorithm         `json:"backchannel_authentication_request_signing_alg_values_supported,omitempty"`
-	CIBAUserCodeEnabled               bool                         `json:"backchannel_user_code_parameter_supported,omitempty"`
 	MTLSAliases                       *struct {
 		TokenEndpoint              string `json:"token_endpoint"`
 		ParEndpoint                string `json:"pushed_authorization_request_endpoint,omitempty"`
@@ -68,7 +64,6 @@ type Configuration struct {
 		ClientRegistrationEndpoint string `json:"registration_endpoint,omitempty"`
 		TokenIntrospectionEndpoint string `json:"introspection_endpoint,omitempty"`
 		TokenRevocationEndpoint    string `json:"revocation_endpoint,omitempty"`
-		CIBAEndpoint               string `json:"backchannel_authentication_endpoint,omitempty"`
 	} `json:"mtls_endpoint_aliases,omitempty"`
 	// TLSBoundTokensEnabled signals support for certificate bound tokens.
 	TLSBoundTokensEnabled bool                  `json:"tls_client_certificate_bound_access_tokens,omitempty"`
@@ -124,20 +119,6 @@ type RefreshTokenManager interface {
 	GrantByRefreshToken(context.Context, string) (*Grant, error)
 }
 
-// CIBAManager stores CIBA sessions and resolves grants by auth_req_id.
-type CIBAManager interface {
-	SaveSession(context.Context, *AuthnSession) error
-	// Session returns the CIBA session identified by id.
-	// It must return [ErrNotFound] when the session does not exist.
-	Session(context.Context, string) (*AuthnSession, error)
-	// SessionByAuthReqID returns the session associated with the auth_req_id.
-	// It must return [ErrNotFound] when the session does not exist.
-	SessionByAuthReqID(context.Context, string) (*AuthnSession, error)
-	// GrantByAuthReqID returns the grant associated with the auth_req_id.
-	// It must return [ErrNotFound] when the grant does not exist.
-	GrantByAuthReqID(context.Context, string) (*Grant, error)
-}
-
 // DeviceAuthManager stores device authorization sessions and resolves grants by
 // device code.
 type DeviceAuthManager interface {
@@ -187,7 +168,6 @@ const (
 	GrantRefreshToken      GrantType = "refresh_token"
 	GrantImplicit          GrantType = "implicit"
 	GrantJWTBearer         GrantType = "urn:ietf:params:oauth:grant-type:jwt-bearer" //nolint:gosec
-	GrantCIBA              GrantType = "urn:openid:params:grant-type:ciba"
 	GrantDeviceCode        GrantType = "urn:ietf:params:oauth:grant-type:device_code"
 	GrantTokenExchange     GrantType = "urn:ietf:params:oauth:grant-type:token-exchange" //nolint:gosec
 )
@@ -313,7 +293,6 @@ const (
 	ClaimAuthzCodeHash       string = "c_hash"
 	ClaimStateHash           string = "s_hash"
 	ClaimRefreshTokenHash    string = "urn:openid:params:jwt:claim:rt_hash" //nolint:gosec
-	ClaimAuthReqID           string = "urn:openid:params:jwt:claim:auth_req_id"
 	ClaimGrantID             string = "grant_id"
 	ClaimAct                 string = "act"
 	ClaimMayAct              string = "may_act"
@@ -853,28 +832,9 @@ type IsClientAllowedTokenIntrospectionFunc func(context.Context, *Client, TokenI
 
 type PairwiseSubjectFunc func(ctx context.Context, sub string, client *Client) string
 
-type CIBAProfile string
+const ()
 
-const (
-	CIBAProfileOpenID CIBAProfile = "openid"
-	CIBAProfileFAPI   CIBAProfile = "fapi"
-)
-
-type CIBATokenDeliveryMode string
-
-const (
-	CIBADeliveryModePoll CIBATokenDeliveryMode = "poll"
-	CIBADeliveryModePing CIBATokenDeliveryMode = "ping"
-	CIBADeliveryModePush CIBATokenDeliveryMode = "push"
-)
-
-func (mode CIBATokenDeliveryMode) IsNotificationMode() bool {
-	return mode == CIBADeliveryModePing || mode == CIBADeliveryModePush
-}
-
-func (mode CIBATokenDeliveryMode) IsPollableMode() bool {
-	return mode == CIBADeliveryModePoll || mode == CIBADeliveryModePing
-}
+const ()
 
 type HandleSessionFunc func(context.Context, *AuthnSession, *Client) error
 

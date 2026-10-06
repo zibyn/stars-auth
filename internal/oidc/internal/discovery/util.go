@@ -95,7 +95,6 @@ func NewConfiguration(ctx oidc.Context) goidc.Configuration {
 			ClientRegistrationEndpoint string `json:"registration_endpoint,omitempty"`
 			TokenIntrospectionEndpoint string `json:"introspection_endpoint,omitempty"`
 			TokenRevocationEndpoint    string `json:"revocation_endpoint,omitempty"`
-			CIBAEndpoint               string `json:"backchannel_authentication_endpoint,omitempty"`
 		}{
 			TokenEndpoint:    ctx.MTLSBaseURL() + ctx.TokenEndpoint,
 			UserInfoEndpoint: ctx.MTLSBaseURL() + ctx.UserInfoEndpoint,
@@ -117,9 +116,6 @@ func NewConfiguration(ctx oidc.Context) goidc.Configuration {
 			config.MTLSAliases.TokenRevocationEndpoint = ctx.MTLSBaseURL() + ctx.TokenRevocationEndpoint
 		}
 
-		if slices.Contains(ctx.GrantTypes, goidc.GrantCIBA) {
-			config.MTLSAliases.CIBAEndpoint = ctx.MTLSBaseURL() + ctx.CIBAEndpoint
-		}
 	}
 
 	if ctx.UserInfoEncEnabled {
@@ -134,16 +130,6 @@ func NewConfiguration(ctx oidc.Context) goidc.Configuration {
 
 	if ctx.PKCEEnabled {
 		config.CodeChallengeMethods = ctx.PKCEChallengeMethods
-	}
-
-	if slices.Contains(ctx.GrantTypes, goidc.GrantCIBA) {
-		config.CIBAEndpoint = ctx.BaseURL() + ctx.CIBAEndpoint
-		config.CIBATokenDeliveryModes = ctx.CIBATokenDeliveryModes
-		config.CIBAUserCodeEnabled = ctx.CIBAUserCodeEnabled
-
-		if ctx.CIBAJAREnabled {
-			config.CIBAJARSigAlgs = ctx.CIBAJARSigAlgs
-		}
 	}
 
 	if slices.Contains(ctx.GrantTypes, goidc.GrantDeviceCode) {

@@ -166,21 +166,6 @@ type Configuration struct {
 	// informed during PAR must be previously registered or not.
 	PARUnregisteredRedirectURIEnabled bool
 
-	CIBAEndpoint                   string
-	CIBAManager                    goidc.CIBAManager
-	CIBAProfile                    goidc.CIBAProfile // TODO: Use this.
-	CIBATokenDeliveryModes         []goidc.CIBATokenDeliveryMode
-	CIBAIDFunc                     goidc.RandomFunc
-	CIBAHandleSessionFunc          goidc.HandleSessionFunc
-	CIBAUserCodeEnabled            bool
-	CIBADefaultSessionLifetimeSecs int
-	CIBAPollingIntervalSecs        int
-	CIBAHTTPClientFunc             goidc.HTTPClientFunc
-
-	CIBAJAREnabled  bool
-	CIBAJARRequired bool
-	CIBAJARSigAlgs  []goidc.SignatureAlgorithm
-
 	MTLSEnabled              bool
 	MTLSHost                 string
 	MTLSTokenBindingEnabled  bool

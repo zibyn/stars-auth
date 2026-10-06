@@ -194,26 +194,6 @@ func (ctx Context) RARCompareAuthDetails(requested, granted []goidc.AuthDetail) 
 	return ctx.RARCompareDetailsFunc(ctx, requested, granted)
 }
 
-func (ctx Context) CIBASaveSession(session *goidc.AuthnSession) error {
-	return ctx.CIBAManager.SaveSession(ctx, session)
-}
-
-func (ctx Context) CIBASession(id string) (*goidc.AuthnSession, error) {
-	return ctx.CIBAManager.Session(ctx, id)
-}
-
-func (ctx Context) CIBASessionByAuthReqID(id string) (*goidc.AuthnSession, error) {
-	return ctx.CIBAManager.SessionByAuthReqID(ctx, id)
-}
-
-func (ctx Context) GrantByAuthReqID(id string) (*goidc.Grant, error) {
-	return ctx.CIBAManager.GrantByAuthReqID(ctx, id)
-}
-
-func (ctx Context) CIBAHandleSession(as *goidc.AuthnSession, c *goidc.Client) error {
-	return ctx.CIBAHandleSessionFunc(ctx, as, c)
-}
-
 func (ctx Context) HandleDefaultPostLogout(session *goidc.LogoutSession) error {
 	return ctx.HandleDefaultPostLogoutFunc(ctx.Response, ctx.Request, session)
 }
@@ -228,10 +208,6 @@ func (ctx Context) AuthnSessionID() string {
 
 func (ctx Context) PARID() string {
 	return ctx.PARIDFunc(ctx)
-}
-
-func (ctx Context) CIBAID() string {
-	return ctx.CIBAIDFunc(ctx)
 }
 
 func (ctx Context) GrantID() string {
@@ -497,13 +473,6 @@ func (ctx Context) JARHTTPClient() *http.Client {
 		return ctx.HTTPClient()
 	}
 	return ctx.JARByReferenceHTTPClientFunc(ctx)
-}
-
-func (ctx Context) CIBAHTTPClient() *http.Client {
-	if ctx.CIBAHTTPClientFunc == nil {
-		return ctx.HTTPClient()
-	}
-	return ctx.CIBAHTTPClientFunc(ctx)
 }
 
 func (ctx Context) PairwiseSubject(sub string, c *goidc.Client) string {

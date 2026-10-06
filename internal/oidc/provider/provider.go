@@ -236,17 +236,6 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 		op.config.TokenRevocationIsClientAllowedFunc = nonZeroOrDefault(op.config.TokenRevocationIsClientAllowedFunc, goidc.IsClientAllowedFunc(defaultTokenRevocationIsClientAllowedFunc))
 	}
 
-	if slices.Contains(op.config.GrantTypes, goidc.GrantCIBA) {
-		op.config.CIBAProfile = nonZeroOrDefault(op.config.CIBAProfile, goidc.CIBAProfileOpenID)
-		op.config.CIBAManager = nonZeroOrDefault(op.config.CIBAManager, goidc.CIBAManager(inmemoryManager))
-		op.config.CIBATokenDeliveryModes = nonZeroOrDefault(op.config.CIBATokenDeliveryModes, []goidc.CIBATokenDeliveryMode{goidc.CIBADeliveryModePoll})
-		op.config.CIBAIDFunc = nonZeroOrDefault(op.config.CIBAIDFunc, defaultCIBAIDFunc)
-		op.config.CIBAHandleSessionFunc = nonZeroOrDefault(op.config.CIBAHandleSessionFunc, goidc.HandleSessionFunc(defaultCIBAHandleSessionFunc))
-		op.config.CIBAEndpoint = nonZeroOrDefault(op.config.CIBAEndpoint, defaultEndpointCIBA)
-		op.config.CIBADefaultSessionLifetimeSecs = nonZeroOrDefault(op.config.CIBADefaultSessionLifetimeSecs, defaultCIBADefaultSessionLifetimeSecs)
-		op.config.CIBAPollingIntervalSecs = nonZeroOrDefault(op.config.CIBAPollingIntervalSecs, defaultCIBAPollingIntervalSecs)
-	}
-
 	if slices.Contains(op.config.GrantTypes, goidc.GrantRefreshToken) {
 		op.config.RefreshTokenManager = nonZeroOrDefault(op.config.RefreshTokenManager, goidc.RefreshTokenManager(inmemoryManager))
 		op.config.RefreshTokenFunc = nonZeroOrDefault(op.config.RefreshTokenFunc, defaultRefreshTokenFunc)
@@ -398,32 +387,6 @@ func (op *Provider) IDToken(ctx context.Context, idToken string) (goidc.IDToken,
 	return token.IDToken(oidcCtx, idToken)
 }
 
-// GrantCIBARequest resolves an approved CIBA request into a grant and notifies
-// the client according to the delivery mode for which the auth request ID was
-// issued.
-// The behavior varies based on the client's token delivery mode for which the
-// auth request ID was issued:
-//   - "poll": No notification is sent, and no additional processing occurs.
-//     There is no need to call this function for this mode.
-//   - "ping": A ping notification is sent to the client.
-//   - "push": The token response is sent directly to the client's notification endpoint.
-func (op *Provider) GrantCIBARequest(ctx context.Context, authReqID string) error {
-	oidcCtx := oidc.NewContext(ctx, &op.config)
-	return token.GrantCIBARequest(oidcCtx, authReqID)
-}
-
-// DenyCIBARequest denies a CIBA request and notifies the client according to
-// the delivery mode for which the auth request ID was issued.
-// The behavior varies based on the client's token delivery mode:
-//   - "poll": No notification is sent, and no additional processing occurs.
-//   - "ping": A ping notification is sent to the client.
-//   - "push": The token failure response is sent directly to the client's
-//     notification endpoint.
-func (op *Provider) DenyCIBARequest(ctx context.Context, authReqID string, err goidc.Error) error {
-	oidcCtx := oidc.NewContext(ctx, &op.config)
-	return token.DenyCIBARequest(oidcCtx, authReqID, err)
-}
-
 // MakeToken generates a new access token based on the provided grant
 // and stores the corresponding grant session and token.
 func (op *Provider) MakeToken(ctx context.Context, grant *goidc.Grant) (string, error) {
@@ -444,10 +407,6 @@ func (op *Provider) MakeToken(ctx context.Context, grant *goidc.Grant) (string, 
 
 	_, tokenValue, err := token.Issue(oidcCtx, grant, c, nil)
 	return tokenValue, err
-}
-
-func (op *Provider) CIBAManager() goidc.CIBAManager {
-	return op.config.CIBAManager
 }
 
 func (op *Provider) RevokeToken(ctx context.Context, tkn string) error {
@@ -482,9 +441,7 @@ const (
 	defaultJWTLifetimeSecs                    = 600
 	defaultLogoutSessionTimeoutSecs           = 1800 // 30 minutes.
 	defaultPARLifetimeSecs                    = 60   // 1 minute.
-	defaultCIBADefaultSessionLifetimeSecs     = 60
-	defaultCIBAPollingIntervalSecs            = 5
-	defaultDeviceAuthLifetimeSecs             = 300 // 5 minutes.
+	defaultDeviceAuthLifetimeSecs             = 300  // 5 minutes.
 	defaultDeviceAuthPollingIntervalSecs      = 5
 	defaultAuthorizationCodeLifetimeSecs      = 60
 	defaultEndpointJSONWebKeySet              = "/jwks"
@@ -495,7 +452,6 @@ const (
 	defaultEndpointDynamicClient              = "/register"
 	defaultEndpointTokenIntrospection         = "/introspect"
 	defaultEndpointTokenRevocation            = "/revoke"
-	defaultEndpointCIBA                       = "/bc-authorize"
 	defaultEndpointEndSession                 = "/logout"
 	defaultEndpointDeviceAuthorization        = "/device_authorization"
 	defaultEndpointDeviceVerification         = "/device"
@@ -534,10 +490,6 @@ func defaultAuthCodeFunc(_ context.Context) string {
 
 func defaultPARIDFunc(_ context.Context) string {
 	return strutil.Random(30)
-}
-
-func defaultCIBAIDFunc(_ context.Context) string {
-	return strutil.Random(50)
 }
 
 func defaultDeviceCodeFunc(_ context.Context) string {
@@ -640,10 +592,6 @@ func defaultPairwiseSubjectFunc(_ context.Context, sub string, _ *goidc.Client) 
 
 func defaultPARHandleSessionFunc(context.Context, *goidc.AuthnSession, *goidc.Client) error {
 	return nil
-}
-
-func defaultCIBAHandleSessionFunc(context.Context, *goidc.AuthnSession, *goidc.Client) error {
-	return errors.New("ciba init back auth function is not set")
 }
 
 func defaultClientIDFunc(ctx context.Context) string {

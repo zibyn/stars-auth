@@ -32,11 +32,6 @@ func RegisterHandlers(router *http.ServeMux, config *oidc.Configuration, middlew
 			goidc.ApplyMiddlewares(oidc.Handler(config, handlerPAR), middlewares...))
 	}
 
-	if slices.Contains(config.GrantTypes, goidc.GrantCIBA) {
-		router.Handle("POST "+config.EndpointPrefix+config.CIBAEndpoint,
-			goidc.ApplyMiddlewares(oidc.Handler(config, handlerCIBA), middlewares...))
-	}
-
 	if slices.Contains(config.GrantTypes, goidc.GrantDeviceCode) {
 		router.Handle("POST "+config.EndpointPrefix+config.DeviceAuthEndpoint,
 			goidc.ApplyMiddlewares(oidc.Handler(config, handlerInitDeviceAuth), middlewares...))
@@ -102,24 +97,6 @@ func handlerCallback(ctx oidc.Context) {
 	}
 
 	if err := ctx.RenderError(err); err != nil {
-		ctx.WriteError(err)
-	}
-}
-
-func handlerCIBA(ctx oidc.Context) {
-	if mediaType := ctx.MediaType(); mediaType != "" && mediaType != "application/x-www-form-urlencoded" {
-		ctx.WriteError(goidc.NewError(goidc.ErrorCodeInvalidRequest, "invalid content type").WithStatusCode(http.StatusUnsupportedMediaType))
-		return
-	}
-
-	req := newFormRequest(ctx.Request)
-	resp, err := initBackAuth(ctx, req)
-	if err != nil {
-		ctx.WriteError(err)
-		return
-	}
-
-	if err := ctx.Write(resp, http.StatusOK); err != nil {
 		ctx.WriteError(err)
 	}
 }

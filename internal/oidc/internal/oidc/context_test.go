@@ -514,21 +514,6 @@ func TestTokenAndPolicyHooks(t *testing.T) {
 			},
 		},
 		{
-			name: "ciba handle session",
-			run: func(t *testing.T, ctx oidc.Context) {
-				if err := ctx.CIBAHandleSession(nil, nil); err == nil {
-					t.Fatal("CIBAHandleSession() error = nil, want non-nil by default")
-				}
-
-				ctx.CIBAHandleSessionFunc = func(context.Context, *goidc.AuthnSession, *goidc.Client) error {
-					return nil
-				}
-				if err := ctx.CIBAHandleSession(nil, nil); err != nil {
-					t.Fatalf("CIBAHandleSession() error = %v", err)
-				}
-			},
-		},
-		{
 			name: "refresh token should issue",
 			run: func(t *testing.T, ctx oidc.Context) {
 				client := &goidc.Client{}
@@ -601,7 +586,6 @@ func TestTokenAndPolicyHooks(t *testing.T) {
 			run: func(t *testing.T, ctx oidc.Context) {
 				grant := &goidc.Grant{ID: "grant_id"}
 				ctx.PARIDFunc = func(context.Context) string { return "par" }
-				ctx.CIBAIDFunc = func(context.Context) string { return "auth_req" }
 				ctx.GrantIDFunc = func(context.Context) string { return "grant" }
 				ctx.JWTIDFunc = func(context.Context) string { return "jwt" }
 				ctx.AuthCodeFunc = func(context.Context) string { return "code" }
@@ -611,9 +595,6 @@ func TestTokenAndPolicyHooks(t *testing.T) {
 
 				if got := ctx.PARID(); got != "par" {
 					t.Fatalf("PARID() = %q, want %q", got, "par")
-				}
-				if got := ctx.CIBAID(); got != "auth_req" {
-					t.Fatalf("CIBAID() = %q, want %q", got, "auth_req")
 				}
 				if got := ctx.GrantID(); got != "grant" {
 					t.Fatalf("GrantID() = %q, want %q", got, "grant")
@@ -674,55 +655,6 @@ func TestManagerDelegates(t *testing.T) {
 		}
 		if got.PushedAuthReqID != session.PushedAuthReqID {
 			t.Fatalf("PARSessionByPushedAuthReqID() = %q, want %q", got.PushedAuthReqID, session.PushedAuthReqID)
-		}
-
-	})
-
-	t.Run("ciba sessions and grants", func(t *testing.T) {
-		ctx := oidctest.NewContext(t)
-		manager := storage.NewManager(100)
-		ctx.CIBAManager = manager
-		ctx.GrantManager = manager
-
-		session := &goidc.AuthnSession{
-			ID:        "ciba_session",
-			AuthReqID: "auth_req_id",
-			CreatedAt: 1,
-		}
-		if err := ctx.CIBASaveSession(session); err != nil {
-			t.Fatalf("CIBASaveSession() error = %v", err)
-		}
-
-		gotSession, err := ctx.CIBASession(session.ID)
-		if err != nil {
-			t.Fatalf("CIBASession() error = %v", err)
-		}
-		if gotSession.ID != session.ID {
-			t.Fatalf("CIBASession().ID = %q, want %q", gotSession.ID, session.ID)
-		}
-
-		gotSession, err = ctx.CIBASessionByAuthReqID(session.AuthReqID)
-		if err != nil {
-			t.Fatalf("CIBASessionByAuthReqID() error = %v", err)
-		}
-		if gotSession.AuthReqID != session.AuthReqID {
-			t.Fatalf("CIBASessionByAuthReqID() = %q, want %q", gotSession.AuthReqID, session.AuthReqID)
-		}
-
-		grant := &goidc.Grant{
-			ID:        "grant_id",
-			AuthReqID: session.AuthReqID,
-			CreatedAt: 1,
-		}
-		if err := ctx.SaveGrant(grant); err != nil {
-			t.Fatalf("SaveGrant() error = %v", err)
-		}
-		gotGrant, err := ctx.GrantByAuthReqID(session.AuthReqID)
-		if err != nil {
-			t.Fatalf("GrantByAuthReqID() error = %v", err)
-		}
-		if gotGrant.ID != grant.ID {
-			t.Fatalf("GrantByAuthReqID().ID = %q, want %q", gotGrant.ID, grant.ID)
 		}
 
 	})
@@ -892,9 +824,6 @@ func TestHTTPClientFallbacks(t *testing.T) {
 	if got := ctx.JARHTTPClient(); got != baseClient {
 		t.Fatal("JARHTTPClient() did not fall back to HTTPClient()")
 	}
-	if got := ctx.CIBAHTTPClient(); got != baseClient {
-		t.Fatal("CIBAHTTPClient() did not fall back to HTTPClient()")
-	}
 
 	customJARClient := &http.Client{}
 	ctx.JARByReferenceHTTPClientFunc = func(context.Context) *http.Client {
@@ -904,13 +833,6 @@ func TestHTTPClientFallbacks(t *testing.T) {
 		t.Fatal("JARHTTPClient() did not return the configured JAR client")
 	}
 
-	customCIBAClient := &http.Client{}
-	ctx.CIBAHTTPClientFunc = func(context.Context) *http.Client {
-		return customCIBAClient
-	}
-	if got := ctx.CIBAHTTPClient(); got != customCIBAClient {
-		t.Fatal("CIBAHTTPClient() did not return the configured CIBA client")
-	}
 }
 
 func TestScopeAndHandler(t *testing.T) {
@@ -1481,9 +1403,6 @@ func newContext() oidc.Context {
 			},
 			PARHandleSessionFunc: func(context.Context, *goidc.AuthnSession, *goidc.Client) error {
 				return nil
-			},
-			CIBAHandleSessionFunc: func(context.Context, *goidc.AuthnSession, *goidc.Client) error {
-				return errors.New("ciba init back auth function is not set")
 			},
 		},
 		Request:  httptest.NewRequest(http.MethodGet, "https://example.com", nil),

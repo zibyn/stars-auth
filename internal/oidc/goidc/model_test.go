@@ -168,48 +168,6 @@ func TestResponseModeIsJSON(t *testing.T) {
 	}
 }
 
-// TestCIBATokenDeliveryModeIsNotificationMode validates the CIBA token delivery
-// mode classification per OpenID CIBA §5.
-func TestCIBATokenDeliveryModeIsNotificationMode(t *testing.T) {
-	testCases := []struct {
-		mode goidc.CIBATokenDeliveryMode
-		want bool
-	}{
-		{goidc.CIBADeliveryModePoll, false},
-		{goidc.CIBADeliveryModePing, true},
-		{goidc.CIBADeliveryModePush, true},
-	}
-
-	for _, tc := range testCases {
-		t.Run(string(tc.mode), func(t *testing.T) {
-			if got := tc.mode.IsNotificationMode(); got != tc.want {
-				t.Errorf("IsNotificationMode() = %t, want %t", got, tc.want)
-			}
-		})
-	}
-}
-
-// TestCIBATokenDeliveryModeIsPollableMode validates the CIBA token delivery
-// mode classification per OpenID CIBA §5.
-func TestCIBATokenDeliveryModeIsPollableMode(t *testing.T) {
-	testCases := []struct {
-		mode goidc.CIBATokenDeliveryMode
-		want bool
-	}{
-		{goidc.CIBADeliveryModePoll, true},
-		{goidc.CIBADeliveryModePing, true},
-		{goidc.CIBADeliveryModePush, false},
-	}
-
-	for _, tc := range testCases {
-		t.Run(string(tc.mode), func(t *testing.T) {
-			if got := tc.mode.IsPollableMode(); got != tc.want {
-				t.Errorf("IsPollableMode() = %t, want %t", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestAuthorizationDetailType(t *testing.T) {
 	testCases := []struct {
 		name   string

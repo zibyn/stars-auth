@@ -65,24 +65,20 @@ type ClientMeta struct {
 	DPoPTokenBindingRequired      bool                       `json:"dpop_bound_access_tokens,omitempty"`
 	TLSSubjectDistinguishedName   string                     `json:"tls_client_auth_subject_dn,omitempty"`
 	// TLSSubjectAlternativeName represents a DNS name.
-	TLSSubjectAlternativeName   string                `json:"tls_client_auth_san_dns,omitempty"`
-	TLSSubjectAlternativeNameIP string                `json:"tls_client_auth_san_ip,omitempty"`
-	TLSTokenBindingRequired     bool                  `json:"tls_client_certificate_bound_access_tokens,omitempty"`
-	AuthDetailTypes             []AuthDetailType      `json:"authorization_details_types,omitempty"`
-	DefaultMaxAgeSecs           *int                  `json:"default_max_age,omitempty"`
-	DefaultACRValues            string                `json:"default_acr_values,omitempty"`
-	PARRequired                 bool                  `json:"require_pushed_authorization_requests,omitempty"`
-	CIBATokenDeliveryMode       CIBATokenDeliveryMode `json:"backchannel_token_delivery_mode,omitempty"`
-	CIBANotificationEndpoint    string                `json:"backchannel_client_notification_endpoint,omitempty"`
-	CIBAJARSigAlg               SignatureAlgorithm    `json:"backchannel_authentication_request_signing_alg,omitempty"`
-	CIBAUserCodeEnabled         bool                  `json:"backchannel_user_code_parameter,omitempty"`
-	OrganizationName            string                `json:"organization_name,omitempty"`
-	PostLogoutRedirectURIs      []string              `json:"post_logout_redirect_uris,omitempty"`
-	DisplayName                 string                `json:"display_name,omitempty"`
-	Description                 string                `json:"description,omitempty"`
-	Keywords                    []string              `json:"keywords,omitempty"`
-	InformationURI              string                `json:"information_uri,omitempty"`
-	OrganizationURI             string                `json:"organization_uri,omitempty"`
+	TLSSubjectAlternativeName   string           `json:"tls_client_auth_san_dns,omitempty"`
+	TLSSubjectAlternativeNameIP string           `json:"tls_client_auth_san_ip,omitempty"`
+	TLSTokenBindingRequired     bool             `json:"tls_client_certificate_bound_access_tokens,omitempty"`
+	AuthDetailTypes             []AuthDetailType `json:"authorization_details_types,omitempty"`
+	DefaultMaxAgeSecs           *int             `json:"default_max_age,omitempty"`
+	DefaultACRValues            string           `json:"default_acr_values,omitempty"`
+	PARRequired                 bool             `json:"require_pushed_authorization_requests,omitempty"`
+	OrganizationName            string           `json:"organization_name,omitempty"`
+	PostLogoutRedirectURIs      []string         `json:"post_logout_redirect_uris,omitempty"`
+	DisplayName                 string           `json:"display_name,omitempty"`
+	Description                 string           `json:"description,omitempty"`
+	Keywords                    []string         `json:"keywords,omitempty"`
+	InformationURI              string           `json:"information_uri,omitempty"`
+	OrganizationURI             string           `json:"organization_uri,omitempty"`
 	// CustomAttributes holds any additional dynamic attributes a client may
 	// provide during registration.
 	// These attributes allow clients to extend their metadata beyond the

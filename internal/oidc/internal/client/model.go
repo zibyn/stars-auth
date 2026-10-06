@@ -49,10 +49,6 @@ var JSONFields = []string{
 	"default_max_age",
 	"default_acr_values",
 	"require_pushed_authorization_requests",
-	"backchannel_token_delivery_mode",
-	"backchannel_client_notification_endpoint",
-	"backchannel_authentication_request_signing_alg",
-	"backchannel_user_code_parameter",
 	"organization_name",
 	"post_logout_redirect_uris",
 	"client_registration_types",
@@ -74,7 +70,6 @@ var JSONFields = []string{
 	"request_object_encryption_enc_values_supported",
 	"token_endpoint_auth_methods_supported",
 	"token_endpoint_auth_signing_alg_values_supported",
-	"backchannel_authentication_request_signing_alg_values_supported",
 	"authorization_signing_alg_values_supported",
 	"authorization_encryption_alg_values_supported",
 	"authorization_encryption_enc_values_supported",
@@ -93,7 +88,6 @@ type Meta struct {
 	JARContentEncAlgs      []goidc.ContentEncryptionAlgorithm `json:"request_object_encryption_enc_values_supported,omitempty"`
 	TokenAuthnMethods      []goidc.AuthnMethod                `json:"token_endpoint_auth_methods_supported,omitempty"`
 	TokenAuthnSigAlgs      []goidc.SignatureAlgorithm         `json:"token_endpoint_auth_signing_alg_values_supported,omitempty"`
-	CIBAJARSigAlgs         []goidc.SignatureAlgorithm         `json:"backchannel_authentication_request_signing_alg_values_supported,omitempty"`
 	JARMSigAlgs            []goidc.SignatureAlgorithm         `json:"authorization_signing_alg_values_supported,omitempty"`
 	JARMKeyEncAlgs         []goidc.KeyEncryptionAlgorithm     `json:"authorization_encryption_alg_values_supported,omitempty"`
 	JARMContentEncAlgs     []goidc.ContentEncryptionAlgorithm `json:"authorization_encryption_enc_values_supported,omitempty"`

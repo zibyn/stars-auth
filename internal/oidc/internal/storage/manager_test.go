@@ -338,24 +338,6 @@ func TestManagerGrants(t *testing.T) {
 			},
 		},
 		{
-			name: "load grant by auth req id",
-			run: func(t *testing.T, manager *storage.Manager) {
-				// Given.
-				manager.Grants["grant_1"] = &goidc.Grant{ID: "grant_1", AuthReqID: "auth_req_id_1"}
-
-				// When.
-				grant, err := manager.GrantByAuthReqID(context.Background(), "auth_req_id_1")
-
-				// Then.
-				if err != nil {
-					t.Fatalf("unexpected error: %v", err)
-				}
-				if grant.ID != "grant_1" {
-					t.Fatalf("grant.ID = %q, want %q", grant.ID, "grant_1")
-				}
-			},
-		},
-		{
 			name: "load grant by device code",
 			run: func(t *testing.T, manager *storage.Manager) {
 				// Given.

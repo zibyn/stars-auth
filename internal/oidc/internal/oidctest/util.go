@@ -173,9 +173,6 @@ func NewContext(tb testing.TB) oidc.Context {
 		PARHandleSessionFunc: func(context.Context, *goidc.AuthnSession, *goidc.Client) error {
 			return nil
 		},
-		CIBAHandleSessionFunc: func(context.Context, *goidc.AuthnSession, *goidc.Client) error {
-			return errors.New("ciba init back auth function is not set")
-		},
 		AuthTimeoutSecs: 60,
 		AuthnMethods: []goidc.AuthnMethod{
 			goidc.AuthnMethodNone,
@@ -202,9 +199,6 @@ func NewContext(tb testing.TB) oidc.Context {
 			return uuid.NewString()
 		},
 		PARIDFunc: func(context.Context) string {
-			return uuid.NewString()
-		},
-		CIBAIDFunc: func(context.Context) string {
 			return uuid.NewString()
 		},
 		JWTIDFunc: func(context.Context) string {

@@ -854,41 +854,6 @@ func TestWithClientCredentialsGrant(t *testing.T) {
 	}
 }
 
-func TestWithCIBAGrant(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-	manager := storage.NewManager(1)
-
-	// When.
-	err := WithCIBAGrant(CIBAGrantConfig{
-		Manager:       manager,
-		DeliveryModes: []goidc.CIBATokenDeliveryMode{goidc.CIBADeliveryModePoll, goidc.CIBADeliveryModePush},
-	})(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if !slices.Contains(p.config.GrantTypes, goidc.GrantCIBA) {
-		t.Error("GrantCIBA not added")
-	}
-
-	if p.config.CIBAManager != manager {
-		t.Error("CIBAManager not set")
-	}
-
-	wantModes := []goidc.CIBATokenDeliveryMode{
-		goidc.CIBADeliveryModePoll,
-		goidc.CIBADeliveryModePush,
-	}
-	if diff := cmp.Diff(p.config.CIBATokenDeliveryModes, wantModes); diff != "" {
-		t.Error(diff)
-	}
-}
-
 func TestWithRefreshTokenRotation(t *testing.T) {
 	// Given.
 	p := &Provider{
@@ -1950,27 +1915,6 @@ func TestWithHTTPClientFunc(t *testing.T) {
 	}
 }
 
-func TestWithCIBAHTTPClientFunc(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithCIBAHTTPClientFunc(func(context.Context) *http.Client {
-		return &http.Client{}
-	})(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if p.config.CIBAHTTPClientFunc == nil {
-		t.Error("WithCIBAHTTPClientFunc cannot be nil")
-	}
-}
-
 func TestWithJWTBearerGrant(t *testing.T) {
 	// Given.
 	p := &Provider{
@@ -2085,26 +2029,6 @@ func TestWithPARID(t *testing.T) {
 	}
 }
 
-func TestWithCIBAID(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-	idFunc := func(context.Context) string { return "auth_req_id" }
-
-	// When.
-	err := WithCIBAIDFunc(idFunc)(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if p.config.CIBAIDFunc == nil {
-		t.Error("WithCIBAIDFunc cannot be nil")
-	}
-}
-
 func TestOpaqueTokenFunc(t *testing.T) {
 	// Given.
 	p := &Provider{
@@ -2122,153 +2046,6 @@ func TestOpaqueTokenFunc(t *testing.T) {
 
 	if p.config.OpaqueTokenFunc == nil {
 		t.Error("WithOpaqueTokenFunc cannot be nil")
-	}
-}
-
-func TestWithCIBAEndpoint(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithCIBAEndpoint("/ciba")(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			CIBAEndpoint: "/ciba",
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
-func TestWithCIBAJAR(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithCIBAJAR([]goidc.SignatureAlgorithm{goidc.SigAlgPS256})(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			CIBAJAREnabled: true,
-			CIBAJARSigAlgs: []goidc.SignatureAlgorithm{goidc.SigAlgPS256},
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
-func TestWithCIBAJARRequired(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithCIBAJAR([]goidc.SignatureAlgorithm{goidc.SigAlgPS256}, WithCIBAJARRequired())(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			CIBAJAREnabled:  true,
-			CIBAJARRequired: true,
-			CIBAJARSigAlgs:  []goidc.SignatureAlgorithm{goidc.SigAlgPS256},
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
-func TestWithCIBAUserCode(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithCIBAUserCode()(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			CIBAUserCodeEnabled: true,
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
-func TestWithCIBAPollingInterval(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithCIBAPollingInterval(5)(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			CIBAPollingIntervalSecs: 5,
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
-func TestWithCIBALifetime(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithCIBALifetime(300)(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			CIBADefaultSessionLifetimeSecs: 300,
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
 	}
 }
 
@@ -2823,28 +2600,6 @@ func TestWithAttestationJWTAuthnValidation(t *testing.T) {
 				t.Fatalf("WithAttestationJWTAuthn() error = %q, want %q", got, test.wantErr)
 			}
 		})
-	}
-}
-
-func TestWithCIBASessionHandler(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-	f := func(ctx context.Context, as *goidc.AuthnSession, c *goidc.Client) error {
-		return nil
-	}
-
-	// When.
-	err := WithCIBASessionHandler(f)(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if p.config.CIBAHandleSessionFunc == nil {
-		t.Error("CIBAHandleSessionFunc cannot be nil")
 	}
 }
 

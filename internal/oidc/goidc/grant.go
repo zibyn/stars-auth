@@ -38,16 +38,6 @@ type Grant struct {
 	// AuthCodeConsumedAt is populated once the authorization code has been
 	// successfully redeemed, so reuse can be detected.
 	AuthCodeConsumedAt int `json:"auth_code_consumed_at,omitempty"`
-	// AuthReqID is populated when a CIBA request is approved and turned into a
-	// grant.
-	AuthReqID string `json:"auth_req_id,omitempty"`
-	// AuthReqIDExpiresAt stores the original auth_req_id expiry deadline from
-	// the CIBA acknowledgement, so redemption remains bounded by that window
-	// even though the grant is created later.
-	AuthReqIDExpiresAt int `json:"auth_req_id_expires_at,omitempty"`
-	// AuthReqIDConsumedAt is populated once the auth_req_id has been redeemed
-	// at the token endpoint, so reuse can be detected.
-	AuthReqIDConsumedAt int `json:"auth_req_id_consumed_at,omitempty"`
 	// DeviceCode is populated when a device authorization request is approved
 	// and turned into a grant.
 	DeviceCode string `json:"device_code,omitempty"`

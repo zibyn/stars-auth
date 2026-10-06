@@ -23,9 +23,6 @@ type GrantOptions struct {
 	AuthCodeExpiresAt    int
 	DeviceCode           string
 	DeviceCodeExpiresAt  int
-	AuthReqID            string
-	AuthReqIDExpiresAt   int
-	AuthReqIDConsumedAt  int
 	JWKThumbprint        string
 	ClientCertThumbprint string
 	Actor                *goidc.Actor
@@ -40,9 +37,6 @@ func NewGrant(ctx oidc.Context, c *goidc.Client, opts GrantOptions) (*goidc.Gran
 		AuthCodeExpiresAt:   opts.AuthCodeExpiresAt,
 		DeviceCode:          opts.DeviceCode,
 		DeviceCodeExpiresAt: opts.DeviceCodeExpiresAt,
-		AuthReqID:           opts.AuthReqID,
-		AuthReqIDExpiresAt:  opts.AuthReqIDExpiresAt,
-		AuthReqIDConsumedAt: opts.AuthReqIDConsumedAt,
 		Subject:             opts.Subject,
 		Username:            opts.Username,
 		ClientID:            opts.ClientID,
@@ -88,7 +82,6 @@ type IDTokenOptions struct {
 	AuthorizationCode string
 	State             string
 	RefreshToken      string
-	AuthReqID         string
 	Claims            map[string]any
 }
 
@@ -102,7 +95,6 @@ type request struct {
 	resources    goidc.Resources
 	authDetails  []goidc.AuthDetail
 	assertion    string
-	authReqID    string
 	deviceCode   string
 	// audience is the logical name of the target service where the client
 	// intends to use the requested security token.
@@ -134,7 +126,6 @@ func newRequest(r *http.Request) request {
 		codeVerifier:       r.PostFormValue("code_verifier"),
 		resources:          r.PostForm["resource"],
 		assertion:          r.PostFormValue("assertion"),
-		authReqID:          r.PostFormValue("auth_req_id"),
 		deviceCode:         r.PostFormValue("device_code"),
 		subjectToken:       r.PostFormValue("subject_token"),
 		subjectTokenType:   goidc.TokenTypeIdentifier(r.PostFormValue("subject_token_type")),
@@ -165,11 +156,6 @@ type response struct {
 	Resources            goidc.Resources    `json:"resources,omitempty"`
 	// IssuedTokenType is an identifier for the representation of the issued security token.
 	IssuedTokenType goidc.TokenTypeIdentifier `json:"issued_token_type,omitempty"`
-}
-
-type cibaResponse struct {
-	AuthReqID string `json:"auth_req_id,omitempty"`
-	response
 }
 
 type queryRequest struct {

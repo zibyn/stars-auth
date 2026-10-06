@@ -260,12 +260,6 @@ type parResponse struct {
 	ExpiresIn  int    `json:"expires_in"`
 }
 
-type cibaResponse struct {
-	AuthReqID string `json:"auth_req_id"`
-	ExpiresIn int    `json:"expires_in"`
-	Interval  int    `json:"interval"`
-}
-
 func newAuthnSession(ctx oidc.Context, params goidc.AuthorizationParameters, c *goidc.Client) *goidc.AuthnSession {
 	return &goidc.AuthnSession{
 		ID:                      ctx.AuthnSessionID(),

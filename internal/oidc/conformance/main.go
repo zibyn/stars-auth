@@ -107,7 +107,7 @@ func clients() []*goidc.Client {
 	}
 	c := func(id string, m goidc.AuthnMethod) *goidc.Client {
 		return &goidc.Client{
-			ID:     id,
+			ID: id,
 			// 32+ bytes: the suite derives HS256 keys from it.
 			Secret: id + "_secret_0123456789abcdefghijklmnopqrstuvwxyz",
 			ClientMeta: goidc.ClientMeta{

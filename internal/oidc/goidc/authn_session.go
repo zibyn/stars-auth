@@ -19,10 +19,6 @@ type AuthnSession struct {
 	// PushedAuthReqID is populated when the session is created from a pushed
 	// authorization request (PAR). It is the handle returned as request_uri.
 	PushedAuthReqID string `json:"pushed_auth_req_id,omitempty"`
-	// AuthReqID is populated when the session is created for a CIBA request.
-	// It is the handle returned to the client for later token polling or
-	// notification correlation.
-	AuthReqID string `json:"auth_req_id,omitempty"`
 	// DeviceCode is populated when the session is created by the device
 	// authorization endpoint. It is later redeemed at the token endpoint.
 	DeviceCode string `json:"device_code,omitempty"`
