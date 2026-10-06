@@ -1,0 +1,8 @@
+[
+    {
+        "test-name": "oidcc-unsigned-request-object-supported-correctly-or-rejected-as-unsupported",
+        "variant": "*",
+        "configuration-filename": "*",
+        "comment": "JAR is not supported; the OP answers request_not_supported, which the suite records as a skip"
+    }
+]

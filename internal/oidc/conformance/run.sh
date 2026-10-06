@@ -44,7 +44,7 @@ wait_for https://localhost:8443/api/runner/available
 wait_for "$ISSUER/.well-known/openid-configuration"
 
 sed "s#https://auth.localhost/#$ISSUER/#" "$here/config.json" > "$out/config.json"
-cp "$here/failures.json" "$out/failures.json"
+cp "$here/failures.json" "$here/skips.json" "$out/"
 
 # The runner talks to the suite over the compose network, so the host needs
 # no Python environment.
@@ -58,4 +58,5 @@ docker run --rm --network stars-auth-conformance_default \
       "oidcc-config-certification-test-plan" config.json \
       "oidcc-rp-initiated-logout-certification-test-plan[response_type=code][client_registration=static_client]" config.json \
       --expected-failures-file failures.json \
+      --expected-skips-file skips.json \
       --export-dir /out'
