@@ -49,3 +49,11 @@ services:
       # docker host where the authorization server is running.
       - auth.localhost:host-gateway
       - localhost.emobix.co.uk:host-gateway
+      # The suite's pages pull CSS/JS from public CDNs; a slow CDN stalls its
+      # headless browser past the auth code lifetime. Refuse them instantly.
+      - cdn.jsdelivr.net:127.0.0.1
+      - cdnjs.cloudflare.com:127.0.0.1
+      - cdn.datatables.net:127.0.0.1
+      - oss.maxcdn.com:127.0.0.1
+      - fonts.googleapis.com:127.0.0.1
+      - fonts.gstatic.com:127.0.0.1
