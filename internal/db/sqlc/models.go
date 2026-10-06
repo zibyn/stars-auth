@@ -28,6 +28,20 @@ type Application struct {
 	CreatedAt              pgtype.Timestamptz
 }
 
+type Channel struct {
+	Kind      string
+	Plugin    string
+	Config    []byte
+	UpdatedAt pgtype.Timestamptz
+}
+
+type ChannelSecret struct {
+	Kind      string
+	Field     string
+	Value     []byte
+	UpdatedAt pgtype.Timestamptz
+}
+
 type Identifier struct {
 	UserID string
 	Kind   string

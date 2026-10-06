@@ -100,14 +100,23 @@ export class APIError extends Error {
 	}
 }
 
-// api GETs a Management API path, signing in first when needed.
-export async function api<T>(path: string): Promise<T> {
+// api calls a Management API path, signing in first when needed; body goes
+// as JSON.
+export async function api<T>(
+	path: string,
+	init?: { method: "POST" | "PUT" | "DELETE"; body?: unknown },
+): Promise<T> {
 	const token = accessToken();
 	if (!token) {
 		return login(here());
 	}
 	const res = await fetch(`/v1/management${path}`, {
-		headers: { Authorization: `Bearer ${token}` },
+		method: init?.method,
+		headers: {
+			Authorization: `Bearer ${token}`,
+			...(init?.body !== undefined && { "Content-Type": "application/json" }),
+		},
+		body: init?.body === undefined ? undefined : JSON.stringify(init.body),
 	});
 	if (res.status === 401) {
 		sessionStorage.removeItem(tokenKey);
@@ -117,7 +126,7 @@ export async function api<T>(path: string): Promise<T> {
 		const body = await res.json().catch(() => ({}));
 		throw new APIError(res.status, body.detail ?? res.statusText);
 	}
-	return res.json();
+	return res.status === 204 ? (undefined as T) : res.json();
 }
 
 export type Identifier = {
@@ -134,3 +143,25 @@ export type User = {
 export type UserDetail = User & { hasPassword: boolean };
 export type RoleInfo = Role & { apiName: string; builtin: boolean };
 export type Me = { sub: string; permissions: string[] };
+
+export type ChannelField = {
+	key: string;
+	label: string;
+	type: "text" | "number" | "url";
+	secret: boolean;
+	optional: boolean;
+	help?: string;
+};
+export type ChannelPlugin = {
+	key: string;
+	name: string;
+	kinds: ("phone" | "email")[];
+	fields: ChannelField[];
+};
+export type ChannelSettings = {
+	kind: "phone" | "email";
+	plugin: string;
+	config: Record<string, string>;
+	secrets: Record<string, string>; // field → when it was last set
+	updatedAt: string;
+};

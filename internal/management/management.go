@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/zibyn/stars-auth/internal/channel"
 	"github.com/zibyn/stars-auth/internal/crypt"
 	"github.com/zibyn/stars-auth/internal/db/sqlc"
 	"github.com/zibyn/stars-auth/internal/identity"
@@ -29,13 +30,14 @@ import (
 const Prefix = "/v1/management"
 
 type Service struct {
-	issuer string
-	q      *sqlc.Queries
-	keys   *oidcstore.Keys
+	issuer   string
+	q        *sqlc.Queries
+	keys     *oidcstore.Keys
+	channels *channel.Store
 }
 
 func New(pool *pgxpool.Pool, keyring *crypt.Keyring, issuer string) *Service {
-	return &Service{issuer: issuer, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring)}
+	return &Service{issuer: issuer, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring), channels: channel.NewStore(pool, keyring)}
 }
 
 type callerKey struct{}
@@ -66,17 +68,30 @@ func (s *Service) Register(mux *http.ServeMux) {
 	get(api, "get-user", "users:read", "/users/{sub}", "A User's details", s.getUser)
 	// Role names show in the Users list, so reading them needs no more than users:read.
 	get(api, "list-roles", "users:read", "/roles", "All Roles, for the Role filter", s.listRoles)
+
+	get(api, "list-channels", "config:read", "/channels", "Channel plugins and the enabled Channel of each Identifier kind", s.listChannels)
+	op(api, http.MethodPut, "put-channel", "config:write", "/channels/{kind}", "Enable and configure the Channel of an Identifier kind", s.putChannel)
+	op(api, http.MethodDelete, "delete-channel", "config:write", "/channels/{kind}", "Turn off codes of an Identifier kind", s.deleteChannel)
+	op(api, http.MethodPost, "test-channel", "config:write", "/channels/{kind}/test", "Send a test code through the enabled Channel", s.testChannel, http.StatusBadGateway)
 }
 
 // get registers a GET operation that needs permission ("" for any admin).
 func get[I, O any](api huma.API, id, permission, path, summary string, h func(context.Context, *I) (*O, error)) {
-	errs := []int{http.StatusUnauthorized, http.StatusForbidden}
+	op(api, http.MethodGet, id, permission, path, summary, h)
+}
+
+// op registers an operation that needs permission ("" for any admin).
+func op[I, O any](api huma.API, method, id, permission, path, summary string, h func(context.Context, *I) (*O, error), errs ...int) {
+	errs = append(errs, http.StatusUnauthorized, http.StatusForbidden)
 	if strings.Contains(path, "{") { // names a resource that may not exist
 		errs = append(errs, http.StatusNotFound)
 	}
+	if method != http.MethodGet {
+		errs = append(errs, http.StatusUnprocessableEntity)
+	}
 	huma.Register(api, huma.Operation{
 		OperationID: id,
-		Method:      http.MethodGet,
+		Method:      method,
 		Path:        path,
 		Summary:     summary,
 		Description: describe(permission),

@@ -30,7 +30,7 @@
 
 - **核心能力不做成插件**:验证码登录、密码、Passkey、TOTP。
 - **两个免写代码的通用插件**:
-  - **Webhook Channel**:把 `{目标, 验证码}` POST 到管理员指定的 URL;
+  - **Webhook Channel**:把 `{"to": 目标, "code": 验证码}` POST 到管理员指定的 URL,返回 2xx 即视为送达;请求头 `X-Stars-Signature: t=<秒>,v1=<hex HMAC-SHA256(密钥, "<t>.<body>")>`,接收方应拒绝过旧的 `t` 以防重放;
   - **通用 OIDC Provider**:填 issuer、client_id、secret 即可接入。
 - **Apple Provider**:单独实现(自签 JWT 作 client secret、form_post 回调、姓名只在首次登录返回),内部复用通用 OIDC 的代码。
 - **Provider 的交互形态**:Provider 声明自己支持哪种,或两种都支持。

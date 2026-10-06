@@ -120,7 +120,21 @@ func (e *env) token(sub string, edit func(claims map[string]any, typ *string)) s
 // a 200 body into out.
 func (e *env) get(token, path string, out any) int {
 	e.t.Helper()
-	req, _ := http.NewRequest("GET", e.issuer+management.Prefix+path, nil)
+	return e.call("GET", token, path, nil, out)
+}
+
+// call sends in as a JSON body (when not nil) and decodes a 200 body into out.
+func (e *env) call(method, token, path string, in, out any) int {
+	e.t.Helper()
+	var body io.Reader
+	if in != nil {
+		b, _ := json.Marshal(in)
+		body = bytes.NewReader(b)
+	}
+	req, _ := http.NewRequest(method, e.issuer+management.Prefix+path, body)
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -129,10 +143,10 @@ func (e *env) get(token, path string, out any) int {
 		e.t.Fatal(err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
-	body, _ := io.ReadAll(resp.Body)
+	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode == 200 && out != nil {
-		if err := json.Unmarshal(body, out); err != nil {
-			e.t.Fatalf("%s: %v\n%s", path, err, body)
+		if err := json.Unmarshal(raw, out); err != nil {
+			e.t.Fatalf("%s: %v\n%s", path, err, raw)
 		}
 	}
 	return resp.StatusCode
