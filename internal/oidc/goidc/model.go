@@ -2,7 +2,6 @@ package goidc
 
 import (
 	"context"
-	"crypto/x509"
 	"encoding/json"
 	"maps"
 	"net/http"
@@ -33,32 +32,24 @@ type Configuration struct {
 	TokenAuthnMethods      []AuthnMethod                `json:"token_endpoint_auth_methods_supported,omitempty"`
 	TokenAuthnSigAlgs      []SignatureAlgorithm         `json:"token_endpoint_auth_signing_alg_values_supported,omitempty"`
 	// RequestURIParamSupported is always false; Discovery defaults it to true when omitted.
-	RequestURIParamSupported       bool                 `json:"request_uri_parameter_supported"`
-	IssuerResponseParamEnabled     bool                 `json:"authorization_response_iss_parameter_supported,omitempty"`
-	ClaimsParamEnabled             bool                 `json:"claims_parameter_supported,omitempty"`
-	AuthDetailsEnabled             bool                 `json:"authorization_details_supported,omitempty"`
-	AuthDetailTypesSupported       []AuthDetailType     `json:"authorization_details_types_supported,omitempty"`
-	DPoPSigAlgs                    []SignatureAlgorithm `json:"dpop_signing_alg_values_supported,omitempty"`
-	TokenIntrospectionEndpoint     string               `json:"introspection_endpoint,omitempty"`
-	TokenIntrospectionAuthnMethods []AuthnMethod        `json:"introspection_endpoint_auth_methods_supported,omitempty"`
-	TokenIntrospectionAuthnSigAlgs []SignatureAlgorithm `json:"introspection_endpoint_auth_signing_alg_values_supported,omitempty"`
-	TokenRevocationEndpoint        string               `json:"revocation_endpoint,omitempty"`
-	TokenRevocationAuthnMethods    []AuthnMethod        `json:"revocation_endpoint_auth_methods_supported,omitempty"`
-	TokenRevocationAuthnSigAlgs    []SignatureAlgorithm `json:"revocation_endpoint_auth_signing_alg_values_supported,omitempty"`
-	MTLSAliases                    *struct {
-		TokenEndpoint              string `json:"token_endpoint"`
-		UserInfoEndpoint           string `json:"userinfo_endpoint"`
-		TokenIntrospectionEndpoint string `json:"introspection_endpoint,omitempty"`
-		TokenRevocationEndpoint    string `json:"revocation_endpoint,omitempty"`
-	} `json:"mtls_endpoint_aliases,omitempty"`
-	// TLSBoundTokensEnabled signals support for certificate bound tokens.
-	TLSBoundTokensEnabled bool                  `json:"tls_client_certificate_bound_access_tokens,omitempty"`
-	ACRs                  []ACR                 `json:"acr_values_supported,omitempty"`
-	DisplayValues         []DisplayValue        `json:"display_values_supported,omitempty"`
-	CodeChallengeMethods  []CodeChallengeMethod `json:"code_challenge_methods_supported,omitempty"`
-	EndSessionEndpoint    string                `json:"end_session_endpoint,omitempty"`
-	OrganizationName      string                `json:"organization_name,omitempty"`
-	JWKS                  *JSONWebKeySet        `json:"jwks,omitempty"`
+	RequestURIParamSupported       bool                  `json:"request_uri_parameter_supported"`
+	IssuerResponseParamEnabled     bool                  `json:"authorization_response_iss_parameter_supported,omitempty"`
+	ClaimsParamEnabled             bool                  `json:"claims_parameter_supported,omitempty"`
+	AuthDetailsEnabled             bool                  `json:"authorization_details_supported,omitempty"`
+	AuthDetailTypesSupported       []AuthDetailType      `json:"authorization_details_types_supported,omitempty"`
+	DPoPSigAlgs                    []SignatureAlgorithm  `json:"dpop_signing_alg_values_supported,omitempty"`
+	TokenIntrospectionEndpoint     string                `json:"introspection_endpoint,omitempty"`
+	TokenIntrospectionAuthnMethods []AuthnMethod         `json:"introspection_endpoint_auth_methods_supported,omitempty"`
+	TokenIntrospectionAuthnSigAlgs []SignatureAlgorithm  `json:"introspection_endpoint_auth_signing_alg_values_supported,omitempty"`
+	TokenRevocationEndpoint        string                `json:"revocation_endpoint,omitempty"`
+	TokenRevocationAuthnMethods    []AuthnMethod         `json:"revocation_endpoint_auth_methods_supported,omitempty"`
+	TokenRevocationAuthnSigAlgs    []SignatureAlgorithm  `json:"revocation_endpoint_auth_signing_alg_values_supported,omitempty"`
+	ACRs                           []ACR                 `json:"acr_values_supported,omitempty"`
+	DisplayValues                  []DisplayValue        `json:"display_values_supported,omitempty"`
+	CodeChallengeMethods           []CodeChallengeMethod `json:"code_challenge_methods_supported,omitempty"`
+	EndSessionEndpoint             string                `json:"end_session_endpoint,omitempty"`
+	OrganizationName               string                `json:"organization_name,omitempty"`
+	JWKS                           *JSONWebKeySet        `json:"jwks,omitempty"`
 }
 
 // GrantManager stores grants.
@@ -167,8 +158,6 @@ const (
 	AuthnMethodSecretPost     AuthnMethod = "client_secret_post"
 	AuthnMethodSecretJWT      AuthnMethod = "client_secret_jwt"
 	AuthnMethodPrivateKeyJWT  AuthnMethod = "private_key_jwt"
-	AuthnMethodTLS            AuthnMethod = "tls_client_auth"
-	AuthnMethodSelfSignedTLS  AuthnMethod = "self_signed_tls_client_auth"
 	AuthnMethodAttestationJWT AuthnMethod = "attest_jwt_client_auth"
 )
 
@@ -344,11 +333,6 @@ const (
 	ACRMaceIncommonIAPBronze ACR = "urn:mace:incommon:iap:bronze"
 )
 
-// ClientCertFunc fetches the client certificate during mTLS connections.
-// It may be executed multiple times during a single request to the provider.
-// Consider caching the certificate to avoid redundant computations.
-type ClientCertFunc func(context.Context) (*x509.Certificate, error)
-
 type MiddlewareFunc func(next http.Handler) http.Handler
 
 func ApplyMiddlewares(h http.Handler, middlewares ...MiddlewareFunc) http.Handler {
@@ -510,8 +494,7 @@ func NewPolicy(id string, setupFunc SetupAuthnFunc, authnFunc AuthnFunc) AuthnPo
 }
 
 type TokenConfirmation struct {
-	JWKThumbprint  string `json:"jkt,omitempty"`
-	CertThumbprint string `json:"x5t#S256,omitempty"`
+	JWKThumbprint string `json:"jkt,omitempty"`
 }
 
 type TokenInfo struct {

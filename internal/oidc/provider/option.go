@@ -404,23 +404,6 @@ func WithSecretJWTAuthn(algs ...goidc.SignatureAlgorithm) Option {
 	}
 }
 
-// WithTLSAuthn enables the "tls_client_auth" client authentication method.
-func WithTLSAuthn() Option {
-	return func(p *Provider) error {
-		p.config.AuthnMethods = append(p.config.AuthnMethods, goidc.AuthnMethodTLS)
-		return nil
-	}
-}
-
-// WithSelfSignedTLSAuthn enables the "self_signed_tls_client_auth" client
-// authentication method.
-func WithSelfSignedTLSAuthn() Option {
-	return func(p *Provider) error {
-		p.config.AuthnMethods = append(p.config.AuthnMethods, goidc.AuthnMethodSelfSignedTLS)
-		return nil
-	}
-}
-
 type AttestationJWTAuthnOption Option
 
 // WithAttestationJWTAuthn enables the "attest_jwt_client_auth" client
@@ -896,68 +879,6 @@ func WithTokenRevocationEndpoint(endpoint string) TokenRevocationOption {
 	}
 }
 
-// ── MTLS ──────────────────────────────────────────────────────────────────────
-
-// MTLSOption is an optional configuration for mutual TLS.
-// See [WithMTLS] for more information.
-type MTLSOption Option
-
-// MTLSConfig holds the required configuration for mutual TLS support.
-type MTLSConfig struct {
-	// Host is the mTLS-specific host the provider listens on. Client
-	// certificate-authenticated requests must be routed to this host.
-	Host string
-	// ClientCert extracts the client certificate from the request.
-	ClientCert goidc.ClientCertFunc
-}
-
-// WithMTLS allows requests to be established with mutual TLS.
-func WithMTLS(cfg MTLSConfig, opts ...MTLSOption) Option {
-	return func(p *Provider) error {
-		if cfg.Host == "" {
-			return errors.New("the mtls host cannot be empty")
-		}
-		if cfg.ClientCert == nil {
-			return errors.New("the mtls client certificate function cannot be nil")
-		}
-		p.config.MTLSEnabled = true
-		p.config.MTLSHost = cfg.Host
-		p.config.ClientCertFunc = cfg.ClientCert
-		for _, opt := range opts {
-			if err := opt(p); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-}
-
-// MTLSTokenBindingOption is an optional configuration for mTLS token binding.
-type MTLSTokenBindingOption MTLSOption
-
-// WithMTLSTokenBinding makes requests to /token return tokens bound to the
-// client certificate if any is sent.
-func WithMTLSTokenBinding(opts ...MTLSTokenBindingOption) MTLSOption {
-	return func(p *Provider) error {
-		p.config.MTLSTokenBindingEnabled = true
-		for _, opt := range opts {
-			if err := opt(p); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-}
-
-// WithMTLSTokenBindingRequired makes requests to /token return tokens bound to the
-// client certificate.
-func WithMTLSTokenBindingRequired() MTLSTokenBindingOption {
-	return func(p *Provider) error {
-		p.config.MTLSTokenBindingRequired = true
-		return nil
-	}
-}
-
 // ── DPoP ──────────────────────────────────────────────────────────────────────
 
 // DPoPOption is an optional configuration for DPoP.
@@ -995,8 +916,8 @@ func WithDPoPRequired() DPoPOption {
 }
 
 // WithTokenBindingRequired makes at least one sender constraining mechanism
-// (TLS or DPoP) be required in order to issue an access token to a client.
-// For more info, see [WithMTLSTokenBinding] and [WithDPoP].
+// (DPoP) be required in order to issue an access token to a client.
+// For more info, see [WithDPoP].
 func WithTokenBindingRequired() Option {
 	return func(p *Provider) error {
 		p.config.TokenBindingRequired = true

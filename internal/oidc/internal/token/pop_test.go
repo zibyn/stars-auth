@@ -1,13 +1,10 @@
 package token
 
 import (
-	"context"
-	"crypto/x509"
 	"errors"
 	"testing"
 
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
-	"github.com/zibyn/stars-auth/internal/oidc/internal/hashutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidctest"
 )
 
@@ -18,122 +15,6 @@ func TestValidatePoP_NoConfirmation(t *testing.T) {
 
 	// When.
 	err := ValidatePoP(ctx, "random_token", cnf)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-}
-
-func TestValidateTLSPoP_NoThumbprint(t *testing.T) {
-	// Given.
-	ctx := oidctest.NewContext(t)
-	cnf := goidc.TokenConfirmation{}
-
-	// When.
-	err := validateTLSPoP(ctx, cnf)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
-}
-
-func TestValidateTLSPoP_DisabledButBound(t *testing.T) {
-	ctx := oidctest.NewContext(t)
-	cnf := goidc.TokenConfirmation{
-		CertThumbprint: "bound_thumbprint",
-	}
-
-	err := validateTLSPoP(ctx, cnf)
-
-	if err == nil {
-		t.Fatal("expected error")
-	}
-
-	var oidcErr goidc.Error
-	if !errors.As(err, &oidcErr) {
-		t.Fatalf("expected goidc.Error, got %v", err)
-	}
-
-	if oidcErr.Code != goidc.ErrorCodeInvalidToken {
-		t.Errorf("Code = %s, want %s", oidcErr.Code, goidc.ErrorCodeInvalidToken)
-	}
-}
-
-func TestValidateTLSPoP_NoCert(t *testing.T) {
-	// Given.
-	ctx := oidctest.NewContext(t)
-	ctx.MTLSTokenBindingEnabled = true
-	ctx.ClientCertFunc = func(context.Context) (*x509.Certificate, error) {
-		return nil, errors.New("no cert")
-	}
-	cnf := goidc.TokenConfirmation{
-		CertThumbprint: "random_thumbprint",
-	}
-
-	// When.
-	err := validateTLSPoP(ctx, cnf)
-
-	// Then.
-	if err == nil {
-		t.Fatal("expected error")
-	}
-
-	var oidcErr goidc.Error
-	if !errors.As(err, &oidcErr) {
-		t.Fatalf("expected goidc.Error, got %v", err)
-	}
-
-	if oidcErr.Code != goidc.ErrorCodeInvalidToken {
-		t.Errorf("Code = %s, want %s", oidcErr.Code, goidc.ErrorCodeInvalidToken)
-	}
-}
-
-func TestValidateTLSPoP_ThumbprintMismatch(t *testing.T) {
-	// Given.
-	ctx := oidctest.NewContext(t)
-	ctx.MTLSTokenBindingEnabled = true
-	certRaw := []byte("test_cert_raw_data")
-	ctx.ClientCertFunc = func(context.Context) (*x509.Certificate, error) {
-		return &x509.Certificate{Raw: certRaw}, nil
-	}
-	cnf := goidc.TokenConfirmation{
-		CertThumbprint: "wrong_thumbprint",
-	}
-
-	// When.
-	err := validateTLSPoP(ctx, cnf)
-
-	// Then.
-	if err == nil {
-		t.Fatal("expected error")
-	}
-
-	var oidcErr goidc.Error
-	if !errors.As(err, &oidcErr) {
-		t.Fatalf("expected goidc.Error, got %v", err)
-	}
-
-	if oidcErr.Code != goidc.ErrorCodeInvalidToken {
-		t.Errorf("Code = %s, want %s", oidcErr.Code, goidc.ErrorCodeInvalidToken)
-	}
-}
-
-func TestValidateTLSPoP_ValidCert(t *testing.T) {
-	// Given.
-	ctx := oidctest.NewContext(t)
-	ctx.MTLSTokenBindingEnabled = true
-	certRaw := []byte("test_cert_raw_data")
-	ctx.ClientCertFunc = func(context.Context) (*x509.Certificate, error) {
-		return &x509.Certificate{Raw: certRaw}, nil
-	}
-	cnf := goidc.TokenConfirmation{
-		CertThumbprint: hashutil.Thumbprint(string(certRaw)),
-	}
-
-	// When.
-	err := validateTLSPoP(ctx, cnf)
 
 	// Then.
 	if err != nil {

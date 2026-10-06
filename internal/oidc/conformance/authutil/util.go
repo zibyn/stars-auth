@@ -6,7 +6,6 @@ import (
 	"cmp"
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,14 +26,7 @@ import (
 var Issuer = cmp.Or(os.Getenv("ISSUER"), "https://auth.localhost")
 
 const (
-	MTLSHost                 string = "https://matls-auth.localhost"
-	headerXFAPIInteractionID        = "X-Fapi-Interaction-Id"
-)
-
-type ContextKey string
-
-const (
-	ContextKeyClientCert ContextKey = "client_cert"
+	headerXFAPIInteractionID = "X-Fapi-Interaction-Id"
 )
 
 var (
@@ -53,14 +45,6 @@ var (
 var (
 	errLogoutCancelled error = errors.New("logout cancelled by the user")
 )
-
-func ClientMTLS(id string) (*goidc.Client, goidc.JSONWebKeySet) {
-	client, jwks := Client(id)
-	client.TokenAuthnMethod = goidc.AuthnMethodTLS
-	client.TLSSubjectDistinguishedName = "CN=" + id
-
-	return client, jwks
-}
 
 func ClientPrivateKeyJWT(id string) (*goidc.Client, goidc.JSONWebKeySet) {
 	client, jwks := Client(id)
@@ -160,25 +144,6 @@ func ServerCert() tls.Certificate {
 	return tlsCert
 }
 
-func ClientCACertPool() *x509.CertPool {
-
-	caPool := x509.NewCertPool()
-
-	clientOneCert, err := keys.FS.ReadFile("client_one.crt")
-	if err != nil {
-		log.Fatal(err)
-	}
-	caPool.AppendCertsFromPEM(clientOneCert)
-
-	clientTwoCert, err := keys.FS.ReadFile("client_two.crt")
-	if err != nil {
-		log.Fatal(err)
-	}
-	caPool.AppendCertsFromPEM(clientTwoCert)
-
-	return caPool
-}
-
 func TokenOptionsFunc(alg goidc.SignatureAlgorithm) goidc.TokenOptionsFunc {
 	return func(_ context.Context, _ *goidc.Grant, _ *goidc.Client) goidc.TokenOptions {
 		opts := goidc.NewJWTTokenOptions(alg, 600)
@@ -198,14 +163,6 @@ func UserInfoClaimsFunc() goidc.UserInfoClaimsFunc {
 		claims, _ := grant.Store[paramUserInfoClaims].(map[string]any)
 		return claims
 	}
-}
-
-func ClientCertFunc(ctx context.Context) (*x509.Certificate, error) {
-	clientCert, ok := ctx.Value(ContextKeyClientCert).(*x509.Certificate)
-	if !ok {
-		return nil, errors.New("the client certificate is not in the context")
-	}
-	return clientCert, nil
 }
 
 func HTTPClient(_ context.Context) *http.Client {
@@ -251,21 +208,6 @@ func ConsumeJTIFunc() goidc.ConsumeJTIFunc {
 		jtiStore[jti] = struct{}{}
 		return nil
 	}
-}
-
-func ClientCertMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if len(r.TLS.PeerCertificates) == 0 {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		ctx := r.Context()
-		ctx = context.WithValue(ctx, ContextKeyClientCert, r.TLS.PeerCertificates[0])
-
-		r = r.WithContext(ctx)
-		next.ServeHTTP(w, r)
-	})
 }
 
 func FAPIIDMiddleware(next http.Handler) http.Handler {

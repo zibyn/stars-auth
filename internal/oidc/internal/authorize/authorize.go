@@ -143,8 +143,6 @@ func authenticate(ctx oidc.Context, as *goidc.AuthnSession, c *goidc.Client) err
 					return as.JWKThumbprint
 				}
 				return as.DPoPJKT
-				// TODO: Should the token be bound with tls cert if the client used mtls during /par?
-				// It could be an one-time self signed certificate the client wants to use for binding.
 			}(),
 			AuthCode: func() string {
 				if !as.ResponseType.Contains(goidc.ResponseTypeCode) {

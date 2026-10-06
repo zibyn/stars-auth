@@ -280,39 +280,6 @@ func TestHandleUserInfoRequest(t *testing.T) {
 			},
 		},
 		{
-			name: "tls bound token without cert",
-			setup: func(t *testing.T) (oidc.Context, *goidc.Client) {
-				ctx, c := setup(t)
-				ctx.MTLSTokenBindingEnabled = true
-				now := timeutil.TimestampNow()
-				grant := &goidc.Grant{
-					ID: "tls_grant", ClientID: c.ID, Subject: "random_subject",
-					CreatedAt: now, CertThumbprint: "random_thumbprint",
-				}
-				_ = ctx.SaveGrant(grant)
-				tknValue := signToken(t, ctx, map[string]any{
-					"jti": "tls_token", "grant_id": grant.ID,
-					"iss": ctx.Issuer(), "sub": "random_subject",
-					"client_id": c.ID, "scope": goidc.ScopeOpenID.ID,
-					"iat": now, "exp": now + 60,
-					"cnf": map[string]string{"x5t#S256": "random_thumbprint"},
-				})
-				ctx.Request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", tknValue))
-				return ctx, c
-			},
-			wantErr: true,
-			validateErr: func(t *testing.T, err error) {
-				t.Helper()
-				var oidcErr goidc.Error
-				if !errors.As(err, &oidcErr) {
-					t.Fatalf("expected goidc.Error, got %v", err)
-				}
-				if oidcErr.Code != goidc.ErrorCodeInvalidToken {
-					t.Errorf("Code = %s, want %s", oidcErr.Code, goidc.ErrorCodeInvalidToken)
-				}
-			},
-		},
-		{
 			name: "expired token",
 			setup: func(t *testing.T) (oidc.Context, *goidc.Client) {
 				ctx, c := setup(t)

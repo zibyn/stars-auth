@@ -343,11 +343,10 @@ func TestIssue(t *testing.T) {
 				ctx := oidctest.NewContext(t)
 				client, _ := oidctest.NewClient(t)
 				grant := &goidc.Grant{
-					ID:             "grant_id",
-					Subject:        "random_subject",
-					ClientID:       client.ID,
-					JWKThumbprint:  "dpop_thumbprint",
-					CertThumbprint: "tls_thumbprint",
+					ID:            "grant_id",
+					Subject:       "random_subject",
+					ClientID:      client.ID,
+					JWKThumbprint: "dpop_thumbprint",
 				}
 				return ctx, grant, client
 			},
@@ -363,9 +362,6 @@ func TestIssue(t *testing.T) {
 				}
 				if cnf["jkt"] != "dpop_thumbprint" {
 					t.Fatalf("cnf.jkt = %v, want dpop_thumbprint", cnf["jkt"])
-				}
-				if cnf["x5t#S256"] != "tls_thumbprint" {
-					t.Fatalf("cnf.x5t#S256 = %v, want tls_thumbprint", cnf["x5t#S256"])
 				}
 			},
 		},

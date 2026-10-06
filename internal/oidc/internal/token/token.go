@@ -40,18 +40,17 @@ func Issue(ctx oidc.Context, grant *goidc.Grant, c *goidc.Client, opts *Issuance
 
 	now := timeutil.TimestampNow()
 	tkn := &goidc.Token{
-		GrantID:        grant.ID,
-		Subject:        grant.Subject,
-		ClientID:       grant.ClientID,
-		Scopes:         grant.Scopes,
-		AuthDetails:    grant.AuthDetails,
-		Resources:      grant.Resources,
-		JWKThumbprint:  grant.JWKThumbprint,
-		CertThumbprint: grant.CertThumbprint,
-		CreatedAt:      now,
-		ExpiresAt:      now + tknOpts.LifetimeSecs,
-		Format:         tknOpts.Format,
-		SigAlg:         tknOpts.JWTSigAlg,
+		GrantID:       grant.ID,
+		Subject:       grant.Subject,
+		ClientID:      grant.ClientID,
+		Scopes:        grant.Scopes,
+		AuthDetails:   grant.AuthDetails,
+		Resources:     grant.Resources,
+		JWKThumbprint: grant.JWKThumbprint,
+		CreatedAt:     now,
+		ExpiresAt:     now + tknOpts.LifetimeSecs,
+		Format:        tknOpts.Format,
+		SigAlg:        tknOpts.JWTSigAlg,
 	}
 	if tkn.JWKThumbprint != "" {
 		tkn.Type = goidc.TokenTypeDPoP
@@ -106,9 +105,6 @@ func Issue(ctx oidc.Context, grant *goidc.Grant, c *goidc.Client, opts *Issuance
 		confirmation := make(map[string]string)
 		if tkn.JWKThumbprint != "" {
 			confirmation["jkt"] = tkn.JWKThumbprint
-		}
-		if tkn.CertThumbprint != "" {
-			confirmation["x5t#S256"] = tkn.CertThumbprint
 		}
 		if len(confirmation) != 0 {
 			claims["cnf"] = confirmation

@@ -5,7 +5,6 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"io"
@@ -126,16 +125,6 @@ func TestBaseURL(t *testing.T) {
 
 	if got := ctx.BaseURL(); got != "https://example.com/auth" {
 		t.Fatalf("BaseURL() = %q, want %q", got, "https://example.com/auth")
-	}
-}
-
-func TestMTLSBaseURL(t *testing.T) {
-	ctx := newContext()
-	ctx.MTLSHost = "https://mtls-example.com"
-	ctx.EndpointPrefix = "/auth"
-
-	if got := ctx.MTLSBaseURL(); got != "https://mtls-example.com/auth" {
-		t.Fatalf("MTLSBaseURL() = %q, want %q", got, "https://mtls-example.com/auth")
 	}
 }
 
@@ -366,25 +355,6 @@ func TestTokenAndPolicyHooks(t *testing.T) {
 				}
 				if !ctx.TokenRevocationIsClientAllowed(client) {
 					t.Fatal("TokenRevocationIsClientAllowed() = false, want true")
-				}
-			},
-		},
-		{
-			name: "client cert",
-			run: func(t *testing.T, ctx oidc.Context) {
-				if _, err := ctx.ClientCert(); err == nil {
-					t.Fatal("ClientCert() error = nil, want non-nil by default")
-				}
-
-				ctx.ClientCertFunc = func(context.Context) (*x509.Certificate, error) {
-					return &x509.Certificate{}, nil
-				}
-				cert, err := ctx.ClientCert()
-				if err != nil {
-					t.Fatalf("ClientCert() error = %v", err)
-				}
-				if cert == nil {
-					t.Fatal("ClientCert() returned nil certificate")
 				}
 			},
 		},
@@ -790,20 +760,13 @@ func TestSimpleHelpers(t *testing.T) {
 		}
 
 		ctx.Host = "https://example.com"
-		ctx.MTLSHost = "https://mtls.example.com"
 		ctx.TokenEndpoint = "/token"
 		ctx.Request = httptest.NewRequest(http.MethodPost, "/path?query=1", nil)
 		if got := ctx.TokenURL(); got != "https://example.com/token" {
 			t.Fatalf("TokenURL() = %q, want %q", got, "https://example.com/token")
 		}
-		if got := ctx.TokenMTLSURL(); got != "https://mtls.example.com/token" {
-			t.Fatalf("TokenMTLSURL() = %q, want %q", got, "https://mtls.example.com/token")
-		}
 		if got := ctx.RequestURL(); got != "https://example.com/path?query=1" {
 			t.Fatalf("RequestURL() = %q, want %q", got, "https://example.com/path?query=1")
-		}
-		if got := ctx.RequestMTLSURL(); got != "https://mtls.example.com/path?query=1" {
-			t.Fatalf("RequestMTLSURL() = %q, want %q", got, "https://mtls.example.com/path?query=1")
 		}
 		if got := ctx.RequestMethod(); got != http.MethodPost {
 			t.Fatalf("RequestMethod() = %q, want %q", got, http.MethodPost)
@@ -1098,9 +1061,6 @@ func TestSignWithSigner(t *testing.T) {
 func newContext() oidc.Context {
 	return oidc.Context{
 		Configuration: &oidc.Configuration{
-			ClientCertFunc: func(context.Context) (*x509.Certificate, error) {
-				return nil, errors.New("the client certificate function was not defined")
-			},
 			TokenIntrospectionIsClientAllowedFunc: func(context.Context, *goidc.Client, goidc.TokenInfo) bool {
 				return false
 			},

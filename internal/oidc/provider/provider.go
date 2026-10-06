@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"crypto/subtle"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -88,18 +87,8 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 		return nil, fmt.Errorf("default authn method %q is not among the enabled authn methods", op.config.AuthnMethodDefault)
 	}
 
-	if !op.config.MTLSEnabled && slices.ContainsFunc(op.config.AuthnMethods, func(method goidc.AuthnMethod) bool {
-		return method == goidc.AuthnMethodTLS || method == goidc.AuthnMethodSelfSignedTLS
-	}) {
-		return nil, errors.New("mtls must be enabled for tls_client_auth or self_signed_tls_client_auth")
-	}
-
-	if op.config.MTLSTokenBindingEnabled && !op.config.MTLSEnabled {
-		return nil, errors.New("mtls must be enabled if tls token binding is enabled")
-	}
-
-	if op.config.TokenBindingRequired && !op.config.DPoPEnabled && !op.config.MTLSTokenBindingEnabled {
-		return nil, errors.New("either dpop or tls binding must be enabled if sender constraining tokens is required")
+	if op.config.TokenBindingRequired && !op.config.DPoPEnabled {
+		return nil, errors.New("dpop must be enabled if sender constraining tokens is required")
 	}
 
 	if op.config.ConsumeJTIFunc == nil {
@@ -203,10 +192,6 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 		op.config.RARCompareDetailsFunc = nonZeroOrDefault(op.config.RARCompareDetailsFunc, defaultCompareAuthDetailsFunc)
 	}
 
-	if op.config.MTLSEnabled {
-		op.config.ClientCertFunc = nonZeroOrDefault(op.config.ClientCertFunc, goidc.ClientCertFunc(defaultClientCertFunc))
-	}
-
 	if !op.profileValidationEnabled {
 		return op, nil
 	}
@@ -217,7 +202,6 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 			if !slices.Contains([]goidc.AuthnMethod{
 				goidc.AuthnMethodPrivateKeyJWT,
 				goidc.AuthnMethodSecretJWT,
-				goidc.AuthnMethodTLS,
 				goidc.AuthnMethodNone,
 			}, method) {
 				return nil, fmt.Errorf("[FAPI 1.0 5.2.2] %s is not a valid authentication method", method)
@@ -228,16 +212,16 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 			return nil, errors.New("[FAPI 2.0 5.3.1] implicit grant is not allowed")
 		}
 
-		if !op.config.TokenBindingRequired && !op.config.DPoPRequired && !op.config.MTLSTokenBindingRequired {
+		if !op.config.TokenBindingRequired && !op.config.DPoPRequired {
 			return nil, errors.New("[FAPI 2.0 5.3.1] sender-constrained access tokens must be required")
 		}
 
-		if !slices.Contains(op.config.AuthnMethods, goidc.AuthnMethodPrivateKeyJWT) && !slices.Contains(op.config.AuthnMethods, goidc.AuthnMethodTLS) {
-			return nil, errors.New("[FAPI 2.0 5.3.1] only private_key_jwt or tls_client_auth are allowed")
+		if !slices.Contains(op.config.AuthnMethods, goidc.AuthnMethodPrivateKeyJWT) {
+			return nil, errors.New("[FAPI 2.0 5.3.1] only private_key_jwt is allowed")
 		}
 
 		for _, method := range op.config.AuthnMethods {
-			if !slices.Contains([]goidc.AuthnMethod{goidc.AuthnMethodPrivateKeyJWT, goidc.AuthnMethodTLS}, method) {
+			if method != goidc.AuthnMethodPrivateKeyJWT {
 				return nil, fmt.Errorf("[FAPI 2.0 5.3.1] %s is not a valid authentication method", method)
 			}
 		}
@@ -428,10 +412,6 @@ func defaultCompareAuthDetailsFunc(_ context.Context, requested, granted []goidc
 
 func defaultConsumeJTIFunc(context.Context, string) error {
 	return nil
-}
-
-func defaultClientCertFunc(context.Context) (*x509.Certificate, error) {
-	return nil, errors.New("the client certificate function was not defined")
 }
 
 func defaultTokenIntrospectionIsClientAllowedFunc(context.Context, *goidc.Client, goidc.TokenInfo) bool {

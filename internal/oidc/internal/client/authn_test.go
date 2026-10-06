@@ -5,9 +5,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/sha256"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -560,136 +557,6 @@ func TestAuthenticated(t *testing.T) {
 				}
 			},
 			wantClientID: "random_client_id",
-		},
-		{
-			name: "tls distinguished name",
-			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {
-				ctx, c := setUpTLSAuthn(t)
-				c.TLSSubjectDistinguishedName = "CN=https://example.com"
-				ctx.Request.PostForm = map[string][]string{
-					"client_id": {c.ID},
-				}
-				return ctx, nil
-			},
-			wantClientID: "random_client_id",
-		},
-		{
-			name: "tls invalid distinguished name",
-			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {
-				ctx, c := setUpTLSAuthn(t)
-				c.TLSSubjectDistinguishedName = "invalid"
-				ctx.Request.PostForm = map[string][]string{
-					"client_id": {c.ID},
-				}
-				return ctx, nil
-			},
-			wantErr: goidc.ErrorCodeInvalidClient,
-		},
-		{
-			name: "tls alternative name",
-			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {
-				ctx, c := setUpTLSAuthn(t)
-				c.TLSSubjectAlternativeName = "https://sub.example.com"
-				ctx.Request.PostForm = map[string][]string{
-					"client_id": {c.ID},
-				}
-				return ctx, nil
-			},
-			wantClientID: "random_client_id",
-		},
-		{
-			name: "tls invalid alternative name",
-			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {
-				ctx, c := setUpTLSAuthn(t)
-				c.TLSSubjectAlternativeName = "invalid"
-				ctx.Request.PostForm = map[string][]string{
-					"client_id": {c.ID},
-				}
-				return ctx, nil
-			},
-			wantErr: goidc.ErrorCodeInvalidClient,
-		},
-		{
-			name: "self signed tls",
-			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {
-				ctx, c, cert := setUpSelfSignedTLSAuthn(t)
-				ctx.ClientCertFunc = func(context.Context) (*x509.Certificate, error) {
-					return cert, nil
-				}
-				ctx.Request.PostForm = map[string][]string{
-					"client_id": {c.ID},
-				}
-				return ctx, nil
-			},
-			wantClientID: "random_client_id",
-		},
-		{
-			name: "self signed tls invalid client id",
-			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {
-				ctx, _, cert := setUpSelfSignedTLSAuthn(t)
-				ctx.ClientCertFunc = func(context.Context) (*x509.Certificate, error) {
-					return cert, nil
-				}
-				ctx.Request.PostForm = map[string][]string{
-					"client_id": {"invalid_client_id"},
-				}
-				return ctx, nil
-			},
-			wantErr: goidc.ErrorCodeInvalidClient,
-		},
-		{
-			name: "self signed tls missing certificate",
-			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {
-				ctx, c, _ := setUpSelfSignedTLSAuthn(t)
-				certErr := errors.New("no client cert")
-				ctx.ClientCertFunc = func(context.Context) (*x509.Certificate, error) {
-					return nil, certErr
-				}
-				ctx.Request.PostForm = map[string][]string{
-					"client_id": {c.ID},
-				}
-				return ctx, nil
-			},
-			wantErr: goidc.ErrorCodeInvalidClient,
-		},
-		{
-			name: "self signed tls no matching jwk",
-			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {
-				ctx, c, cert := setUpSelfSignedTLSAuthn(t)
-				otherJWK := oidctest.PrivateRS256JWK(t, "other_key", goidc.KeyUsageSignature)
-				c.JWKS = &goidc.JSONWebKeySet{
-					Keys: []goidc.JSONWebKey{otherJWK.Public()},
-				}
-				ctx.ClientCertFunc = func(context.Context) (*x509.Certificate, error) {
-					return cert, nil
-				}
-				ctx.Request.PostForm = map[string][]string{
-					"client_id": {c.ID},
-				}
-				return ctx, nil
-			},
-			wantErr: goidc.ErrorCodeInvalidClient,
-		},
-		{
-			name: "self signed tls mismatched public key",
-			setup: func(t *testing.T) (oidc.Context, func(*testing.T)) {
-				ctx, c, cert := setUpSelfSignedTLSAuthn(t)
-				privateJWK := oidctest.PrivateRS256JWK(t, "rsa256_key", goidc.KeyUsageSignature)
-				mismatchedJWK := privateJWK.Public()
-				sum := sha256.Sum256(cert.Raw)
-				mismatchedJWK.CertificateThumbprintSHA256 = sum[:]
-				c.JWKS = &goidc.JSONWebKeySet{
-					Keys: []goidc.JSONWebKey{mismatchedJWK},
-				}
-				ctx.ClientCertFunc = func(context.Context) (*x509.Certificate, error) {
-					return cert, nil
-				}
-				ctx.Request.PostForm = map[string][]string{
-					"client_id": {c.ID},
-				}
-				return ctx, nil
-			},
-			wantErr: goidc.ErrorCodeInvalidClient,
 		},
 		{
 			name: "attestation jwt success",
@@ -1361,60 +1228,6 @@ func secretJWTPostForm(t *testing.T, ctx oidc.Context, clientID, secret, jti str
 		"client_assertion":      {assertion},
 		"client_assertion_type": {string(goidc.AssertionTypeJWTBearer)},
 	}
-}
-
-func setUpTLSAuthn(t *testing.T) (
-	ctx oidc.Context,
-	c *goidc.Client,
-) {
-	t.Helper()
-
-	ctx = oidctest.NewContext(t)
-	ctx.ClientCertFunc = func(context.Context) (*x509.Certificate, error) {
-		return &x509.Certificate{
-			Subject: pkix.Name{
-				CommonName: "https://example.com",
-			},
-			DNSNames: []string{"https://sub.example.com"},
-		}, nil
-	}
-
-	c = &goidc.Client{
-		ID: "random_client_id",
-		ClientMeta: goidc.ClientMeta{
-			TokenAuthnMethod: goidc.AuthnMethodTLS,
-		},
-	}
-	ctx.StaticClients = append(ctx.StaticClients, c)
-
-	return ctx, c
-}
-
-func setUpSelfSignedTLSAuthn(t *testing.T) (oidc.Context, *goidc.Client, *x509.Certificate) {
-	t.Helper()
-
-	ctx := oidctest.NewContext(t)
-	jwk := oidctest.PrivateRS256JWK(t, "rsa256_key", goidc.KeyUsageSignature)
-	cert := &x509.Certificate{
-		Raw:       []byte("random_self_signed_cert"),
-		PublicKey: jwk.Public().Key,
-	}
-	sum := sha256.Sum256(cert.Raw)
-	publicJWK := jwk.Public()
-	publicJWK.CertificateThumbprintSHA256 = sum[:]
-
-	c := &goidc.Client{
-		ID: "random_client_id",
-		ClientMeta: goidc.ClientMeta{
-			TokenAuthnMethod: goidc.AuthnMethodSelfSignedTLS,
-			JWKS: &goidc.JSONWebKeySet{
-				Keys: []goidc.JSONWebKey{publicJWK},
-			},
-		},
-	}
-	ctx.StaticClients = append(ctx.StaticClients, c)
-
-	return ctx, c, cert
 }
 
 func setUpAttestationAuthn(t *testing.T) (

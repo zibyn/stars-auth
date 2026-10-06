@@ -72,7 +72,7 @@ type Configuration struct {
 	TokenOptionsFunc       goidc.TokenOptionsFunc
 	VerifyClientSecretFunc goidc.VerifyClientSecretFunc
 	// TokenBindingRequired indicates that at least one mechanism of sender
-	// contraining tokens is required, either DPoP or client TLS.
+	// contraining tokens is required (DPoP).
 	TokenBindingRequired bool
 
 	JWKSEndpoint          string
@@ -114,12 +114,6 @@ type Configuration struct {
 	RefreshTokenShouldIssueFunc goidc.RefreshTokenShouldIssueFunc
 	RefreshTokenRotationEnabled bool
 	RefreshTokenLifetimeSecs    int
-
-	MTLSEnabled              bool
-	MTLSHost                 string
-	MTLSTokenBindingEnabled  bool
-	MTLSTokenBindingRequired bool
-	ClientCertFunc           goidc.ClientCertFunc
 
 	DPoPEnabled  bool
 	DPoPRequired bool

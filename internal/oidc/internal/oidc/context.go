@@ -2,7 +2,6 @@ package oidc
 
 import (
 	"context"
-	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -89,10 +88,6 @@ func (ctx Context) TokenRevocationIsClientAllowed(c *goidc.Client) bool {
 	return ctx.TokenRevocationIsClientAllowedFunc(ctx, c)
 }
 
-func (ctx Context) ClientCert() (*x509.Certificate, error) {
-	return ctx.ClientCertFunc(ctx)
-}
-
 func (ctx Context) ConsumeJTI(jti string) error {
 	return ctx.ConsumeJTIFunc(ctx, jti)
 }
@@ -124,16 +119,8 @@ func (ctx Context) TokenURL() string {
 	return ctx.BaseURL() + ctx.TokenEndpoint
 }
 
-func (ctx Context) TokenMTLSURL() string {
-	return ctx.MTLSBaseURL() + ctx.TokenEndpoint
-}
-
 func (ctx Context) RequestURL() string {
 	return ctx.Issuer() + ctx.Request.RequestURI
-}
-
-func (ctx Context) RequestMTLSURL() string {
-	return ctx.MTLSHost + ctx.Request.RequestURI
 }
 
 func (ctx Context) Policy(policies []goidc.AuthnPolicy, id string) goidc.AuthnPolicy {
@@ -220,10 +207,6 @@ func (ctx Context) LogoutSession(id string) (*goidc.LogoutSession, error) {
 
 func (ctx Context) BaseURL() string {
 	return ctx.Issuer() + ctx.EndpointPrefix
-}
-
-func (ctx Context) MTLSBaseURL() string {
-	return ctx.MTLSHost + ctx.EndpointPrefix
 }
 
 func (ctx Context) BearerToken() (string, bool) {

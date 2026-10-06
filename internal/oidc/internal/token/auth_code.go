@@ -53,8 +53,6 @@ func generateAuthCodeToken(ctx oidc.Context, req request) (response, error) {
 		}
 
 		if err := ValidateBinding(ctx, c, &bindindValidationOptions{
-			tlsRequired:       grant.CertThumbprint != "",
-			tlsCertThumbprint: grant.CertThumbprint,
 			dpopRequired:      grant.JWKThumbprint != "",
 			dpopJWKThumbprint: grant.JWKThumbprint,
 		}); err != nil {
@@ -82,7 +80,6 @@ func generateAuthCodeToken(ctx oidc.Context, req request) (response, error) {
 		}
 
 		grant.JWKThumbprint = dpopThumbprint(ctx)
-		grant.CertThumbprint = tlsThumbprint(ctx)
 		grant.AuthCodeConsumedAt = timeutil.TimestampNow()
 		if err := ctx.SaveGrant(grant); err != nil {
 			return response{}, err

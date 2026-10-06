@@ -45,14 +45,13 @@ func generateClientCredentialsToken(ctx oidc.Context, req request) (response, er
 	}
 
 	grant, err := NewGrant(ctx, c, GrantOptions{
-		Type:                 goidc.GrantClientCredentials,
-		Subject:              c.ID,
-		ClientID:             c.ID,
-		Scopes:               strings.Join(scopes, " "),
-		AuthDetails:          req.authDetails,
-		Resources:            req.resources,
-		JWKThumbprint:        dpopThumbprint(ctx),
-		ClientCertThumbprint: tlsThumbprint(ctx),
+		Type:          goidc.GrantClientCredentials,
+		Subject:       c.ID,
+		ClientID:      c.ID,
+		Scopes:        strings.Join(scopes, " "),
+		AuthDetails:   req.authDetails,
+		Resources:     req.resources,
+		JWKThumbprint: dpopThumbprint(ctx),
 	})
 	if err != nil {
 		return response{}, err

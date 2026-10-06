@@ -45,8 +45,7 @@ func generateRefreshToken(ctx oidc.Context, req request) (response, error) {
 	}
 
 	cnf := goidc.TokenConfirmation{
-		JWKThumbprint:  grant.JWKThumbprint,
-		CertThumbprint: grant.CertThumbprint,
+		JWKThumbprint: grant.JWKThumbprint,
 	}
 	if err := validateRefreshTokenBinding(ctx, c, cnf); err != nil {
 		return response{}, err
@@ -79,14 +78,11 @@ func generateRefreshToken(ctx oidc.Context, req request) (response, error) {
 		}
 	}
 	// Re-derive the token binding thumbprints from the current request.
-	// Only grants already bound to DPoP or TLS are updated; unbound grants stay unbound.
+	// Only grants already bound to DPoP are updated; unbound grants stay unbound.
 	// The new values will match the originals during proof of possession (validation
 	// ensures this), but the explicit assignment keeps the intent clear.
 	if grant.JWKThumbprint != "" {
 		grant.JWKThumbprint = dpopThumbprint(ctx)
-	}
-	if grant.CertThumbprint != "" {
-		grant.CertThumbprint = tlsThumbprint(ctx)
 	}
 	if err := ctx.HandleGrant(goidc.GrantRefreshToken, grant); err != nil {
 		return response{}, fmt.Errorf("could not handle grant: %w", err)
@@ -142,18 +138,6 @@ func validateRefreshTokenBinding(ctx oidc.Context, c *goidc.Client, cnf goidc.To
 		opts := bindindValidationOptions{}
 		opts.dpopRequired = true
 		if err := validateBindingDPoP(ctx, c, opts); err != nil {
-			return err
-		}
-	}
-
-	// If the refresh token was issued with TLS binding, make sure the following
-	// token is bound to the same tls certificate.
-	if cnf.CertThumbprint != "" {
-		opts := bindindValidationOptions{
-			tlsRequired:       true,
-			tlsCertThumbprint: cnf.CertThumbprint,
-		}
-		if err := validateBindingTLS(ctx, c, opts); err != nil {
 			return err
 		}
 	}

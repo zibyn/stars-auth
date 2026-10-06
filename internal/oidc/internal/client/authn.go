@@ -4,9 +4,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
-	"crypto/rsa"
-	"crypto/sha1" //nolint:gosec
-	"crypto/sha256"
+	"crypto/rsa" //nolint:gosec
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -169,10 +167,6 @@ func Authenticate(ctx oidc.Context, c *goidc.Client, authnCtx AuthnContext) erro
 		return authenticatePrivateKeyJWT(ctx, c, authnCtx)
 	case goidc.AuthnMethodSecretJWT:
 		return authenticateSecretJWT(ctx, c, authnCtx)
-	case goidc.AuthnMethodSelfSignedTLS:
-		return authenticateSelfSignedTLSCert(ctx, c)
-	case goidc.AuthnMethodTLS:
-		return authenticateTLSCert(ctx, c)
 	case goidc.AuthnMethodAttestationJWT:
 		return authenticateAttestationJWT(ctx, c, authnCtx)
 	default:
@@ -367,9 +361,6 @@ func areClaimsValid(ctx oidc.Context, claims jwt.Claims, client *goidc.Client, _
 	audiences := []string{ctx.Issuer()}
 	if ctx.Profile != goidc.ProfileFAPI2 {
 		audiences = append(audiences, ctx.TokenURL(), ctx.RequestURL())
-		if ctx.MTLSEnabled {
-			audiences = append(audiences, ctx.TokenMTLSURL(), ctx.RequestMTLSURL())
-		}
 	}
 
 	err := claims.ValidateWithLeeway(jwt.Expected{
@@ -380,79 +371,6 @@ func areClaimsValid(ctx oidc.Context, claims jwt.Claims, client *goidc.Client, _
 	if err != nil {
 		return goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client", err)
 	}
-	return nil
-}
-
-func authenticateSelfSignedTLSCert(ctx oidc.Context, c *goidc.Client) error {
-	if c.ID != ctx.Request.PostFormValue(formPostParamID) {
-		return goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client",
-			errors.New("the client_id does not match the authenticated client"))
-	}
-
-	cert, err := ctx.ClientCert()
-	if err != nil {
-		return goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client", err)
-	}
-
-	jwk, err := func() (goidc.JSONWebKey, error) {
-		jwks, err := JWKS(ctx, c)
-		if err != nil {
-			return goidc.JSONWebKey{}, fmt.Errorf("could not load the client JWKS: %w", err)
-		}
-
-		certSHA256 := sha256.Sum256(cert.Raw)
-		certSHA1 := sha1.Sum(cert.Raw) //nolint:gosec
-		for _, key := range jwks.Keys {
-			if string(key.CertificateThumbprintSHA256) == string(certSHA256[:]) {
-				return key, nil
-			}
-			if string(key.CertificateThumbprintSHA1) == string(certSHA1[:]) {
-				return key, nil
-			}
-		}
-
-		return goidc.JSONWebKey{}, goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client",
-			errors.New("no client JWK matches the presented client certificate"))
-	}()
-	if err != nil {
-		return err
-	}
-
-	if !comparePublicKeys(jwk.Key, cert.PublicKey) {
-		return goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client",
-			errors.New("the public key in the client certificate does not match the client JWKS"))
-	}
-
-	return nil
-}
-
-func authenticateTLSCert(ctx oidc.Context, c *goidc.Client) error {
-	if c.ID != ctx.Request.PostFormValue(formPostParamID) {
-		return goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client",
-			errors.New("the client_id does not match the authenticated client"))
-	}
-
-	cert, err := ctx.ClientCert()
-	if err != nil {
-		return goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client", err)
-	}
-
-	switch {
-	case c.TLSSubjectDistinguishedName != "":
-		if c.TLSSubjectDistinguishedName != cert.Subject.String() {
-			return goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client",
-				errors.New("the client certificate subject distinguished name does not match"))
-		}
-	case c.TLSSubjectAlternativeName != "":
-		if !slices.Contains(cert.DNSNames, c.TLSSubjectAlternativeName) {
-			return goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client",
-				errors.New("the client certificate subject alternative name does not match"))
-		}
-	default:
-		return goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client",
-			errors.New("the client is missing TLS authentication metadata"))
-	}
-
 	return nil
 }
 

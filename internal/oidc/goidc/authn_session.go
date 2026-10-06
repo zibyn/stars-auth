@@ -29,9 +29,6 @@ type AuthnSession struct {
 	GrantedResources   Resources    `json:"granted_resources,omitempty"`
 
 	JWKThumbprint string `json:"jwk_thumbprint,omitempty"`
-	// ClientCertThumbprint contains the thumbprint of the certificate used by
-	// the client to generate the token.
-	ClientCertThumbprint string `json:"client_cert_thumbprint,omitempty"`
 
 	// Store allows storing additional information between interactions.
 	Store             map[string]any `json:"store,omitempty"`

@@ -239,14 +239,13 @@ func TestIntrospect(t *testing.T) {
 				accessToken := "opaque_token"
 				now := timeutil.TimestampNow()
 				token := &goidc.Token{
-					ID:             accessToken,
-					GrantID:        "random_grant_id",
-					ClientID:       c.ID,
-					CreatedAt:      now,
-					ExpiresAt:      now + 60,
-					Scopes:         goidc.ScopeOpenID.ID,
-					JWKThumbprint:  "thumbprint_jwk",
-					CertThumbprint: "thumbprint_cert",
+					ID:            accessToken,
+					GrantID:       "random_grant_id",
+					ClientID:      c.ID,
+					CreatedAt:     now,
+					ExpiresAt:     now + 60,
+					Scopes:        goidc.ScopeOpenID.ID,
+					JWKThumbprint: "thumbprint_jwk",
 				}
 				_ = ctx.SaveGrant(&goidc.Grant{
 					ID:        token.GrantID,
@@ -263,9 +262,6 @@ func TestIntrospect(t *testing.T) {
 				}
 				if info.Confirmation.JWKThumbprint != "thumbprint_jwk" {
 					t.Errorf("JWKThumbprint = %q, want %q", info.Confirmation.JWKThumbprint, "thumbprint_jwk")
-				}
-				if info.Confirmation.CertThumbprint != "thumbprint_cert" {
-					t.Errorf("CertThumbprint = %q, want %q", info.Confirmation.CertThumbprint, "thumbprint_cert")
 				}
 			},
 		},
@@ -346,7 +342,6 @@ func TestIntrospect(t *testing.T) {
 					ClientID:              c.ID,
 					Scopes:                goidc.ScopeOpenID.ID,
 					JWKThumbprint:         "dpop_thumbprint",
-					CertThumbprint:        "tls_thumbprint",
 				}
 				_ = ctx.SaveGrant(grant)
 
@@ -358,9 +353,6 @@ func TestIntrospect(t *testing.T) {
 				}
 				if info.Confirmation.JWKThumbprint != "dpop_thumbprint" {
 					t.Errorf("JWKThumbprint = %q, want %q", info.Confirmation.JWKThumbprint, "dpop_thumbprint")
-				}
-				if info.Confirmation.CertThumbprint != "tls_thumbprint" {
-					t.Errorf("CertThumbprint = %q, want %q", info.Confirmation.CertThumbprint, "tls_thumbprint")
 				}
 			},
 		},

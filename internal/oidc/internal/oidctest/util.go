@@ -9,7 +9,6 @@ import (
 	"crypto/rsa"
 	"crypto/subtle"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -128,9 +127,6 @@ func NewContext(tb testing.TB) oidc.Context {
 		ConsumeJTIFunc: func(context.Context, string) error {
 			return nil
 		},
-		ClientCertFunc: func(context.Context) (*x509.Certificate, error) {
-			return nil, errors.New("the client certificate function was not defined")
-		},
 		TokenIntrospectionIsClientAllowedFunc: func(context.Context, *goidc.Client, goidc.TokenInfo) bool {
 			return false
 		},
@@ -169,8 +165,6 @@ func NewContext(tb testing.TB) oidc.Context {
 			goidc.AuthnMethodSecretBasic,
 			goidc.AuthnMethodPrivateKeyJWT,
 			goidc.AuthnMethodSecretJWT,
-			goidc.AuthnMethodSelfSignedTLS,
-			goidc.AuthnMethodTLS,
 		},
 		UserInfoDefaultSigAlg:      goidc.SignatureAlgorithm(jwk.Algorithm),
 		UserInfoSigAlgs:            []goidc.SignatureAlgorithm{goidc.SignatureAlgorithm(jwk.Algorithm)},

@@ -40,8 +40,6 @@ type Grant struct {
 	AuthCodeConsumedAt int `json:"auth_code_consumed_at,omitempty"`
 	// JWKThumbprint stores the thumbprint of the JWK provided via DPoP.
 	JWKThumbprint string `json:"jwk_thumbprint,omitempty"`
-	// CertThumbprint contains the thumbprint of the certificate used to generate the token.
-	CertThumbprint string `json:"cert_thumbprint,omitempty"`
 	// Store allows storing custom data within the grant.
 	Store map[string]any `json:"store,omitempty"`
 }

@@ -3,7 +3,6 @@ package provider
 import (
 	"context"
 	"crypto"
-	"crypto/x509"
 	"net/http"
 	"slices"
 	"testing"
@@ -812,84 +811,6 @@ func TestWithAuthorizationDetails(t *testing.T) {
 		t.Error("auth detail types should be set")
 	}
 
-}
-
-func TestWithMTLS(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-	var clientCertFunc goidc.ClientCertFunc = func(_ context.Context) (*x509.Certificate, error) {
-		return nil, nil
-	}
-
-	// When.
-	err := WithMTLS(MTLSConfig{
-		Host:       "https://matls-example.com",
-		ClientCert: clientCertFunc,
-	})(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if p.config.MTLSHost != "https://matls-example.com" {
-		t.Errorf("MTLSHost = %s, want https://matls-example.com", p.config.MTLSHost)
-	}
-
-	if p.config.ClientCertFunc == nil {
-		t.Error("ClientCertFunc cannot be nil")
-	}
-}
-
-func TestWithTLSCertTokenBinding(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithMTLSTokenBinding()(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			MTLSTokenBindingEnabled: true,
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
-}
-
-func TestWithTLSCertTokenBindingRequired(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithMTLSTokenBinding(WithMTLSTokenBindingRequired())(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	want := &Provider{
-		config: oidc.Configuration{
-			MTLSTokenBindingEnabled:  true,
-			MTLSTokenBindingRequired: true,
-		},
-	}
-	if diff := cmp.Diff(p, want, cmp.AllowUnexported(Provider{})); diff != "" {
-		t.Error(diff)
-	}
 }
 
 func TestWithDPoP(t *testing.T) {
@@ -1819,28 +1740,6 @@ func TestWithSecretJWTAuthn(t *testing.T) {
 	}
 	wantAlgs := []goidc.SignatureAlgorithm{goidc.SigAlgHS256}
 	if diff := cmp.Diff(p.config.AuthnMethodSecretJWTSigAlgs, wantAlgs); diff != "" {
-		t.Error(diff)
-	}
-}
-
-func TestWithTLSAuthn(t *testing.T) {
-	p := &Provider{}
-	if err := WithTLSAuthn()(p); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	want := []goidc.AuthnMethod{goidc.AuthnMethodTLS}
-	if diff := cmp.Diff(p.config.AuthnMethods, want); diff != "" {
-		t.Error(diff)
-	}
-}
-
-func TestWithSelfSignedTLSAuthn(t *testing.T) {
-	p := &Provider{}
-	if err := WithSelfSignedTLSAuthn()(p); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	want := []goidc.AuthnMethod{goidc.AuthnMethodSelfSignedTLS}
-	if diff := cmp.Diff(p.config.AuthnMethods, want); diff != "" {
 		t.Error(diff)
 	}
 }

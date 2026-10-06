@@ -2,7 +2,6 @@ package token
 
 import (
 	"context"
-	"crypto/x509"
 	"errors"
 	"strconv"
 	"testing"
@@ -440,73 +439,6 @@ func TestGenerateRefreshToken(t *testing.T) {
 			wantErr:         goidc.ErrorCodeInvalidGrant,
 			wantDescription: "invalid grant",
 			validate:        func(t *testing.T, _ oidc.Context, _ response, _ *goidc.Client, _ *goidc.Grant) {},
-		},
-		{
-			name: "mtls binding",
-			setup: func() (oidc.Context, request, *goidc.Client, *goidc.Grant) {
-				ctx, req, c, grant := setup(t)
-				ctx.MTLSTokenBindingEnabled = true
-				ctx.ClientCertFunc = func(context.Context) (*x509.Certificate, error) {
-					return &x509.Certificate{Raw: []byte("test_client_cert")}, nil
-				}
-				grant.CertThumbprint = tlsThumbprint(ctx)
-				if err := ctx.SaveGrant(grant); err != nil {
-					t.Fatalf("error while updating the grant: %v", err)
-				}
-				return ctx, req, c, grant
-			},
-			validate: func(t *testing.T, ctx oidc.Context, resp response, _ *goidc.Client, _ *goidc.Grant) {
-				grants := oidctest.Grants(t, ctx)
-				if len(grants) != 1 {
-					t.Fatalf("len(grants) = %d, want 1", len(grants))
-				}
-				if grants[0].CertThumbprint == "" {
-					t.Fatal("expected certificate thumbprint to be set on grant")
-				}
-
-				claims, err := oidctest.SafeClaims(resp.AccessToken, oidctest.PrivateJWKS(t, ctx).Keys[0])
-				if err != nil {
-					t.Fatalf("error parsing claims: %v", err)
-				}
-				wantConfirmation := map[string]any{
-					"x5t#S256": grants[0].CertThumbprint,
-				}
-				if diff := cmp.Diff(claims["cnf"], wantConfirmation); diff != "" {
-					t.Error(diff)
-				}
-			},
-		},
-		{
-			name: "confidential client must re-bind mtls refresh token",
-			setup: func() (oidc.Context, request, *goidc.Client, *goidc.Grant) {
-				ctx, req, c, grant := setup(t)
-				ctx.MTLSTokenBindingEnabled = true
-				grant.CertThumbprint = "bound_thumbprint"
-				if err := ctx.SaveGrant(grant); err != nil {
-					t.Fatalf("error while updating the grant: %v", err)
-				}
-				return ctx, req, c, grant
-			},
-			wantErr:  goidc.ErrorCodeInvalidRequest,
-			validate: func(t *testing.T, _ oidc.Context, _ response, _ *goidc.Client, _ *goidc.Grant) {},
-		},
-		{
-			name: "public client must prove possession of mtls-bound refresh token",
-			setup: func() (oidc.Context, request, *goidc.Client, *goidc.Grant) {
-				ctx, req, c, grant := setup(t)
-				c.TokenAuthnMethod = goidc.AuthnMethodNone
-				ctx.MTLSTokenBindingEnabled = true
-				ctx.Request.PostForm = map[string][]string{
-					"client_id": {c.ID},
-				}
-				grant.CertThumbprint = "bound_thumbprint"
-				if err := ctx.SaveGrant(grant); err != nil {
-					t.Fatalf("error while updating the grant: %v", err)
-				}
-				return ctx, req, c, grant
-			},
-			wantErr:  goidc.ErrorCodeInvalidToken,
-			validate: func(t *testing.T, _ oidc.Context, _ response, _ *goidc.Client, _ *goidc.Grant) {},
 		},
 	}
 

@@ -2,7 +2,6 @@ package token
 
 import (
 	"context"
-	"crypto/x509"
 	"errors"
 	"net/http"
 	"testing"
@@ -10,7 +9,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
-	"github.com/zibyn/stars-auth/internal/oidc/internal/hashutil"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidctest"
 	"github.com/zibyn/stars-auth/internal/oidc/internal/timeutil"
@@ -418,9 +416,6 @@ func TestGenerateAuthCodeToken(t *testing.T) {
 				if grant.JWKThumbprint != "" {
 					t.Errorf("JWKThumbprint = %q, want empty", grant.JWKThumbprint)
 				}
-				if grant.CertThumbprint != "" {
-					t.Errorf("CertThumbprint = %q, want empty", grant.CertThumbprint)
-				}
 
 				claims, err := oidctest.SafeClaims(resp.AccessToken, oidctest.PrivateJWKS(t, ctx).Keys[0])
 				if err != nil {
@@ -509,130 +504,6 @@ func TestGenerateAuthCodeToken(t *testing.T) {
 			wantErr: goidc.ErrorCodeInvalidRequest,
 		},
 		{
-			name: "tls binding",
-			setup: func() (oidc.Context, request, *goidc.Client, *goidc.Grant) {
-				ctx, req, c, grant := setup(t)
-				certRaw := []byte("test_client_cert")
-				ctx.MTLSTokenBindingEnabled = true
-				ctx.ClientCertFunc = func(context.Context) (*x509.Certificate, error) {
-					return &x509.Certificate{Raw: certRaw}, nil
-				}
-				grant.CertThumbprint = hashutil.Thumbprint(string(certRaw))
-				if err := ctx.SaveGrant(grant); err != nil {
-					t.Fatalf("error while updating the grant: %v", err)
-				}
-				return ctx, req, c, grant
-			},
-			validate: func(t *testing.T, ctx oidc.Context, resp response, _ *goidc.Client, _ *goidc.Grant) {
-				grants := oidctest.Grants(t, ctx)
-				if len(grants) != 1 {
-					t.Fatalf("len(grants) = %d, want 1", len(grants))
-				}
-				grant := grants[0]
-				if grant.CertThumbprint == "" {
-					t.Fatal("expected certificate thumbprint to be set on grant")
-				}
-
-				claims, err := oidctest.SafeClaims(resp.AccessToken, oidctest.PrivateJWKS(t, ctx).Keys[0])
-				if err != nil {
-					t.Fatalf("error parsing claims: %v", err)
-				}
-				cnf, ok := claims["cnf"].(map[string]any)
-				if !ok {
-					t.Fatal("expected cnf claim in token")
-				}
-				if cnf["x5t#S256"] != grant.CertThumbprint {
-					t.Errorf("cnf.x5t#S256 = %v, want %v", cnf["x5t#S256"], grant.CertThumbprint)
-				}
-			},
-		},
-		{
-			name: "tls binding cert mismatch",
-			setup: func() (oidc.Context, request, *goidc.Client, *goidc.Grant) {
-				ctx, req, c, grant := setup(t)
-				ctx.MTLSTokenBindingEnabled = true
-				ctx.ClientCertFunc = func(context.Context) (*x509.Certificate, error) {
-					return &x509.Certificate{Raw: []byte("different_cert")}, nil
-				}
-				grant.CertThumbprint = hashutil.Thumbprint(string([]byte("original_cert")))
-				if err := ctx.SaveGrant(grant); err != nil {
-					t.Fatalf("error while updating the grant: %v", err)
-				}
-				return ctx, req, c, grant
-			},
-			wantErr: goidc.ErrorCodeInvalidRequest,
-		},
-		{
-			name: "tls binding missing cert",
-			setup: func() (oidc.Context, request, *goidc.Client, *goidc.Grant) {
-				ctx, req, c, grant := setup(t)
-				ctx.MTLSTokenBindingEnabled = true
-				ctx.ClientCertFunc = func(context.Context) (*x509.Certificate, error) {
-					return nil, errors.New("no client certificate")
-				}
-				grant.CertThumbprint = hashutil.Thumbprint(string([]byte("original_cert")))
-				if err := ctx.SaveGrant(grant); err != nil {
-					t.Fatalf("error while updating the grant: %v", err)
-				}
-				return ctx, req, c, grant
-			},
-			wantErr: goidc.ErrorCodeInvalidRequest,
-		},
-		{
-			name: "dpop and tls binding",
-			setup: func() (oidc.Context, request, *goidc.Client, *goidc.Grant) {
-				ctx, req, c, grant := setup(t)
-				ctx.DPoPEnabled = true
-				ctx.DPoPSigAlgs = []goidc.SignatureAlgorithm{goidc.SigAlgES256}
-				ctx.Request.Method = http.MethodPost
-				ctx.Request.RequestURI = "/token"
-
-				dpopJWT, thumbprint := oidctest.DPoPProof(t, oidctest.DPoPProofOptions{Method: http.MethodPost, URI: ctx.Host + "/token"})
-				ctx.Request.Header.Set(goidc.HeaderDPoP, dpopJWT)
-				grant.JWKThumbprint = thumbprint
-
-				certRaw := []byte("test_client_cert")
-				ctx.MTLSTokenBindingEnabled = true
-				ctx.ClientCertFunc = func(context.Context) (*x509.Certificate, error) {
-					return &x509.Certificate{Raw: certRaw}, nil
-				}
-				grant.CertThumbprint = hashutil.Thumbprint(string(certRaw))
-
-				if err := ctx.SaveGrant(grant); err != nil {
-					t.Fatalf("error while updating the grant: %v", err)
-				}
-				return ctx, req, c, grant
-			},
-			validate: func(t *testing.T, ctx oidc.Context, resp response, _ *goidc.Client, _ *goidc.Grant) {
-				grants := oidctest.Grants(t, ctx)
-				if len(grants) != 1 {
-					t.Fatalf("len(grants) = %d, want 1", len(grants))
-				}
-				grant := grants[0]
-				if grant.JWKThumbprint == "" {
-					t.Fatal("expected JWK thumbprint to be set on grant")
-				}
-				if grant.CertThumbprint == "" {
-					t.Fatal("expected certificate thumbprint to be set on grant")
-				}
-
-				claims, err := oidctest.SafeClaims(resp.AccessToken, oidctest.PrivateJWKS(t, ctx).Keys[0])
-				if err != nil {
-					t.Fatalf("error parsing claims: %v", err)
-				}
-				cnf, ok := claims["cnf"].(map[string]any)
-				if !ok {
-					t.Fatal("expected cnf claim in token")
-				}
-				if cnf["jkt"] != grant.JWKThumbprint {
-					t.Errorf("cnf.jkt = %v, want %v", cnf["jkt"], grant.JWKThumbprint)
-				}
-				if cnf["x5t#S256"] != grant.CertThumbprint {
-					t.Errorf("cnf.x5t#S256 = %v, want %v", cnf["x5t#S256"], grant.CertThumbprint)
-				}
-			},
-		},
-		{
 			name: "dpop required by config but not sent",
 			setup: func() (oidc.Context, request, *goidc.Client, *goidc.Grant) {
 				ctx, req, c, grant := setup(t)
@@ -653,38 +524,6 @@ func TestGenerateAuthCodeToken(t *testing.T) {
 				return ctx, req, c, grant
 			},
 			wantErr: goidc.ErrorCodeInvalidRequest,
-		},
-		{
-			name: "mtls binding no grant thumbprint",
-			setup: func() (oidc.Context, request, *goidc.Client, *goidc.Grant) {
-				ctx, req, c, grant := setup(t)
-				ctx.MTLSTokenBindingEnabled = true
-				ctx.ClientCertFunc = func(context.Context) (*x509.Certificate, error) {
-					return &x509.Certificate{Raw: []byte("test_client_cert")}, nil
-				}
-				return ctx, req, c, grant
-			},
-			validate: func(t *testing.T, ctx oidc.Context, resp response, _ *goidc.Client, _ *goidc.Grant) {
-				grants := oidctest.Grants(t, ctx)
-				if len(grants) != 1 {
-					t.Fatalf("len(grants) = %d, want 1", len(grants))
-				}
-				grant := grants[0]
-				if grant.CertThumbprint == "" {
-					t.Fatal("expected certificate thumbprint to be set on grant")
-				}
-
-				claims, err := oidctest.SafeClaims(resp.AccessToken, oidctest.PrivateJWKS(t, ctx).Keys[0])
-				if err != nil {
-					t.Fatalf("error parsing claims: %v", err)
-				}
-				wantConfirmation := map[string]any{
-					"x5t#S256": grant.CertThumbprint,
-				}
-				if diff := cmp.Diff(claims["cnf"], wantConfirmation); diff != "" {
-					t.Error(diff)
-				}
-			},
 		},
 		{
 			name: "missing auth code",

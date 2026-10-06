@@ -52,29 +52,6 @@ func NewConfiguration(ctx oidc.Context) goidc.Configuration {
 		config.TokenRevocationAuthnSigAlgs = ctx.TokenAuthnSigAlgs()
 	}
 
-	if ctx.MTLSEnabled {
-		config.TLSBoundTokensEnabled = ctx.MTLSTokenBindingEnabled
-
-		config.MTLSAliases = &struct {
-			TokenEndpoint              string `json:"token_endpoint"`
-			UserInfoEndpoint           string `json:"userinfo_endpoint"`
-			TokenIntrospectionEndpoint string `json:"introspection_endpoint,omitempty"`
-			TokenRevocationEndpoint    string `json:"revocation_endpoint,omitempty"`
-		}{
-			TokenEndpoint:    ctx.MTLSBaseURL() + ctx.TokenEndpoint,
-			UserInfoEndpoint: ctx.MTLSBaseURL() + ctx.UserInfoEndpoint,
-		}
-
-		if ctx.TokenIntrospectionEnabled {
-			config.MTLSAliases.TokenIntrospectionEndpoint = ctx.MTLSBaseURL() + ctx.TokenIntrospectionEndpoint
-		}
-
-		if ctx.TokenRevocationEnabled {
-			config.MTLSAliases.TokenRevocationEndpoint = ctx.MTLSBaseURL() + ctx.TokenRevocationEndpoint
-		}
-
-	}
-
 	if ctx.UserInfoEncEnabled {
 		config.UserInfoKeyEncAlgs = ctx.UserInfoKeyEncAlgs
 		config.UserInfoContentEncAlgs = ctx.UserInfoContentEncAlgs

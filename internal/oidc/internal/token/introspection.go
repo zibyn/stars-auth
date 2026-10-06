@@ -98,10 +98,9 @@ func Introspect(ctx oidc.Context, tkn string, c *goidc.Client) (goidc.TokenInfo,
 		}
 
 		var cnf *goidc.TokenConfirmation
-		if token.JWKThumbprint != "" || token.CertThumbprint != "" {
+		if token.JWKThumbprint != "" {
 			cnf = &goidc.TokenConfirmation{
-				JWKThumbprint:  token.JWKThumbprint,
-				CertThumbprint: token.CertThumbprint,
+				JWKThumbprint: token.JWKThumbprint,
 			}
 		}
 
@@ -149,10 +148,9 @@ func Introspect(ctx oidc.Context, tkn string, c *goidc.Client) (goidc.TokenInfo,
 		}
 
 		var cnf *goidc.TokenConfirmation
-		if grant.JWKThumbprint != "" || grant.CertThumbprint != "" {
+		if grant.JWKThumbprint != "" {
 			cnf = &goidc.TokenConfirmation{
-				JWKThumbprint:  grant.JWKThumbprint,
-				CertThumbprint: grant.CertThumbprint,
+				JWKThumbprint: grant.JWKThumbprint,
 			}
 		}
 

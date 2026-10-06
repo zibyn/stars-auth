@@ -143,7 +143,6 @@ func TestValidateBindingRequirement(t *testing.T) {
 			config: func(ctx *oidc.Context) {
 				ctx.TokenBindingRequired = true
 				ctx.DPoPEnabled = false
-				ctx.MTLSTokenBindingEnabled = false
 			},
 			wantErr: goidc.ErrorCodeInvalidRequest,
 		},
@@ -191,17 +190,6 @@ func TestValidateBinding_DisabledFeatureForBoundGrant(t *testing.T) {
 				return bindindValidationOptions{
 					dpopRequired:      true,
 					dpopJWKThumbprint: "bound_thumbprint",
-				}
-			},
-			wantErr: goidc.ErrorCodeInvalidRequest,
-		},
-		{
-			name: "mtls bound grant with mtls disabled",
-			config: func(ctx *oidc.Context, c *goidc.Client) bindindValidationOptions {
-				ctx.MTLSTokenBindingEnabled = false
-				return bindindValidationOptions{
-					tlsRequired:       true,
-					tlsCertThumbprint: "bound_thumbprint",
 				}
 			},
 			wantErr: goidc.ErrorCodeInvalidRequest,

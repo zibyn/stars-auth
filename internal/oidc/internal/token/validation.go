@@ -12,16 +12,12 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/internal/oidc"
 )
 
-// ValidateBinding checks both DPoP and TLS binding for issuing a token.
+// ValidateBinding checks DPoP binding for issuing a token.
 func ValidateBinding(ctx oidc.Context, c *goidc.Client, opts *bindindValidationOptions) error {
 	if opts == nil {
 		opts = &bindindValidationOptions{}
 	}
 	if err := validateBindingDPoP(ctx, c, *opts); err != nil {
-		return err
-	}
-
-	if err := validateBindingTLS(ctx, c, *opts); err != nil {
 		return err
 	}
 
@@ -55,35 +51,6 @@ func validateBindingDPoP(ctx oidc.Context, c *goidc.Client, opts bindindValidati
 	})
 }
 
-func validateBindingTLS(ctx oidc.Context, c *goidc.Client, opts bindindValidationOptions) error {
-	if !ctx.MTLSTokenBindingEnabled {
-		if opts.tlsRequired || opts.tlsCertThumbprint != "" {
-			return goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request",
-				errors.New("the request requires mutual TLS token binding, but mutual TLS token binding support is disabled"))
-		}
-		return nil
-	}
-
-	cert, err := ctx.ClientCert()
-	if err != nil {
-		// Return an error if a valid certificate was not informed and one of the
-		// below applies:
-		// 	* TLS binding is required as a general configuration.
-		// 	* The client requires TLS binding.
-		// 	* TLS binding is required as a validation option.
-		if ctx.MTLSTokenBindingRequired || c.TLSTokenBindingRequired || opts.tlsRequired {
-			return goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request", err)
-		}
-		return nil
-	}
-
-	if opts.tlsCertThumbprint != "" && opts.tlsCertThumbprint != hashutil.Thumbprint(string(cert.Raw)) {
-		return goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request", errors.New("the presented client certificate does not match the token binding thumbprint"))
-	}
-
-	return nil
-}
-
 func validateBindingRequirement(ctx oidc.Context) error {
 	if !ctx.TokenBindingRequired {
 		return nil
@@ -96,14 +63,8 @@ func validateBindingRequirement(ctx oidc.Context) error {
 		tokenWillBeBound = true
 	}
 
-	if ctx.MTLSTokenBindingEnabled {
-		if _, err := ctx.ClientCert(); err == nil {
-			tokenWillBeBound = true
-		}
-	}
-
 	if !tokenWillBeBound {
-		return goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request", errors.New("token binding is required with either dpop or mutual TLS"))
+		return goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request", errors.New("token binding with dpop is required"))
 	}
 
 	return nil

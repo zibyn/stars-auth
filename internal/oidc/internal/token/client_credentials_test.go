@@ -2,7 +2,6 @@ package token
 
 import (
 	"context"
-	"crypto/x509"
 	"errors"
 	"testing"
 
@@ -198,37 +197,6 @@ func TestGenerateClientCredentialsToken(t *testing.T) {
 
 				if resp.Scopes != oidctest.Scope1.ID {
 					t.Errorf("resp.Scopes = %q, want %q", resp.Scopes, oidctest.Scope1.ID)
-				}
-			},
-		},
-		{
-			name: "mtls binding",
-			setup: func() (oidc.Context, request, *goidc.Client) {
-				ctx, req, c := setup(t)
-				ctx.MTLSTokenBindingEnabled = true
-				ctx.ClientCertFunc = func(context.Context) (*x509.Certificate, error) {
-					return &x509.Certificate{Raw: []byte("test_client_cert")}, nil
-				}
-				return ctx, req, c
-			},
-			validate: func(t *testing.T, ctx oidc.Context, resp response, _ *goidc.Client) {
-				grants := oidctest.Grants(t, ctx)
-				if len(grants) != 1 {
-					t.Fatalf("len(grants) = %d, want 1", len(grants))
-				}
-				if grants[0].CertThumbprint == "" {
-					t.Fatal("expected certificate thumbprint to be set on grant")
-				}
-
-				claims, err := oidctest.SafeClaims(resp.AccessToken, oidctest.PrivateJWKS(t, ctx).Keys[0])
-				if err != nil {
-					t.Fatalf("error parsing claims: %v", err)
-				}
-				wantConfirmation := map[string]any{
-					"x5t#S256": grants[0].CertThumbprint,
-				}
-				if diff := cmp.Diff(claims["cnf"], wantConfirmation); diff != "" {
-					t.Error(diff)
 				}
 			},
 		},

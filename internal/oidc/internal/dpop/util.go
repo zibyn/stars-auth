@@ -106,9 +106,6 @@ func ValidateJWT(ctx oidc.Context, dpopJWT string, opts ValidationOptions) error
 
 	httpURI, err := strutil.NormalizeURL(dpopClaims.HTTPURI)
 	auds := []string{ctx.BaseURL() + ctx.Request.RequestURI}
-	if ctx.MTLSEnabled {
-		auds = append(auds, ctx.MTLSBaseURL()+ctx.Request.RequestURI)
-	}
 	if err != nil || !slices.Contains(auds, httpURI) {
 		return goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid DPoP proof",
 			errors.New("the htu claim does not match the request URI"))

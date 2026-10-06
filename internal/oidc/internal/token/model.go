@@ -11,20 +11,19 @@ import (
 )
 
 type GrantOptions struct {
-	Type                 goidc.GrantType
-	Subject              string
-	Username             string
-	ClientID             string
-	Scopes               string
-	AuthDetails          []goidc.AuthDetail
-	Resources            goidc.Resources
-	Nonce                string
-	AuthCode             string
-	AuthCodeExpiresAt    int
-	JWKThumbprint        string
-	ClientCertThumbprint string
-	AuthParams           goidc.AuthorizationParameters
-	Store                map[string]any
+	Type              goidc.GrantType
+	Subject           string
+	Username          string
+	ClientID          string
+	Scopes            string
+	AuthDetails       []goidc.AuthDetail
+	Resources         goidc.Resources
+	Nonce             string
+	AuthCode          string
+	AuthCodeExpiresAt int
+	JWKThumbprint     string
+	AuthParams        goidc.AuthorizationParameters
+	Store             map[string]any
 }
 
 func NewGrant(ctx oidc.Context, c *goidc.Client, opts GrantOptions) (*goidc.Grant, error) {
@@ -38,7 +37,6 @@ func NewGrant(ctx oidc.Context, c *goidc.Client, opts GrantOptions) (*goidc.Gran
 		Scopes:            opts.Scopes,
 		Store:             opts.Store,
 		JWKThumbprint:     opts.JWKThumbprint,
-		CertThumbprint:    opts.ClientCertThumbprint,
 		AuthParams:        opts.AuthParams,
 		CreatedAt:         timeutil.TimestampNow(),
 	}
@@ -135,8 +133,6 @@ func newQueryRequest(req *http.Request) queryRequest {
 }
 
 type bindindValidationOptions struct {
-	tlsRequired       bool
-	tlsCertThumbprint string
 	dpopRequired      bool
 	dpopJWKThumbprint string
 }
