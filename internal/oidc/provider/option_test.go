@@ -39,48 +39,6 @@ func TestWithPathPrefix(t *testing.T) {
 	}
 }
 
-func TestWithProfile(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithProfile(goidc.ProfileFAPI2)(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if p.config.Profile != goidc.ProfileFAPI2 {
-		t.Fatalf("Profile = %s, want %s", p.config.Profile, goidc.ProfileFAPI2)
-	}
-}
-
-func TestProfileValidation(t *testing.T) {
-	// Given.
-	p := &Provider{
-		config: oidc.Configuration{},
-	}
-
-	// When.
-	err := WithProfile(goidc.ProfileFAPI2, WithProfileValidation())(p)
-
-	// Then.
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if p.config.Profile != goidc.ProfileFAPI2 {
-		t.Fatalf("Profile = %s, want %s", p.config.Profile, goidc.ProfileFAPI2)
-	}
-
-	if !p.profileValidationEnabled {
-		t.Fatal("profile validation must be enabled")
-	}
-}
-
 func TestWithJWKSEndpoint(t *testing.T) {
 	// Given.
 	p := &Provider{

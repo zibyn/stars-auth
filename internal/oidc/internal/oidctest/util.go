@@ -74,7 +74,6 @@ func NewContext(tb testing.TB) oidc.Context {
 	manager := storage.NewManager(100)
 
 	config := &oidc.Configuration{
-		Profile:      goidc.ProfileOpenID,
 		Host:         "https://example.com",
 		GrantManager: manager,
 		Scopes:       []goidc.Scope{goidc.ScopeOpenID, Scope1, Scope2},

@@ -90,18 +90,6 @@ type OpaqueTokenManager interface {
 
 type JWKSFunc func(context.Context) (JSONWebKeySet, error)
 
-type Profile string
-
-const (
-	ProfileOpenID Profile = "openid"
-	ProfileFAPI2  Profile = "fapi2"
-	ProfileFAPI1  Profile = "fapi1"
-)
-
-func (p Profile) IsFAPI() bool {
-	return p == ProfileFAPI1 || p == ProfileFAPI2
-}
-
 type GrantType string
 
 const (

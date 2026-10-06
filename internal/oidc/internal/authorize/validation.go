@@ -61,28 +61,6 @@ func validateParams(ctx oidc.Context, params goidc.AuthorizationParameters, c *g
 		return err
 	}
 
-	if ctx.Profile == goidc.ProfileFAPI1 {
-		if !slices.Contains([]goidc.ResponseType{
-			goidc.ResponseTypeCode,
-			goidc.ResponseTypeCodeAndIDToken,
-		}, params.ResponseType) {
-			return wrapRedirectionError(goidc.ErrorCodeInvalidRequest, "invalid response_type", params,
-				errors.New("response_type is not supported by this FAPI profile"))
-		}
-
-		if strutil.ContainsOpenID(params.Scopes) && params.Nonce == "" {
-			return wrapRedirectionError(goidc.ErrorCodeInvalidRequest, "invalid request", params,
-				errors.New("nonce is required for OpenID requests in this FAPI profile"))
-		}
-	}
-
-	if ctx.Profile == goidc.ProfileFAPI2 {
-		if params.ResponseType != goidc.ResponseTypeCode {
-			return wrapRedirectionError(goidc.ErrorCodeInvalidRequest, "invalid response_type", params,
-				errors.New("response_type code is required by this FAPI profile"))
-		}
-	}
-
 	return nil
 }
 

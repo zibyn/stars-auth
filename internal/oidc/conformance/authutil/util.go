@@ -16,7 +16,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/zibyn/stars-auth/internal/oidc/conformance/keys"
 	"github.com/zibyn/stars-auth/internal/oidc/conformance/ui"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
@@ -24,10 +23,6 @@ import (
 
 // Issuer is overridable so the harness can run where port 443 is not bindable.
 var Issuer = cmp.Or(os.Getenv("ISSUER"), "https://auth.localhost")
-
-const (
-	headerXFAPIInteractionID = "X-Fapi-Interaction-Id"
-)
 
 var (
 	Scopes = []goidc.Scope{
@@ -208,23 +203,6 @@ func ConsumeJTIFunc() goidc.ConsumeJTIFunc {
 		jtiStore[jti] = struct{}{}
 		return nil
 	}
-}
-
-func FAPIIDMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		interactionID := r.Header.Get(headerXFAPIInteractionID)
-
-		// Verify if the interaction ID is valid, generate a new value if not.
-		if _, err := uuid.Parse(interactionID); err != nil {
-			interactionID = uuid.NewString()
-		}
-
-		// Return the same interaction ID in the response or a new valid value
-		// if the original is invalid.
-		w.Header().Add(headerXFAPIInteractionID, interactionID)
-
-		next.ServeHTTP(w, r)
-	})
 }
 
 type LogoutPage struct {

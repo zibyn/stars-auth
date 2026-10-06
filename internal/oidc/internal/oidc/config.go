@@ -8,7 +8,6 @@ import (
 
 type Configuration struct {
 	GrantManager goidc.GrantManager
-	Profile      goidc.Profile
 	// Host is the domain where the server runs. This value will be used as the
 	// authorization server issuer.
 	Host string

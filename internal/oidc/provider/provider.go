@@ -26,8 +26,7 @@ import (
 )
 
 type Provider struct {
-	config                   oidc.Configuration
-	profileValidationEnabled bool
+	config oidc.Configuration
 }
 
 type Config struct {
@@ -102,8 +101,6 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 		op.config.OpaqueTokenManager = nonZeroOrDefault(op.config.OpaqueTokenManager, goidc.OpaqueTokenManager(inmemoryManager))
 		op.config.OpaqueTokenFunc = nonZeroOrDefault(op.config.OpaqueTokenFunc, defaultOpaqueTokenFunc)
 	}
-
-	op.config.Profile = nonZeroOrDefault(op.config.Profile, goidc.ProfileOpenID)
 
 	op.config.Scopes = nonZeroOrDefault(op.config.Scopes, []goidc.Scope{goidc.ScopeOpenID})
 
@@ -190,64 +187,6 @@ func New(cfg Config, opts ...Option) (*Provider, error) {
 	if op.config.RAREnabled {
 		op.config.RARValidateDetailFunc = nonZeroOrDefault(op.config.RARValidateDetailFunc, goidc.RARValidateDetailFunc(defaultRARValidateDetailFunc))
 		op.config.RARCompareDetailsFunc = nonZeroOrDefault(op.config.RARCompareDetailsFunc, defaultCompareAuthDetailsFunc)
-	}
-
-	if !op.profileValidationEnabled {
-		return op, nil
-	}
-
-	switch op.config.Profile {
-	case goidc.ProfileFAPI1:
-		for _, method := range op.config.AuthnMethods {
-			if !slices.Contains([]goidc.AuthnMethod{
-				goidc.AuthnMethodPrivateKeyJWT,
-				goidc.AuthnMethodSecretJWT,
-				goidc.AuthnMethodNone,
-			}, method) {
-				return nil, fmt.Errorf("[FAPI 1.0 5.2.2] %s is not a valid authentication method", method)
-			}
-		}
-	case goidc.ProfileFAPI2:
-		if slices.Contains(op.config.GrantTypes, goidc.GrantImplicit) {
-			return nil, errors.New("[FAPI 2.0 5.3.1] implicit grant is not allowed")
-		}
-
-		if !op.config.TokenBindingRequired && !op.config.DPoPRequired {
-			return nil, errors.New("[FAPI 2.0 5.3.1] sender-constrained access tokens must be required")
-		}
-
-		if !slices.Contains(op.config.AuthnMethods, goidc.AuthnMethodPrivateKeyJWT) {
-			return nil, errors.New("[FAPI 2.0 5.3.1] only private_key_jwt is allowed")
-		}
-
-		for _, method := range op.config.AuthnMethods {
-			if method != goidc.AuthnMethodPrivateKeyJWT {
-				return nil, fmt.Errorf("[FAPI 2.0 5.3.1] %s is not a valid authentication method", method)
-			}
-		}
-
-		if op.config.AuthCodeLifetimeSecs > 60 {
-			return nil, errors.New("[FAPI 2.0 5.3.1] authorization code lifetime must be less than 60 seconds")
-		}
-
-		if !slices.Contains(op.config.GrantTypes, goidc.GrantAuthorizationCode) {
-			return nil, errors.New("[FAPI 2.0 5.3.1] authorization_code grant must be required")
-		}
-
-		if !op.config.PKCERequired {
-			return nil, errors.New("[FAPI 2.0 5.3.1] pkce must be required")
-		}
-
-		if slices.ContainsFunc(op.config.PKCEChallengeMethods, func(method goidc.CodeChallengeMethod) bool {
-			return method != goidc.CodeChallengeMethodSHA256
-		}) {
-			return nil, errors.New("[FAPI 2.0 5.3.1] only pkce S256 code challenge method must be available")
-		}
-
-		if !op.config.IssuerRespParamEnabled {
-			return nil, errors.New("[FAPI 2.0 5.3.1] pkce must be enabled")
-		}
-
 	}
 
 	return op, nil

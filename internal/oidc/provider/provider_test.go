@@ -37,7 +37,6 @@ func TestNew(t *testing.T) {
 				}, nil
 			},
 			want: oidc.Configuration{
-				Profile:                  goidc.ProfileOpenID,
 				Host:                     issuer,
 				Scopes:                   []goidc.Scope{goidc.ScopeOpenID},
 				ClaimTypes:               []goidc.ClaimType{goidc.ClaimTypeNormal},
@@ -108,7 +107,6 @@ func TestNew(t *testing.T) {
 				}
 			},
 			want: oidc.Configuration{
-				Profile:                  goidc.ProfileOpenID,
 				Host:                     issuer,
 				Scopes:                   []goidc.Scope{goidc.ScopeOpenID},
 				AuthTimeoutSecs:          defaultAuthnSessionTimeoutSecs,

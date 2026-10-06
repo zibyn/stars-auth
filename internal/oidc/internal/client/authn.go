@@ -343,11 +343,6 @@ func areClaimsValid(ctx oidc.Context, claims jwt.Claims, client *goidc.Client, _
 			errors.New("the jti claim is required in the client assertion"))
 	}
 
-	if ctx.Profile == goidc.ProfileFAPI2 && len(claims.Audience) != 1 {
-		return goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client",
-			errors.New("the audience claim is invalid"))
-	}
-
 	if err := ctx.ConsumeJTI(claims.ID); err != nil && !errors.Is(err, goidc.ErrNotFound) {
 		return goidc.WrapError(goidc.ErrorCodeInvalidClient, "invalid client", err)
 	}
@@ -358,10 +353,7 @@ func areClaimsValid(ctx oidc.Context, claims jwt.Claims, client *goidc.Client, _
 			errors.New("the client assertion lifetime exceeds the allowed maximum"))
 	}
 
-	audiences := []string{ctx.Issuer()}
-	if ctx.Profile != goidc.ProfileFAPI2 {
-		audiences = append(audiences, ctx.TokenURL(), ctx.RequestURL())
-	}
+	audiences := []string{ctx.Issuer(), ctx.TokenURL(), ctx.RequestURL()}
 
 	err := claims.ValidateWithLeeway(jwt.Expected{
 		Issuer:      client.ID,

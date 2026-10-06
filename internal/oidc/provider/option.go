@@ -11,36 +11,6 @@ import (
 
 type Option func(p *Provider) error
 
-// ── Profile ───────────────────────────────────────────────────────────────────
-
-// ProfileOption is an option for [WithProfile].
-type ProfileOption Option
-
-// WithProfile adjusts the server's behavior for non-configurable settings,
-// ensuring compliance with the associated specification. Depending on
-// the profile selected, the server may modify its operations to meet specific
-// requirements dictated by the corresponding standards or protocols.
-func WithProfile(profile goidc.Profile, opts ...ProfileOption) Option {
-	return func(p *Provider) error {
-		p.config.Profile = profile
-		for _, opt := range opts {
-			if err := opt(p); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-}
-
-// WithProfileValidation enables validation of the provider configuration against
-// the selected profile.
-func WithProfileValidation() ProfileOption {
-	return func(p *Provider) error {
-		p.profileValidationEnabled = true
-		return nil
-	}
-}
-
 // ── General ───────────────────────────────────────────────────────────────────
 
 // WithPathPrefix defines a shared prefix for all endpoints.

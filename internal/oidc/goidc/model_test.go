@@ -12,25 +12,6 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
-func TestProfileIsFAPI(t *testing.T) {
-	testCases := []struct {
-		profile goidc.Profile
-		want    bool
-	}{
-		{goidc.ProfileFAPI1, true},
-		{goidc.ProfileFAPI2, true},
-		{goidc.ProfileOpenID, false},
-	}
-
-	for _, tc := range testCases {
-		t.Run(string(tc.profile), func(t *testing.T) {
-			if got := tc.profile.IsFAPI(); got != tc.want {
-				t.Errorf("IsFAPI() = %t, want %t", got, tc.want)
-			}
-		})
-	}
-}
-
 // TestResponseTypeContains verifies that ResponseType.Contains correctly
 // identifies individual response types within a composite value
 // (OIDC Core §3, OAuth 2.0 Multiple Response Type Encoding).
