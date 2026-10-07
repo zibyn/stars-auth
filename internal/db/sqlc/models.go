@@ -202,3 +202,11 @@ type UserRole struct {
 	Api    string
 	Role   string
 }
+
+type WebhookDelivery struct {
+	ID       string
+	ClientID string
+	Payload  []byte
+	Attempts int32
+	NextAt   pgtype.Timestamptz
+}

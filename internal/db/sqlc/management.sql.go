@@ -136,6 +136,13 @@ func (q *Queries) DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, 
 const deleteUser = `-- name: DeleteUser :execrows
 WITH gone AS (
     DELETE FROM users WHERE users.id = $2 RETURNING users.id
+), hooks AS (
+    INSERT INTO webhook_deliveries (client_id, payload)
+    SELECT a.client_id, jsonb_build_object(
+        'type', 'user.deleted',
+        'timestamp', to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+        'data', jsonb_build_object('sub', gone.id))
+    FROM gone, applications a WHERE a.webhook_url IS NOT NULL
 )
 INSERT INTO audit_log (event, sub, detail)
 SELECT 'user.deleted', gone.id, jsonb_build_object('by', $1::text) FROM gone
@@ -147,7 +154,8 @@ type DeleteUserParams struct {
 }
 
 // Deletes a User with everything of theirs (foreign keys cascade); their
-// audit events keep only the sub. Audited with who did it.
+// audit events keep only the sub. Audited with who did it, and queues
+// user.deleted for every Application with a webhook.
 func (q *Queries) DeleteUser(ctx context.Context, arg DeleteUserParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteUser, arg.By, arg.UserID)
 	if err != nil {

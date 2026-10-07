@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/zibyn/stars-auth/internal/account"
 	// Channel plugins register themselves (ADR 0004).
 	_ "github.com/zibyn/stars-auth/internal/channel/aliyun"
 	_ "github.com/zibyn/stars-auth/internal/channel/smtp"
@@ -32,6 +33,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/otp"
 	"github.com/zibyn/stars-auth/internal/pow"
 	"github.com/zibyn/stars-auth/internal/server"
+	"github.com/zibyn/stars-auth/internal/webhook"
 	"github.com/zibyn/stars-auth/web"
 )
 
@@ -89,11 +91,13 @@ func serve() error {
 		return err
 	}
 	srv := &http.Server{
-		Addr:              cfg.Listen,
-		Handler:           server.New(pool.Ping, spa, cfg.TrustedProxies, auth.Register, management.New(pool, keyring, cfg.Issuer).Register),
+		Addr: cfg.Listen,
+		Handler: server.New(pool.Ping, spa, cfg.TrustedProxies, auth.Register,
+			management.New(pool, keyring, cfg.Issuer).Register, account.New(pool, keyring, cfg.Issuer).Register),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go runCleanup(ctx, pool)
+	go webhook.New(pool, keyring).Run(ctx)
 	drained := make(chan struct{})
 	go func() {
 		defer close(drained)

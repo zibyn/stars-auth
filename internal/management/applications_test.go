@@ -81,6 +81,7 @@ func TestManageApplications(t *testing.T) {
 	for name, edit := range map[string]func(map[string]any){
 		"unknown API":           func(s map[string]any) { s["defaultApi"] = "https://nope.example" },
 		"the Management API":    func(s map[string]any) { s["defaultApi"] = identity.ManagementAPI },
+		"the Account API":       func(s map[string]any) { s["defaultApi"] = identity.AccountAPI },
 		"relative redirect URI": func(s map[string]any) { s["redirectUris"] = []string{"/cb"} },
 		"bad Apple app ID":      func(s map[string]any) { s["appleAppIds"] = []string{"com.example.track"} },
 		"bad fingerprint": func(s map[string]any) {
@@ -118,9 +119,9 @@ func TestManageApplications(t *testing.T) {
 		t.Errorf("rotate a public Application's secret: %d", code)
 	}
 
-	// The console is built in.
+	// The console and the account center are built in.
 	var list struct{ Applications []application }
-	if code := e.get(ro, "/applications", &list); code != 200 || len(list.Applications) != 3 || !list.Applications[0].Builtin {
+	if code := e.get(ro, "/applications", &list); code != 200 || len(list.Applications) != 4 || !list.Applications[1].Builtin {
 		t.Errorf("list: %d %+v", code, list)
 	}
 	if code := e.call("PUT", owner, "/applications/stars-auth-console", settings, nil); code != 409 {

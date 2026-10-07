@@ -60,15 +60,20 @@ type Service struct {
 // ConsoleClientID is the built-in Application the admin console signs in as.
 const ConsoleClientID = "stars-auth-console"
 
-// New builds the provider and points the console's redirect URIs at issuer,
-// which only the running instance knows.
+// AccountClientID is the built-in Application the account center signs in as.
+const AccountClientID = "stars-auth-account"
+
+// New builds the provider and points the redirect URIs of the console and
+// the account center at issuer, which only the running instance knows.
 func New(ctx context.Context, pool *pgxpool.Pool, keyring *crypt.Keyring, issuer string) (*Service, error) {
-	if err := sqlc.New(pool).SetRedirectURIs(ctx, sqlc.SetRedirectURIsParams{
-		ClientID:               ConsoleClientID,
-		RedirectUris:           []string{issuer + "/console/callback"},
-		PostLogoutRedirectUris: []string{issuer + "/console"},
-	}); err != nil {
-		return nil, err
+	for client, path := range map[string]string{ConsoleClientID: "/console", AccountClientID: "/account"} {
+		if err := sqlc.New(pool).SetRedirectURIs(ctx, sqlc.SetRedirectURIsParams{
+			ClientID:               client,
+			RedirectUris:           []string{issuer + path + "/callback"},
+			PostLogoutRedirectUris: []string{issuer + path},
+		}); err != nil {
+			return nil, err
+		}
 	}
 	work, err := pow.New(ctx, pool)
 	if err != nil {
@@ -160,14 +165,19 @@ func (s *Service) Register(mux *http.ServeMux) {
 }
 
 // audience makes an access token for the Application's default API, with
-// the User's Roles there (RFC 9068 §2.2.3.1), read as they stand now.
+// the User's Roles there (RFC 9068 §2.2.3.1), read as they stand now. It
+// names the Session it was issued in as sid.
 // ponytail: two PG reads per token; fold into Client if it shows up.
 func (s *Service) audience(ctx context.Context, _ *goidc.Token, g *goidc.Grant) map[string]any {
+	claims := map[string]any{}
+	if sid, ok := g.Store[oidcstore.SessionKey].(string); ok {
+		claims["sid"] = sid
+	}
 	app, err := s.q.Application(ctx, g.ClientID)
 	if err != nil || !app.DefaultApi.Valid {
-		return nil
+		return claims
 	}
-	claims := map[string]any{goidc.ClaimAudience: app.DefaultApi.String}
+	claims[goidc.ClaimAudience] = app.DefaultApi.String
 	r, err := s.q.TokenRoles(ctx, sqlc.TokenRolesParams{UserID: g.Subject, Api: app.DefaultApi.String})
 	if err != nil {
 		slog.Error("token roles", "err", err)

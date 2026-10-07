@@ -1,0 +1,149 @@
+// The console and the account center each sign in as their built-in public
+// Application with code + PKCE and keep the access token for this tab only.
+// When it expires they run the flow again; the browser Session makes that a
+// silent round trip.
+// ponytail: full-page redirect on expiry; switch to refresh tokens if the
+// round trips get noticed.
+
+function base64url(bytes: Uint8Array) {
+	return btoa(String.fromCharCode(...bytes))
+		.replace(/\+/g, "-")
+		.replace(/\//g, "_")
+		.replace(/=+$/, "");
+}
+
+const random = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
+
+const here = () => location.pathname + location.search;
+
+export class APIError extends Error {
+	constructor(
+		readonly status: number,
+		message: string,
+	) {
+		super(message);
+	}
+}
+
+// oidcClient signs in as clientID, whose callback is home + "/callback",
+// and calls the API under apiPrefix.
+export function oidcClient({
+	clientID,
+	home,
+	apiPrefix,
+}: {
+	clientID: string;
+	home: string;
+	apiPrefix: string;
+}) {
+	const tokenKey = `${clientID}.token`;
+	const flowKey = `${clientID}.flow`;
+	const redirectURI = () => `${location.origin}${home}/callback`;
+
+	// login sends the browser to the hosted login page; it never resolves.
+	async function login(returnTo: string): Promise<never> {
+		const verifier = random();
+		const state = random();
+		const challenge = base64url(
+			new Uint8Array(
+				await crypto.subtle.digest(
+					"SHA-256",
+					new TextEncoder().encode(verifier),
+				),
+			),
+		);
+		sessionStorage.setItem(
+			flowKey,
+			JSON.stringify({ state, verifier, returnTo }),
+		);
+		location.assign(
+			`/authorize?${new URLSearchParams({
+				client_id: clientID,
+				response_type: "code",
+				scope: "openid",
+				redirect_uri: redirectURI(),
+				state,
+				code_challenge: challenge,
+				code_challenge_method: "S256",
+			})}`,
+		);
+		return new Promise<never>(() => {});
+	}
+
+	// finishLogin redeems the callback's code and returns where to go next.
+	async function finishLogin(params: URLSearchParams): Promise<string> {
+		const flow = JSON.parse(sessionStorage.getItem(flowKey) ?? "null");
+		sessionStorage.removeItem(flowKey);
+		if (!flow || params.get("state") !== flow.state) {
+			throw new Error("登录已过期,请重试");
+		}
+		const error = params.get("error");
+		if (error) {
+			throw new Error(params.get("error_description") || error);
+		}
+		const res = await fetch("/token", {
+			method: "POST",
+			body: new URLSearchParams({
+				grant_type: "authorization_code",
+				code: params.get("code") ?? "",
+				redirect_uri: redirectURI(),
+				client_id: clientID,
+				code_verifier: flow.verifier,
+			}),
+		});
+		if (!res.ok) {
+			throw new Error("登录失败,请重试");
+		}
+		const tok = await res.json();
+		sessionStorage.setItem(
+			tokenKey,
+			JSON.stringify({
+				accessToken: tok.access_token,
+				expiresAt: Date.now() + tok.expires_in * 1000,
+			}),
+		);
+		return typeof flow.returnTo === "string" && flow.returnTo.startsWith(home)
+			? flow.returnTo
+			: home;
+	}
+
+	function accessToken(): string | null {
+		const tok = JSON.parse(sessionStorage.getItem(tokenKey) ?? "null");
+		return tok && tok.expiresAt - 30_000 > Date.now() ? tok.accessToken : null;
+	}
+
+	// api calls an API path, signing in first when needed; body goes as JSON.
+	async function api<T>(
+		path: string,
+		init?: { method: "POST" | "PUT" | "DELETE"; body?: unknown },
+	): Promise<T> {
+		const token = accessToken();
+		if (!token) {
+			return login(here());
+		}
+		const res = await fetch(`${apiPrefix}${path}`, {
+			method: init?.method,
+			headers: {
+				Authorization: `Bearer ${token}`,
+				...(init?.body !== undefined && {
+					"Content-Type": "application/json",
+				}),
+			},
+			body: init?.body === undefined ? undefined : JSON.stringify(init.body),
+		});
+		if (res.status === 401) {
+			sessionStorage.removeItem(tokenKey);
+			return login(here());
+		}
+		if (!res.ok) {
+			const body = await res.json().catch(() => ({}));
+			throw new APIError(res.status, body.detail ?? res.statusText);
+		}
+		return res.status === 204 ? (undefined as T) : res.json();
+	}
+
+	// forget drops the access token, as after the account is deleted.
+	const forget = () => sessionStorage.removeItem(tokenKey);
+
+	return { login, finishLogin, api, forget };
+}

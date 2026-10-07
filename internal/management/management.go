@@ -13,8 +13,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
-	"github.com/go-jose/go-jose/v4"
-	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -143,12 +141,13 @@ func describe(permission string) string {
 // request, not when the token expires.
 func (s *Service) authorize(api huma.API) func(huma.Context, func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
-		sub, err := s.verify(ctx.Context(), ctx.Header("Authorization"))
+		tok, err := s.keys.Verify(ctx.Context(), s.issuer, identity.ManagementAPI, ctx.Header("Authorization"))
 		if err != nil {
 			ctx.SetHeader("WWW-Authenticate", `Bearer error="invalid_token"`)
 			_ = huma.WriteErr(api, ctx, http.StatusUnauthorized, "access token missing or invalid")
 			return
 		}
+		sub := tok.Subject
 		c, err := s.q.Caller(ctx.Context(), sqlc.CallerParams{UserID: sub, Api: identity.ManagementAPI})
 		if err != nil {
 			_ = huma.WriteErr(api, ctx, http.StatusInternalServerError, "internal error")
@@ -166,47 +165,6 @@ func (s *Service) authorize(api huma.API) func(huma.Context, func(huma.Context))
 		next(huma.WithValue(ctx, callerKey{}, caller{sub: sub, permissions: c.Permissions}))
 		s.auditWrite(ctx, sub)
 	}
-}
-
-var errToken = errors.New("invalid access token")
-
-// verify checks an RFC 9068 access token for the Management API and returns
-// its sub.
-func (s *Service) verify(ctx context.Context, header string) (string, error) {
-	raw, ok := strings.CutPrefix(header, "Bearer ")
-	if !ok {
-		return "", errToken
-	}
-	tok, err := jwt.ParseSigned(raw, []jose.SignatureAlgorithm{jose.RS256})
-	if err != nil {
-		return "", errToken
-	}
-	// typ keeps ID tokens, signed by the same key, out.
-	typ, _ := tok.Headers[0].ExtraHeaders[jose.HeaderType].(string)
-	if !strings.EqualFold(strings.TrimPrefix(typ, "application/"), "at+jwt") {
-		return "", errToken
-	}
-	jwks, err := s.keys.JWKS(ctx)
-	if err != nil {
-		return "", err
-	}
-	set := jose.JSONWebKeySet{Keys: jwks.Keys}
-	keys := set.Key(tok.Headers[0].KeyID)
-	if len(keys) == 0 {
-		return "", errToken
-	}
-	var c jwt.Claims
-	if err := tok.Claims(keys[0].Public().Key, &c); err != nil {
-		return "", errToken
-	}
-	if err := c.ValidateWithLeeway(jwt.Expected{
-		Issuer:      s.issuer,
-		AnyAudience: jwt.Audience{identity.ManagementAPI},
-		Time:        time.Now(),
-	}, 0); err != nil || c.Expiry == nil || c.Subject == "" {
-		return "", errToken
-	}
-	return c.Subject, nil
 }
 
 type Identifier struct {

@@ -289,7 +289,7 @@ func TestOverview(t *testing.T) {
 		Users, LoginsToday, LiveSessions, Applications, SendsLastDay, DailySendLimit int
 	}
 	if code := e.get(e.token(e.owner, nil), "/overview", &o); code != 200 ||
-		o.Users != 2 || o.LoginsToday != 1 || o.LiveSessions != 1 || o.Applications != 1 || o.DailySendLimit != 1000 {
+		o.Users != 2 || o.LoginsToday != 1 || o.LiveSessions != 1 || o.Applications != 2 || o.DailySendLimit != 1000 {
 		t.Errorf("overview: %d %+v", code, o)
 	}
 }

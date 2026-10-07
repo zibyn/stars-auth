@@ -175,9 +175,13 @@ var (
 )
 
 func (st *ApplicationSettings) validate() error {
-	// Its tokens would let the Application act as any admin who signs in to it.
+	// Its tokens would let the Application act as any admin who signs in to
+	// it, or as any User on their own account.
 	if st.DefaultAPI == identity.ManagementAPI {
 		return identity.Invalid("Management API 只供管理端使用")
+	}
+	if st.DefaultAPI == identity.AccountAPI {
+		return identity.Invalid("Account API 只供账号中心使用")
 	}
 	for _, u := range append(append([]string{}, st.RedirectURIs...), st.PostLogoutRedirectURIs...) {
 		if p, err := url.Parse(u); err != nil || !p.IsAbs() || p.Fragment != "" || len(u) > 2048 {

@@ -24,6 +24,10 @@ import (
 // ManagementAPI is the built-in API whose Roles make a User an admin.
 const ManagementAPI = "urn:stars-auth:management-api"
 
+// AccountAPI is the built-in API the account center calls, where a User
+// manages their own account.
+const AccountAPI = "urn:stars-auth:account-api"
+
 // Invalid is an error safe to show the person who caused it.
 type Invalid string
 

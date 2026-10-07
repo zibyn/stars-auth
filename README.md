@@ -39,7 +39,17 @@ good. The owner signs in to the admin console at `/console`.
 
 The Management API lives under `/v1/management`; its OpenAPI document is at
 `/v1/management/openapi.json`. Apps sign in without a browser through the
-direct auth API at `/v1/auth/challenge`, documented at `/v1/auth/openapi.json`.
+direct auth API at `/v1/auth/challenge`, documented at `/v1/auth/openapi.json`
+(account deletion for Apps included). Users manage their account at `/account`,
+which calls the Account API (`/v1/account/openapi.json`).
+
+An Application's webhook receives `user.deleted` as
+`{"type": "user.deleted", "timestamp": "…", "data": {"sub": "…"}}`, signed the
+[Standard Webhooks](https://www.standardwebhooks.com) way: `webhook-signature`
+is `v1,` + base64 of HMAC-SHA256 over `webhook-id.webhook-timestamp.body`,
+keyed with the signing key: base64-decoded after the prefix for a `whsec_`
+key (what Standard Webhooks libraries expect), its UTF-8 bytes otherwise.
+Answer 2xx; failures are retried for about a day.
 
 To try the OIDC flow before the console can register Applications, add a
 public test client by hand and run a code + PKCE flow against it:

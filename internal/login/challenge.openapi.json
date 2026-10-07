@@ -78,9 +78,25 @@
           }
         }
       }
+    },
+    "/v1/auth/delete": {
+      "post": {
+        "operationId": "delete-account",
+        "summary": "Delete the signed-in User's account",
+        "description": "Deletes the User and all their data at once, with no grace period: every Session and refresh token ends, the sub is never reused, and their phone number and email are free at once. Applications with a webhook receive user.deleted. The App sends its access token, which must come from a sign-in in the last 10 minutes: show the User a confirmation, sign them in again through the challenge endpoint, then call this with the new access token.",
+        "security": [{"bearer": []}],
+        "responses": {
+          "204": {"description": "Deleted."},
+          "401": {"description": "WWW-Authenticate says why: error=\"invalid_token\" for a missing, expired or invalid token, or one whose Session ended; error=\"insufficient_user_authentication\" with max_age=\"600\" (RFC 9470) when the sign-in is older than 10 minutes."},
+          "409": {"description": "The User is the instance's last owner.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+        }
+      }
     }
   },
   "components": {
+    "securitySchemes": {
+      "bearer": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT", "description": "The App's access token"}
+    },
     "schemas": {
       "Error": {
         "type": "object",

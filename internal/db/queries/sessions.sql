@@ -35,10 +35,11 @@ INSERT INTO audit_log (event, sub, detail)
 SELECT 'session.ended', ended.user_id, jsonb_build_object('session', ended.id, 'by', @by::text) FROM ended;
 
 -- name: UserSessions :many
-SELECT s.id, (s.id_hash IS NULL)::boolean AS app, s.client_id, s.auth_time, s.amr, s.last_seen_at,
+SELECT s.id, (s.id_hash IS NULL)::boolean AS app, s.client_id, COALESCE(a.name, s.client_id, '')::text AS application_name,
+       s.auth_time, s.amr, s.last_seen_at,
        (s.last_seen_at + s.idle_timeout)::timestamptz AS expires_at, s.ended_at,
        (s.id IN (SELECT l.id FROM live_sessions l))::boolean AS active
-FROM sessions s WHERE s.user_id = $1
+FROM sessions s LEFT JOIN applications a USING (client_id) WHERE s.user_id = $1
 ORDER BY s.last_seen_at DESC;
 
 -- name: DeleteOldSessions :exec

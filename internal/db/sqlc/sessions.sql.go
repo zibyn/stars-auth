@@ -157,23 +157,25 @@ func (q *Queries) TouchSession(ctx context.Context, idHash []byte) (TouchSession
 }
 
 const userSessions = `-- name: UserSessions :many
-SELECT s.id, (s.id_hash IS NULL)::boolean AS app, s.client_id, s.auth_time, s.amr, s.last_seen_at,
+SELECT s.id, (s.id_hash IS NULL)::boolean AS app, s.client_id, COALESCE(a.name, s.client_id, '')::text AS application_name,
+       s.auth_time, s.amr, s.last_seen_at,
        (s.last_seen_at + s.idle_timeout)::timestamptz AS expires_at, s.ended_at,
        (s.id IN (SELECT l.id FROM live_sessions l))::boolean AS active
-FROM sessions s WHERE s.user_id = $1
+FROM sessions s LEFT JOIN applications a USING (client_id) WHERE s.user_id = $1
 ORDER BY s.last_seen_at DESC
 `
 
 type UserSessionsRow struct {
-	ID         string
-	App        bool
-	ClientID   pgtype.Text
-	AuthTime   pgtype.Timestamptz
-	Amr        []string
-	LastSeenAt pgtype.Timestamptz
-	ExpiresAt  pgtype.Timestamptz
-	EndedAt    pgtype.Timestamptz
-	Active     bool
+	ID              string
+	App             bool
+	ClientID        pgtype.Text
+	ApplicationName string
+	AuthTime        pgtype.Timestamptz
+	Amr             []string
+	LastSeenAt      pgtype.Timestamptz
+	ExpiresAt       pgtype.Timestamptz
+	EndedAt         pgtype.Timestamptz
+	Active          bool
 }
 
 func (q *Queries) UserSessions(ctx context.Context, userID string) ([]UserSessionsRow, error) {
@@ -189,6 +191,7 @@ func (q *Queries) UserSessions(ctx context.Context, userID string) ([]UserSessio
 			&i.ID,
 			&i.App,
 			&i.ClientID,
+			&i.ApplicationName,
 			&i.AuthTime,
 			&i.Amr,
 			&i.LastSeenAt,

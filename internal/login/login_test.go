@@ -343,6 +343,24 @@ func TestConsoleAccessTokenIsForManagementAPI(t *testing.T) {
 	}
 }
 
+// The account center signs in like any Application; its access token is for
+// the Account API and names the Session it was issued in.
+func TestAccountAccessTokenNamesItsSession(t *testing.T) {
+	e := start(t)
+	e.bootstrap("owner", "password1")
+	redirect := e.issuer + "/account/callback"
+	_, page := e.authorizeAs(login.AccountClientID, redirect, "")
+	resp, _ := e.submit(page, "owner", "password1")
+	claims := e.claims(e.exchange(login.AccountClientID, redirect, e.code(resp)).AccessToken)
+	var sid string
+	if err := e.pool.QueryRow(context.Background(), "SELECT id FROM sessions").Scan(&sid); err != nil {
+		t.Fatal(err)
+	}
+	if claims["aud"] != identity.AccountAPI || claims["sid"] != sid {
+		t.Errorf("access token claims: %v, Session %s", claims, sid)
+	}
+}
+
 // The access token carries the User's Roles and their Permissions on the
 // API it is for, and only that API's; the ID token carries none.
 func TestAccessTokenCarriesRolesOfItsAPI(t *testing.T) {
