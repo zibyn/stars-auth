@@ -84,7 +84,7 @@ func main() {
 			provider.WithFormPostResponseMode(),
 			provider.WithAuthPolicies(authutil.Policy()),
 		),
-		provider.WithRefreshTokenGrant(store),
+		provider.WithRefreshTokenGrant(store, provider.WithRefreshTokenRotation()),
 		provider.WithClaims(authutil.Claims...),
 		provider.WithACRs(authutil.ACRs...),
 		provider.WithClientManager(store),

@@ -6,25 +6,65 @@ INSERT INTO applications (client_id, name, type, secret_hash, redirect_uris, pos
 VALUES ($1, $2, $3, $4, $5, $6, $7);
 
 -- name: SaveGrant :exec
-INSERT INTO oidc_grants (id, auth_code_hash, refresh_token_hash, expires_at, sealed)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (id) DO UPDATE SET
-    auth_code_hash = EXCLUDED.auth_code_hash,
-    refresh_token_hash = EXCLUDED.refresh_token_hash,
-    expires_at = EXCLUDED.expires_at,
-    sealed = EXCLUDED.sealed;
+-- Revoking the refresh token of an App Session ends the Session: the chain
+-- is the Session.
+WITH g AS (
+    INSERT INTO oidc_grants (id, auth_code_hash, refresh_token_hash, expires_at, session_id, sealed)
+    VALUES (@id, @auth_code_hash, @refresh_token_hash, @expires_at, @session_id, @sealed)
+    ON CONFLICT (id) DO UPDATE SET
+        auth_code_hash = EXCLUDED.auth_code_hash,
+        refresh_token_hash = EXCLUDED.refresh_token_hash,
+        expires_at = EXCLUDED.expires_at,
+        sealed = EXCLUDED.sealed
+    RETURNING session_id
+)
+UPDATE sessions SET ended_at = now()
+WHERE @revoked::boolean AND sessions.id_hash IS NULL AND sessions.ended_at IS NULL
+  AND sessions.id = (SELECT g.session_id FROM g);
+
+-- name: RotateRefreshToken :execrows
+-- Swaps the refresh token only if old_hash is still the current one, keeps
+-- the old one as spent, and counts the refresh as Session activity. No row:
+-- another request rotated it first.
+WITH g AS (
+    UPDATE oidc_grants SET refresh_token_hash = @new_hash, expires_at = @expires_at, sealed = @sealed
+    WHERE oidc_grants.id = @id AND oidc_grants.refresh_token_hash = @old_hash
+    RETURNING oidc_grants.id, oidc_grants.session_id
+), touched AS (
+    UPDATE sessions SET last_seen_at = now() WHERE sessions.id = (SELECT g.session_id FROM g)
+)
+INSERT INTO oidc_spent_refresh_tokens (hash, grant_id) SELECT @old_hash, g.id FROM g;
+
+-- name: EndReusedRefreshToken :exec
+-- A spent refresh token came back: end its grant's Session (a grant outside
+-- any Session is deleted instead) and audit it.
+WITH spent AS (
+    SELECT g.id, g.session_id FROM oidc_spent_refresh_tokens s JOIN oidc_grants g ON g.id = s.grant_id
+    WHERE s.hash = $1
+), ended AS (
+    UPDATE sessions SET ended_at = now()
+    WHERE sessions.id IN (SELECT spent.session_id FROM spent) AND sessions.ended_at IS NULL
+    RETURNING sessions.id, sessions.user_id
+), dropped AS (
+    DELETE FROM oidc_grants WHERE oidc_grants.id IN (SELECT spent.id FROM spent WHERE spent.session_id IS NULL)
+)
+INSERT INTO audit_log (event, sub, detail)
+SELECT 'refresh_token.reused', ended.user_id, jsonb_build_object('session', ended.id) FROM ended;
 
 -- name: Grant :one
 SELECT * FROM oidc_grants
-WHERE id = $1 AND (expires_at IS NULL OR expires_at > now());
+WHERE oidc_grants.id = $1 AND (expires_at IS NULL OR expires_at > now())
+  AND (session_id IS NULL OR session_id IN (SELECT l.id FROM live_sessions l));
 
 -- name: GrantByAuthCodeHash :one
 SELECT * FROM oidc_grants
-WHERE auth_code_hash = $1 AND (expires_at IS NULL OR expires_at > now());
+WHERE auth_code_hash = $1 AND (expires_at IS NULL OR expires_at > now())
+  AND (session_id IS NULL OR session_id IN (SELECT l.id FROM live_sessions l));
 
 -- name: GrantByRefreshTokenHash :one
 SELECT * FROM oidc_grants
-WHERE refresh_token_hash = $1 AND (expires_at IS NULL OR expires_at > now());
+WHERE refresh_token_hash = $1 AND (expires_at IS NULL OR expires_at > now())
+  AND (session_id IS NULL OR session_id IN (SELECT l.id FROM live_sessions l));
 
 -- name: SaveAuthnSession :exec
 INSERT INTO oidc_authn_sessions (id, expires_at, data) VALUES ($1, $2, $3)

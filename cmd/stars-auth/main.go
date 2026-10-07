@@ -134,7 +134,7 @@ func webHandler(devURL string) (http.Handler, error) {
 // grants). Each feature adds its own as its table lands.
 var cleanupTasks = []func(context.Context, *pgxpool.Pool) error{
 	oidcstore.DeleteExpired,
-	login.DeleteIdleSessions,
+	login.DeleteOldSessions,
 	otp.DeleteExpired,
 	pow.DeleteExpired,
 }

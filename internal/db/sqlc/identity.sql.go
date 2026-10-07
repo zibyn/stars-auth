@@ -7,8 +7,6 @@ package sqlc
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const addIdentifier = `-- name: AddIdentifier :exec
@@ -50,51 +48,12 @@ func (q *Queries) CloseSetup(ctx context.Context) error {
 	return err
 }
 
-const createSession = `-- name: CreateSession :exec
-INSERT INTO sessions (id_hash, user_id, auth_time, amr) VALUES ($1, $2, $3, $4)
-`
-
-type CreateSessionParams struct {
-	IDHash   []byte
-	UserID   string
-	AuthTime pgtype.Timestamptz
-	Amr      []string
-}
-
-func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) error {
-	_, err := q.db.Exec(ctx, createSession,
-		arg.IDHash,
-		arg.UserID,
-		arg.AuthTime,
-		arg.Amr,
-	)
-	return err
-}
-
 const createUser = `-- name: CreateUser :exec
 INSERT INTO users (id) VALUES ($1)
 `
 
 func (q *Queries) CreateUser(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, createUser, id)
-	return err
-}
-
-const deleteIdleSessions = `-- name: DeleteIdleSessions :exec
-DELETE FROM sessions WHERE last_seen_at < $1
-`
-
-func (q *Queries) DeleteIdleSessions(ctx context.Context, idleSince pgtype.Timestamptz) error {
-	_, err := q.db.Exec(ctx, deleteIdleSessions, idleSince)
-	return err
-}
-
-const deleteSession = `-- name: DeleteSession :exec
-DELETE FROM sessions WHERE id_hash = $1
-`
-
-func (q *Queries) DeleteSession(ctx context.Context, idHash []byte) error {
-	_, err := q.db.Exec(ctx, deleteSession, idHash)
 	return err
 }
 
@@ -181,30 +140,6 @@ UPDATE settings SET setup_token = $1
 func (q *Queries) SetSetupToken(ctx context.Context, setupToken []byte) error {
 	_, err := q.db.Exec(ctx, setSetupToken, setupToken)
 	return err
-}
-
-const touchSession = `-- name: TouchSession :one
-UPDATE sessions SET last_seen_at = now()
-WHERE id_hash = $1 AND last_seen_at > $2
-RETURNING user_id, auth_time, amr
-`
-
-type TouchSessionParams struct {
-	IDHash    []byte
-	IdleSince pgtype.Timestamptz
-}
-
-type TouchSessionRow struct {
-	UserID   string
-	AuthTime pgtype.Timestamptz
-	Amr      []string
-}
-
-func (q *Queries) TouchSession(ctx context.Context, arg TouchSessionParams) (TouchSessionRow, error) {
-	row := q.db.QueryRow(ctx, touchSession, arg.IDHash, arg.IdleSince)
-	var i TouchSessionRow
-	err := row.Scan(&i.UserID, &i.AuthTime, &i.Amr)
-	return i, err
 }
 
 const userByIdentifier = `-- name: UserByIdentifier :one

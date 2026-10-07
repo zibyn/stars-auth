@@ -12,7 +12,7 @@ import (
 )
 
 const application = `-- name: Application :one
-SELECT client_id, name, type, secret_hash, redirect_uris, post_logout_redirect_uris, default_api, session_idle_timeout, builtin, created_at FROM applications WHERE client_id = $1
+SELECT client_id, name, type, secret_hash, redirect_uris, post_logout_redirect_uris, default_api, session_idle_timeout, builtin, created_at, refresh_tokens FROM applications WHERE client_id = $1
 `
 
 func (q *Queries) Application(ctx context.Context, clientID string) (Application, error) {
@@ -29,6 +29,7 @@ func (q *Queries) Application(ctx context.Context, clientID string) (Application
 		&i.SessionIdleTimeout,
 		&i.Builtin,
 		&i.CreatedAt,
+		&i.RefreshTokens,
 	)
 	return i, err
 }
@@ -94,9 +95,32 @@ func (q *Queries) DeleteRetiredSigningKeys(ctx context.Context) error {
 	return err
 }
 
+const endReusedRefreshToken = `-- name: EndReusedRefreshToken :exec
+WITH spent AS (
+    SELECT g.id, g.session_id FROM oidc_spent_refresh_tokens s JOIN oidc_grants g ON g.id = s.grant_id
+    WHERE s.hash = $1
+), ended AS (
+    UPDATE sessions SET ended_at = now()
+    WHERE sessions.id IN (SELECT spent.session_id FROM spent) AND sessions.ended_at IS NULL
+    RETURNING sessions.id, sessions.user_id
+), dropped AS (
+    DELETE FROM oidc_grants WHERE oidc_grants.id IN (SELECT spent.id FROM spent WHERE spent.session_id IS NULL)
+)
+INSERT INTO audit_log (event, sub, detail)
+SELECT 'refresh_token.reused', ended.user_id, jsonb_build_object('session', ended.id) FROM ended
+`
+
+// A spent refresh token came back: end its grant's Session (a grant outside
+// any Session is deleted instead) and audit it.
+func (q *Queries) EndReusedRefreshToken(ctx context.Context, hash []byte) error {
+	_, err := q.db.Exec(ctx, endReusedRefreshToken, hash)
+	return err
+}
+
 const grant = `-- name: Grant :one
-SELECT id, auth_code_hash, refresh_token_hash, expires_at, sealed FROM oidc_grants
-WHERE id = $1 AND (expires_at IS NULL OR expires_at > now())
+SELECT id, auth_code_hash, refresh_token_hash, expires_at, sealed, session_id FROM oidc_grants
+WHERE oidc_grants.id = $1 AND (expires_at IS NULL OR expires_at > now())
+  AND (session_id IS NULL OR session_id IN (SELECT l.id FROM live_sessions l))
 `
 
 func (q *Queries) Grant(ctx context.Context, id string) (OidcGrant, error) {
@@ -108,13 +132,15 @@ func (q *Queries) Grant(ctx context.Context, id string) (OidcGrant, error) {
 		&i.RefreshTokenHash,
 		&i.ExpiresAt,
 		&i.Sealed,
+		&i.SessionID,
 	)
 	return i, err
 }
 
 const grantByAuthCodeHash = `-- name: GrantByAuthCodeHash :one
-SELECT id, auth_code_hash, refresh_token_hash, expires_at, sealed FROM oidc_grants
+SELECT id, auth_code_hash, refresh_token_hash, expires_at, sealed, session_id FROM oidc_grants
 WHERE auth_code_hash = $1 AND (expires_at IS NULL OR expires_at > now())
+  AND (session_id IS NULL OR session_id IN (SELECT l.id FROM live_sessions l))
 `
 
 func (q *Queries) GrantByAuthCodeHash(ctx context.Context, authCodeHash []byte) (OidcGrant, error) {
@@ -126,13 +152,15 @@ func (q *Queries) GrantByAuthCodeHash(ctx context.Context, authCodeHash []byte) 
 		&i.RefreshTokenHash,
 		&i.ExpiresAt,
 		&i.Sealed,
+		&i.SessionID,
 	)
 	return i, err
 }
 
 const grantByRefreshTokenHash = `-- name: GrantByRefreshTokenHash :one
-SELECT id, auth_code_hash, refresh_token_hash, expires_at, sealed FROM oidc_grants
+SELECT id, auth_code_hash, refresh_token_hash, expires_at, sealed, session_id FROM oidc_grants
 WHERE refresh_token_hash = $1 AND (expires_at IS NULL OR expires_at > now())
+  AND (session_id IS NULL OR session_id IN (SELECT l.id FROM live_sessions l))
 `
 
 func (q *Queries) GrantByRefreshTokenHash(ctx context.Context, refreshTokenHash []byte) (OidcGrant, error) {
@@ -144,6 +172,7 @@ func (q *Queries) GrantByRefreshTokenHash(ctx context.Context, refreshTokenHash 
 		&i.RefreshTokenHash,
 		&i.ExpiresAt,
 		&i.Sealed,
+		&i.SessionID,
 	)
 	return i, err
 }
@@ -182,6 +211,42 @@ func (q *Queries) LogoutSession(ctx context.Context, id string) ([]byte, error) 
 	return data, err
 }
 
+const rotateRefreshToken = `-- name: RotateRefreshToken :execrows
+WITH g AS (
+    UPDATE oidc_grants SET refresh_token_hash = $2, expires_at = $3, sealed = $4
+    WHERE oidc_grants.id = $5 AND oidc_grants.refresh_token_hash = $1
+    RETURNING oidc_grants.id, oidc_grants.session_id
+), touched AS (
+    UPDATE sessions SET last_seen_at = now() WHERE sessions.id = (SELECT g.session_id FROM g)
+)
+INSERT INTO oidc_spent_refresh_tokens (hash, grant_id) SELECT $1, g.id FROM g
+`
+
+type RotateRefreshTokenParams struct {
+	OldHash   []byte
+	NewHash   []byte
+	ExpiresAt pgtype.Timestamptz
+	Sealed    []byte
+	ID        string
+}
+
+// Swaps the refresh token only if old_hash is still the current one, keeps
+// the old one as spent, and counts the refresh as Session activity. No row:
+// another request rotated it first.
+func (q *Queries) RotateRefreshToken(ctx context.Context, arg RotateRefreshTokenParams) (int64, error) {
+	result, err := q.db.Exec(ctx, rotateRefreshToken,
+		arg.OldHash,
+		arg.NewHash,
+		arg.ExpiresAt,
+		arg.Sealed,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const saveAuthnSession = `-- name: SaveAuthnSession :exec
 INSERT INTO oidc_authn_sessions (id, expires_at, data) VALUES ($1, $2, $3)
 ON CONFLICT (id) DO UPDATE SET expires_at = EXCLUDED.expires_at, data = EXCLUDED.data
@@ -199,29 +264,41 @@ func (q *Queries) SaveAuthnSession(ctx context.Context, arg SaveAuthnSessionPara
 }
 
 const saveGrant = `-- name: SaveGrant :exec
-INSERT INTO oidc_grants (id, auth_code_hash, refresh_token_hash, expires_at, sealed)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (id) DO UPDATE SET
-    auth_code_hash = EXCLUDED.auth_code_hash,
-    refresh_token_hash = EXCLUDED.refresh_token_hash,
-    expires_at = EXCLUDED.expires_at,
-    sealed = EXCLUDED.sealed
+WITH g AS (
+    INSERT INTO oidc_grants (id, auth_code_hash, refresh_token_hash, expires_at, session_id, sealed)
+    VALUES ($2, $3, $4, $5, $6, $7)
+    ON CONFLICT (id) DO UPDATE SET
+        auth_code_hash = EXCLUDED.auth_code_hash,
+        refresh_token_hash = EXCLUDED.refresh_token_hash,
+        expires_at = EXCLUDED.expires_at,
+        sealed = EXCLUDED.sealed
+    RETURNING session_id
+)
+UPDATE sessions SET ended_at = now()
+WHERE $1::boolean AND sessions.id_hash IS NULL AND sessions.ended_at IS NULL
+  AND sessions.id = (SELECT g.session_id FROM g)
 `
 
 type SaveGrantParams struct {
+	Revoked          bool
 	ID               string
 	AuthCodeHash     []byte
 	RefreshTokenHash []byte
 	ExpiresAt        pgtype.Timestamptz
+	SessionID        pgtype.Text
 	Sealed           []byte
 }
 
+// Revoking the refresh token of an App Session ends the Session: the chain
+// is the Session.
 func (q *Queries) SaveGrant(ctx context.Context, arg SaveGrantParams) error {
 	_, err := q.db.Exec(ctx, saveGrant,
+		arg.Revoked,
 		arg.ID,
 		arg.AuthCodeHash,
 		arg.RefreshTokenHash,
 		arg.ExpiresAt,
+		arg.SessionID,
 		arg.Sealed,
 	)
 	return err

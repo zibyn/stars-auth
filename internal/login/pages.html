@@ -94,3 +94,12 @@ summary { cursor: pointer; font-size: .875rem; margin-bottom: .75rem; }
 {{define "message"}}{{template "head" "Stars Auth"}}
 <p>{{.}}</p>
 {{template "foot"}}{{end}}
+
+{{define "logout"}}{{template "head" "退出登录"}}
+<h1>退出登录</h1>
+<p>要退出 Stars Auth 吗?使用它登录的应用也会随之退出。</p>
+<form method="post" action="{{.}}">
+  <input type="hidden" name="logout" value="1">
+  <button>退出</button>
+</form>
+{{template "foot"}}{{end}}

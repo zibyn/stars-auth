@@ -39,7 +39,6 @@ var pages = template.Must(template.ParseFS(pagesFS, "pages.html"))
 
 const (
 	sessionCookie = "__Host-session"
-	sessionIdle   = 30 * 24 * time.Hour // a browser Session dies after this long unused
 
 	// Keys in the AuthnSession store, carried into the grant.
 	storeAuthTime = "auth_time"
@@ -107,7 +106,10 @@ func New(ctx context.Context, pool *pgxpool.Pool, keyring *crypt.Keyring, issuer
 				func(*http.Request, *goidc.AuthnSession, *goidc.Client) bool { return true },
 				s.authenticate)),
 		),
-		provider.WithRefreshTokenGrant(store),
+		provider.WithRefreshTokenGrant(store, provider.WithRefreshTokenRotation()),
+		// Access tokens are JWTs and not stored: revoking one does nothing,
+		// and they lapse within their 10 minutes.
+		provider.WithTokenRevocation(func(context.Context, *goidc.Client) bool { return true }),
 		provider.WithTokenOptions(func(context.Context, *goidc.Grant, *goidc.Client) goidc.TokenOptions {
 			return goidc.NewJWTTokenOptions(goidc.SigAlgRS256, 600)
 		}),
@@ -119,6 +121,15 @@ func New(ctx context.Context, pool *pgxpool.Pool, keyring *crypt.Keyring, issuer
 			return claims
 		}),
 		provider.WithUserInfoClaims(s.userClaims),
+		provider.WithLogout(provider.LogoutConfig{
+			Manager: store,
+			HandleFunc: func(w http.ResponseWriter, _ *http.Request, _ *goidc.LogoutSession) error {
+				page(w, http.StatusOK, "message", "已退出登录")
+				return nil
+			},
+		}, provider.WithLogoutPolicies(goidc.NewLogoutPolicy("session",
+			func(*http.Request, *goidc.LogoutSession) bool { return true },
+			s.logout))),
 		provider.WithErrorRenderer(renderError),
 		provider.WithErrorHandler(func(_ context.Context, err error) { slog.Info("oidc", "err", err) }),
 	)
@@ -151,10 +162,10 @@ func (s *Service) audience(ctx context.Context, _ *goidc.Token, g *goidc.Grant) 
 	return map[string]any{goidc.ClaimAudience: app.DefaultApi.String}
 }
 
-// DeleteIdleSessions removes browser Sessions past their idle timeout; run
-// by the hourly cleanup.
-func DeleteIdleSessions(ctx context.Context, pool *pgxpool.Pool) error {
-	return sqlc.New(pool).DeleteIdleSessions(ctx, idleSince())
+// DeleteOldSessions removes Sessions ended or idle for over 30 days; run by
+// the hourly cleanup.
+func DeleteOldSessions(ctx context.Context, pool *pgxpool.Pool) error {
+	return sqlc.New(pool).DeleteOldSessions(ctx)
 }
 
 // authenticate is the hosted login: a live browser Session signs the User in
@@ -183,7 +194,7 @@ func (s *Service) authenticate(w http.ResponseWriter, r *http.Request, as *goidc
 				return goidc.StatusFailure, goidc.NewError(goidc.ErrorCodeInteractionRequired, "a phone number must be bound first")
 			}
 		}
-		return s.complete(w, r, as, c, sess.UserID, sess.AuthTime.Time, sess.Amr)
+		return s.complete(w, r, as, c, sess.ID, sess.UserID, sess.AuthTime.Time, sess.Amr)
 	}
 	if none {
 		return goidc.StatusFailure, goidc.NewError(goidc.ErrorCodeLoginRequired, "login required")
@@ -217,6 +228,7 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		return s.render(w, r, as, c, form)
 	}
 	pending, _ := as.Store[storeBindSub].(string)
+	pendingSession, _ := as.Store[oidcstore.SessionKey].(string)
 	// fail shows a mistake on the page, or ends the login on any other error.
 	fail := func(err error) (goidc.Status, error) {
 		var invalid identity.Invalid
@@ -262,7 +274,7 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 				return fail(err)
 			}
 			authTime, _ := as.Store[storeAuthTime].(int64)
-			grant(as, pending, time.Unix(authTime, 0), storedAMR(as.Store[storeAMR]))
+			grant(as, pendingSession, pending, time.Unix(authTime, 0), storedAMR(as.Store[storeAMR]))
 			return goidc.StatusSuccess, nil
 		}
 		sub, err := s.ids.SignIn(ctx, kind, value)
@@ -291,24 +303,55 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 // login starts a browser Session for a User who just authenticated.
 func (s *Service) login(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession, c *goidc.Client, sub string, amr goidc.AMR) (goidc.Status, error) {
 	authTime, amrs := time.Now(), []string{string(amr)}
-	if err := s.newSession(w, r, sub, authTime, amrs); err != nil {
+	session, err := s.newSession(w, r, c.ID, sub, authTime, amrs)
+	if err != nil {
 		return goidc.StatusFailure, err
 	}
-	return s.complete(w, r, as, c, sub, authTime, amrs)
+	return s.complete(w, r, as, c, session, sub, authTime, amrs)
 }
 
 // complete grants sub, unless the instance requires a phone number sub has
 // not bound yet: then the bind page comes first.
-func (s *Service) complete(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession, c *goidc.Client, sub string, authTime time.Time, amr []string) (goidc.Status, error) {
+func (s *Service) complete(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession, c *goidc.Client, session, sub string, authTime time.Time, amr []string) (goidc.Status, error) {
 	needs, err := s.q.NeedsPhone(r.Context(), sub)
 	if err != nil {
 		return goidc.StatusFailure, err
 	}
 	if needs {
-		as.Store = map[string]any{storeBindSub: sub, storeAuthTime: authTime.Unix(), storeAMR: amr}
+		as.Store = map[string]any{storeBindSub: sub, oidcstore.SessionKey: session, storeAuthTime: authTime.Unix(), storeAMR: amr}
 		return s.render(w, r, as, c, loginPage{})
 	}
-	grant(as, sub, authTime, amr)
+	grant(as, session, sub, authTime, amr)
+	return goidc.StatusSuccess, nil
+}
+
+// logout is RP-Initiated Logout: it ends the browser Session, and with it
+// the refresh tokens issued under it. Unless the Application proves the
+// User with an ID token hint, the User confirms first, so that no other
+// site can sign them out.
+func (s *Service) logout(w http.ResponseWriter, r *http.Request, ls *goidc.LogoutSession) (goidc.Status, error) {
+	cookie, err := r.Cookie(sessionCookie)
+	if err != nil {
+		return goidc.StatusSuccess, nil //nolint:nilerr // no cookie, nothing to end
+	}
+	sess, err := s.session(w, r)
+	if err != nil {
+		return goidc.StatusFailure, err
+	} else if sess == nil {
+		setSessionCookie(w, "", -1) // a dead Session's cookie
+		return goidc.StatusSuccess, nil
+	}
+	hinted := ls.IDTokenHintClaims != nil && ls.IDTokenHintClaims.Subject == sess.UserID
+	confirmed := r.Method == http.MethodPost && r.PathValue("callback") != "" &&
+		r.PostFormValue("logout") == "1" && s.origin.Check(r) == nil
+	if !hinted && !confirmed {
+		page(w, http.StatusOK, "logout", "/logout/"+ls.ID)
+		return goidc.StatusPending, nil
+	}
+	if err := s.q.EndBrowserSession(r.Context(), hash(cookie.Value)); err != nil {
+		return goidc.StatusFailure, err
+	}
+	setSessionCookie(w, "", -1)
 	return goidc.StatusSuccess, nil
 }
 
@@ -353,12 +396,12 @@ func (s *Service) userClaims(ctx context.Context, g *goidc.Grant) map[string]any
 	return claims
 }
 
-// grant completes the AuthnSession for sub. With no consent page, every
-// requested scope is granted.
-func grant(as *goidc.AuthnSession, sub string, authTime time.Time, amr []string) {
+// grant completes the AuthnSession for sub, signed in by the browser Session
+// session. With no consent page, every requested scope is granted.
+func grant(as *goidc.AuthnSession, session, sub string, authTime time.Time, amr []string) {
 	as.Subject = sub
 	as.GrantedScopes = as.Scopes
-	as.Store = map[string]any{storeAuthTime: authTime.Unix(), storeAMR: amr}
+	as.Store = map[string]any{oidcstore.SessionKey: session, storeAuthTime: authTime.Unix(), storeAMR: amr}
 }
 
 // session returns the browser's live Session, sliding its idle timeout, or
@@ -368,51 +411,63 @@ func (s *Service) session(w http.ResponseWriter, r *http.Request) (*sqlc.TouchSe
 	if err != nil {
 		return nil, nil //nolint:nilerr // no cookie, no Session
 	}
-	sess, err := s.q.TouchSession(r.Context(), sqlc.TouchSessionParams{IDHash: hash(cookie.Value), IdleSince: idleSince()})
+	sess, err := s.q.TouchSession(r.Context(), hash(cookie.Value))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	} else if err != nil {
 		return nil, err
 	}
-	setSessionCookie(w, cookie.Value)
+	setSessionCookie(w, cookie.Value, int(sess.IdleSecs))
 	return &sess, nil
 }
 
-// newSession starts a browser Session, replacing the one the browser had:
-// a browser holds one User.
-func (s *Service) newSession(w http.ResponseWriter, r *http.Request, sub string, authTime time.Time, amr []string) error {
+// newSession signs sub in on this browser, for clientID, and returns the
+// Session id. The same User keeps their Session (and the refresh tokens
+// under it) with a fresh cookie; another User's Session ends: a browser
+// holds one User.
+func (s *Service) newSession(w http.ResponseWriter, r *http.Request, clientID, sub string, authTime time.Time, amr []string) (string, error) {
+	token := rand.Text()
 	if old, err := r.Cookie(sessionCookie); err == nil {
-		if err := s.q.DeleteSession(r.Context(), hash(old.Value)); err != nil {
-			return err
+		sess, err := s.q.RenewSession(r.Context(), sqlc.RenewSessionParams{
+			OldHash: hash(old.Value), NewHash: hash(token), UserID: sub,
+			AuthTime: pgtype.Timestamptz{Time: authTime, Valid: true}, Amr: amr,
+		})
+		if err == nil {
+			setSessionCookie(w, token, int(sess.IdleSecs))
+			return sess.ID, nil
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return "", err
+		}
+		if err := s.q.EndBrowserSession(r.Context(), hash(old.Value)); err != nil {
+			return "", err
 		}
 	}
-	token := rand.Text()
-	if err := s.q.CreateSession(r.Context(), sqlc.CreateSessionParams{
+	sess, err := s.q.CreateSession(r.Context(), sqlc.CreateSessionParams{
 		IDHash:   hash(token),
+		ClientID: clientID,
 		UserID:   sub,
 		AuthTime: pgtype.Timestamptz{Time: authTime, Valid: true},
 		Amr:      amr,
-	}); err != nil {
-		return err
+	})
+	if err != nil {
+		return "", err
 	}
-	setSessionCookie(w, token)
-	return nil
+	setSessionCookie(w, token, int(sess.IdleSecs))
+	return sess.ID, nil
 }
 
-func setSessionCookie(w http.ResponseWriter, token string) {
+// setSessionCookie keeps the cookie as long as the Session's idle timeout;
+// maxAge -1 deletes it.
+func setSessionCookie(w http.ResponseWriter, token string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookie,
 		Value:    token,
 		Path:     "/",
-		MaxAge:   int(sessionIdle.Seconds()),
+		MaxAge:   maxAge,
 		Secure:   true,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
-}
-
-func idleSince() pgtype.Timestamptz {
-	return pgtype.Timestamptz{Time: time.Now().Add(-sessionIdle), Valid: true}
 }
 
 func hash(token string) []byte {

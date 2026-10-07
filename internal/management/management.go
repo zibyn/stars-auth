@@ -67,6 +67,8 @@ func (s *Service) Register(mux *http.ServeMux) {
 	get(api, "list-users", "users:read", "/users", "Search Users", s.listUsers)
 	get(api, "get-user", "users:read", "/users/{sub}", "A User's details", s.getUser)
 	// Role names show in the Users list, so reading them needs no more than users:read.
+	get(api, "list-sessions", "users:read", "/users/{sub}/sessions", "A User's Sessions", s.listSessions)
+	op(api, http.MethodDelete, "end-session", "users:write", "/users/{sub}/sessions/{id}", "Sign a User out of one Session", s.endSession)
 	get(api, "list-roles", "users:read", "/roles", "All Roles, for the Role filter", s.listRoles)
 
 	get(api, "list-channels", "config:read", "/channels", "Channel plugins and the enabled Channel of each Identifier kind", s.listChannels)

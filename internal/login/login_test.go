@@ -32,9 +32,10 @@ import (
 )
 
 const (
-	clientID = "rp"
-	callback = "https://rp.example/cb"
-	verifier = "a-pkce-code-verifier-that-is-at-least-43-characters-long"
+	clientID    = "rp"
+	callback    = "https://rp.example/cb"
+	afterLogout = "https://rp.example/bye"
+	verifier    = "a-pkce-code-verifier-that-is-at-least-43-characters-long"
 )
 
 type env struct {
@@ -63,7 +64,7 @@ func start(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	if err := oidcstore.CreateApplication(ctx, pool, oidcstore.Application{
-		ClientID: clientID, Name: "Test RP", RedirectURIs: []string{callback},
+		ClientID: clientID, Name: "Test RP", RedirectURIs: []string{callback}, PostLogoutRedirectURIs: []string{afterLogout},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -175,8 +176,9 @@ func (e *env) idToken(code string) map[string]any {
 }
 
 type tokens struct {
-	IDToken     string `json:"id_token"`
-	AccessToken string `json:"access_token"`
+	IDToken      string `json:"id_token"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
 }
 
 func (e *env) exchange(client, redirect, code string) tokens {

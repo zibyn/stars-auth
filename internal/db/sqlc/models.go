@@ -26,6 +26,7 @@ type Application struct {
 	SessionIdleTimeout     pgtype.Interval
 	Builtin                bool
 	CreatedAt              pgtype.Timestamptz
+	RefreshTokens          bool
 }
 
 type AuditLog struct {
@@ -63,6 +64,10 @@ type Identifier struct {
 	Value  string
 }
 
+type LiveSession struct {
+	ID string
+}
+
 type OidcAuthnSession struct {
 	ID        string
 	ExpiresAt pgtype.Timestamptz
@@ -75,12 +80,18 @@ type OidcGrant struct {
 	RefreshTokenHash []byte
 	ExpiresAt        pgtype.Timestamptz
 	Sealed           []byte
+	SessionID        pgtype.Text
 }
 
 type OidcLogoutSession struct {
 	ID        string
 	ExpiresAt pgtype.Timestamptz
 	Data      []byte
+}
+
+type OidcSpentRefreshToken struct {
+	Hash    []byte
+	GrantID string
 }
 
 type Password struct {
@@ -120,11 +131,15 @@ type Send struct {
 }
 
 type Session struct {
-	IDHash     []byte
-	UserID     string
-	AuthTime   pgtype.Timestamptz
-	Amr        []string
-	LastSeenAt pgtype.Timestamptz
+	IDHash      []byte
+	UserID      string
+	AuthTime    pgtype.Timestamptz
+	Amr         []string
+	LastSeenAt  pgtype.Timestamptz
+	ID          string
+	ClientID    pgtype.Text
+	IdleTimeout pgtype.Interval
+	EndedAt     pgtype.Timestamptz
 }
 
 type Setting struct {

@@ -30,20 +30,6 @@ WHERE i.value = $1;
 -- name: PasswordLogin :one
 SELECT password_login FROM settings;
 
--- name: CreateSession :exec
-INSERT INTO sessions (id_hash, user_id, auth_time, amr) VALUES ($1, $2, $3, $4);
-
--- name: TouchSession :one
-UPDATE sessions SET last_seen_at = now()
-WHERE id_hash = $1 AND last_seen_at > @idle_since
-RETURNING user_id, auth_time, amr;
-
--- name: DeleteSession :exec
-DELETE FROM sessions WHERE id_hash = $1;
-
--- name: DeleteIdleSessions :exec
-DELETE FROM sessions WHERE last_seen_at < @idle_since;
-
 -- name: UserByIdentifier :one
 SELECT user_id FROM identifiers WHERE value = $1;
 

@@ -24,6 +24,10 @@ type Grant struct {
 	// issued for this grant.
 	// A value of 0 means the refresh token does not expire.
 	RefreshTokenExpiresAt int `json:"refresh_token_expires_at,omitempty"`
+	// PreviousRefreshToken is set, never stored, while a rotation is being
+	// saved: the token the request presented, so the storage can save the
+	// rotation only if that token is still the current one.
+	PreviousRefreshToken string `json:"-"`
 	// AuthParams stores the authorization request parameters that must remain
 	// available after the grant is created, such as nonce, redirect URI, PKCE,
 	// prompt, and resource values used during token issuance and validation.

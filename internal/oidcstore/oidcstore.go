@@ -41,6 +41,13 @@ var (
 	_ goidc.LogoutManager       = (*Store)(nil)
 )
 
+// SessionKey is the grant Store key holding the id of the Session the grant
+// was issued in; such a grant works only while that Session lives.
+const SessionKey = "session"
+
+// errReused answers a refresh token that was already rotated away.
+var errReused = goidc.NewError(goidc.ErrorCodeInvalidGrant, "refresh token reused")
+
 func New(pool *pgxpool.Pool, keyring *crypt.Keyring) *Store {
 	return &Store{q: sqlc.New(pool), keyring: keyring, GrantTTL: time.Hour}
 }
@@ -64,10 +71,13 @@ func (s *Store) Client(ctx context.Context, id string) (*goidc.Client, error) {
 			TokenAuthnMethod:       goidc.AuthnMethodNone,
 			RedirectURIs:           app.RedirectUris,
 			PostLogoutRedirectURIs: app.PostLogoutRedirectUris,
-			GrantTypes:             []goidc.GrantType{goidc.GrantAuthorizationCode, goidc.GrantRefreshToken},
+			GrantTypes:             []goidc.GrantType{goidc.GrantAuthorizationCode},
 			ResponseTypes:          []goidc.ResponseType{goidc.ResponseTypeCode},
 			ScopeIDs:               s.Scopes,
 		},
+	}
+	if app.RefreshTokens {
+		c.GrantTypes = append(c.GrantTypes, goidc.GrantRefreshToken)
 	}
 	if app.Type == "confidential" {
 		c.TokenAuthnMethod = goidc.AuthnMethodSecretBasic
@@ -120,12 +130,31 @@ func (s *Store) SaveGrant(ctx context.Context, g *goidc.Grant) error {
 	if err != nil {
 		return err
 	}
+	if g.PreviousRefreshToken != "" {
+		n, err := s.q.RotateRefreshToken(ctx, sqlc.RotateRefreshTokenParams{
+			ID: g.ID, OldHash: hash(g.PreviousRefreshToken), NewHash: hash(g.RefreshToken),
+			ExpiresAt: s.grantExpiry(g), Sealed: sealed,
+		})
+		if err != nil {
+			return err
+		}
+		if n == 0 { // a concurrent request rotated it first: the token was used twice
+			if err := s.q.EndReusedRefreshToken(ctx, hash(g.PreviousRefreshToken)); err != nil {
+				return err
+			}
+			return errReused
+		}
+		return nil
+	}
+	session, _ := g.Store[SessionKey].(string)
 	return s.q.SaveGrant(ctx, sqlc.SaveGrantParams{
 		ID:               g.ID,
 		AuthCodeHash:     hash(g.AuthCode),
 		RefreshTokenHash: hash(g.RefreshToken),
 		ExpiresAt:        s.grantExpiry(g),
+		SessionID:        pgtype.Text{String: session, Valid: session != ""},
 		Sealed:           sealed,
+		Revoked:          g.RevokedAt != 0,
 	})
 }
 
@@ -145,8 +174,17 @@ func (s *Store) GrantByAuthCode(ctx context.Context, code string) (*goidc.Grant,
 	return s.openGrant(s.q.GrantByAuthCodeHash(ctx, hash(code)))
 }
 
+// GrantByRefreshToken also catches reuse: a token that a rotation replaced
+// ends the Session it was issued in, wherever it shows up (refresh or
+// revocation, from any client), since it has leaked.
 func (s *Store) GrantByRefreshToken(ctx context.Context, token string) (*goidc.Grant, error) {
-	return s.openGrant(s.q.GrantByRefreshTokenHash(ctx, hash(token)))
+	g, err := s.openGrant(s.q.GrantByRefreshTokenHash(ctx, hash(token)))
+	if errors.Is(err, goidc.ErrNotFound) {
+		if err := s.q.EndReusedRefreshToken(ctx, hash(token)); err != nil {
+			return nil, err
+		}
+	}
+	return g, err
 }
 
 func (s *Store) openGrant(row sqlc.OidcGrant, err error) (*goidc.Grant, error) {

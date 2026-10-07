@@ -70,6 +70,7 @@ func generateRefreshToken(ctx oidc.Context, req request) (response, error) {
 	var refreshToken string
 	if ctx.RefreshTokenRotationEnabled {
 		refreshToken = ctx.RefreshToken()
+		grant.PreviousRefreshToken = grant.RefreshToken
 		grant.RefreshToken = refreshToken
 		if ctx.RefreshTokenLifetimeSecs != 0 {
 			grant.RefreshTokenExpiresAt = timeutil.TimestampNow() + ctx.RefreshTokenLifetimeSecs
