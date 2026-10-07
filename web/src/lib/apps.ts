@@ -6,6 +6,10 @@ import type { Application } from "./console-api.ts";
 export const onlyBuiltin = (apps: Pick<Application, "builtin">[]) =>
 	apps.every((a) => a.builtin);
 
+// ownCount is the overview's 应用 figure: built-in ones don't count.
+export const ownCount = (apps: Pick<Application, "builtin">[]) =>
+	apps.filter((a) => !a.builtin).length;
+
 // webhookError is what stops a save with a webhook URL but no key, new
 // or already set; the backend rejects that too.
 export const webhookError = (w: {

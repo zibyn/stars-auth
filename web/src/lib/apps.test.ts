@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { onlyBuiltin, webhookError } from "./apps.ts";
+import { onlyBuiltin, ownCount, webhookError } from "./apps.ts";
 
 const consoleApp = { builtin: true };
 const shop = { builtin: false };
@@ -25,4 +25,9 @@ test("a webhook URL needs a key, new or already set", () => {
 
 test("no webhook URL needs no key", () => {
 	assert.equal(webhookError({ url: "", secret: "", secretSet: false }), "");
+});
+
+test("the overview counts only your own Applications", () => {
+	assert.equal(ownCount([consoleApp, shop, shop]), 2);
+	assert.equal(ownCount([consoleApp]), 0);
 });
