@@ -81,11 +81,8 @@ func (s *Service) challenge(w http.ResponseWriter, r *http.Request) {
 func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, error) {
 	ctx := r.Context()
 	// Every request carries the version of the terms the User agreed to in
-	// the App; with no terms set up, any version will do.
+	// the App; with no terms set up, any version will do, none included.
 	version := r.PostFormValue("terms_version")
-	if version == "" {
-		return "", invalid("terms_version is required")
-	}
 	terms, err := s.q.Terms(ctx)
 	if err != nil {
 		return "", err

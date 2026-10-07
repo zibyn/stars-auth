@@ -120,11 +120,13 @@ func TestDirectLoginChecksTheTermsVersion(t *testing.T) {
 	if body != `{"privacy_url":"https://example.com/privacy","terms_url":"https://example.com/terms","version":"v2"}`+"\n" {
 		t.Errorf("terms: %s", body)
 	}
-	r := e.challenge(url.Values{"username": {"owner"}, "password": {"password1"}, "altcha": {e.solve()}, "terms_version": {"v1"}})
-	if r.Status != 400 || r.Error != "invalid_request" || r.Code != "" {
-		t.Errorf("outdated version: %+v", r)
+	for _, v := range []string{"v1", ""} {
+		r := e.challenge(url.Values{"username": {"owner"}, "password": {"password1"}, "altcha": {e.solve()}, "terms_version": {v}})
+		if r.Status != 400 || r.Error != "invalid_request" || r.Code != "" {
+			t.Errorf("version %q: %+v", v, r)
+		}
 	}
-	r = e.challenge(url.Values{"username": {"owner"}, "password": {"password1"}, "altcha": {e.solve()}, "terms_version": {"v2"}})
+	r := e.challenge(url.Values{"username": {"owner"}, "password": {"password1"}, "altcha": {e.solve()}, "terms_version": {"v2"}})
 	if r.Status != 200 {
 		t.Fatalf("current version: %+v", r)
 	}

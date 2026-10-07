@@ -149,9 +149,7 @@ public class StarsAuth(
     val verifier = session?.verifier ?: newVerifier()
     val r = http.submitForm("$issuer/v1/auth/challenge", Parameters.build {
       append("client_id", config.clientId)
-      // With no terms set up (terms().version is empty) any version will
-      // do, but an empty one counts as missing.
-      append("terms_version", termsVersion.ifEmpty { "none" })
+      append("terms_version", termsVersion)
       if (session != null) {
         append("auth_session", session.id)
       } else {

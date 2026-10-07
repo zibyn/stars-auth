@@ -108,7 +108,7 @@ class StarsAuthTest {
     val steps = server.forms.filter { it.first == "/v1/auth/challenge" }.map { it.second }
     assertNotNull(steps[0]["altcha"])
     assertNotNull(steps[0]["code_challenge"])
-    assertTrue(steps.drop(1).all { it["auth_session"] == "s1" && it["terms_version"] == "none" })
+    assertTrue(steps.drop(1).all { it["auth_session"] == "s1" && it["terms_version"] == "" })
     assertNotNull(steps[3]["altcha"])
     assertEquals("at1", auth.accessToken())
   }

@@ -137,7 +137,6 @@ func TestDirectPasswordLogin(t *testing.T) {
 	for name, form := range map[string]url.Values{
 		"no PoW":           {"username": {"owner"}, "password": {"password1"}},
 		"no response_type": {"username": {"owner"}, "password": {"password1"}, "altcha": {e.solve()}, "response_type": {""}},
-		"no terms version": {"username": {"owner"}, "password": {"password1"}, "altcha": {e.solve()}, "terms_version": {""}},
 		"no PKCE":          {"username": {"owner"}, "password": {"password1"}, "altcha": {e.solve()}, "code_challenge": {""}},
 		"wrong password":   {"username": {"owner"}, "password": {"nope"}, "altcha": {e.solve()}},
 		"unknown scope":    {"username": {"owner"}, "password": {"password1"}, "altcha": {e.solve()}, "scope": {"openid admin"}},
@@ -153,7 +152,8 @@ func TestDirectPasswordLogin(t *testing.T) {
 		t.Errorf("unknown auth_session: %+v", r)
 	}
 
-	r := e.challenge(url.Values{"username": {"owner"}, "password": {"password1"}, "altcha": {e.solve()}})
+	// No terms set up: any version will do, the empty one too.
+	r := e.challenge(url.Values{"username": {"owner"}, "password": {"password1"}, "altcha": {e.solve()}, "terms_version": {""}})
 	if r.Status != 200 {
 		t.Fatalf("password: %+v", r)
 	}
