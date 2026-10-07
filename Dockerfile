@@ -1,4 +1,4 @@
-FROM node:24-alpine AS web
+FROM --platform=$BUILDPLATFORM node:24-alpine AS web
 RUN npm install -g pnpm@12.4.2
 WORKDIR /src/web
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./

@@ -23,7 +23,9 @@ Tests needing PostgreSQL run when `STARS_AUTH_TEST_DATABASE_URL` is set
 (e.g. `postgres://postgres:pg@localhost:5432/postgres`); they create their own
 databases.
 
-Full deployment: `compose.yaml` (Stars Auth + PostgreSQL + Caddy).
+Deployment, backups, upgrades and recovery: [docs/deploy.md](docs/deploy.md).
+Releases (tags `vX.Y.Z`) publish multi-arch images to `ghcr.io/zibyn/stars-auth`
+and binaries to GitHub Releases. Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 ## First start
 
