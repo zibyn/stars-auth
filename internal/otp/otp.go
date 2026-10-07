@@ -28,7 +28,7 @@ const (
 	ErrTooMany    identity.Invalid = "发送次数过多,请稍后再试"
 	ErrDailyCap   identity.Invalid = "今日验证码发送量已达上限,请明天再试"
 	ErrSendFailed identity.Invalid = "验证码发送失败,请稍后再试"
-	ErrWrongCode  identity.Invalid = "验证码错误或已失效"
+	ErrWrongCode                   = identity.ErrWrongCode
 )
 
 const (

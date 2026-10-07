@@ -3,6 +3,7 @@
 package identity
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/zibyn/stars-auth/internal/crypt"
@@ -33,6 +35,7 @@ const (
 	ErrUsername         Invalid = "用户名须为 3–32 位字母、数字或 . _ -"
 	ErrPasswordTooShort Invalid = "密码至少 8 位"
 	ErrBadCredentials   Invalid = "用户名或密码错误"
+	ErrDisabled         Invalid = "已被管理员禁用,无法登录"
 )
 
 type Store struct {
@@ -95,7 +98,7 @@ func (s *Store) Bootstrap(ctx context.Context, token, username, password string)
 	if err != nil || subtle.ConstantTimeCompare(want, []byte(token)) != 1 {
 		return "", ErrSetupToken
 	}
-	if username, err = checkUsername(username); err != nil {
+	if username, err = CheckUsername(username); err != nil {
 		return "", err
 	}
 	if utf8.RuneCountInString(password) < 8 {
@@ -126,7 +129,7 @@ func (s *Store) Bootstrap(ctx context.Context, token, username, password string)
 
 // CheckPassword returns the sub of the User with this Identifier (username,
 // phone or email) whose password matches, if the password login setting lets
-// them in.
+// them in. Five wrong passwords in a row lock the User's password login.
 func (s *Store) CheckPassword(ctx context.Context, identifier, password string) (string, error) {
 	value := strings.ToLower(strings.TrimSpace(identifier))
 	if _, v, err := ParseIdentifier(identifier); err == nil {
@@ -137,8 +140,26 @@ func (s *Store) CheckPassword(ctx context.Context, identifier, password string) 
 		_, _ = verifyPassword(dummyHash, password) // unknown Identifiers take as long as known ones
 		return "", ErrBadCredentials
 	}
-	if ok, err := verifyPassword(row.Hash, password); err != nil || !ok {
-		return "", ErrBadCredentials
+	key := "sub:" + row.UserID
+	if locked, err := s.q.LockedOut(ctx, key); err != nil || locked {
+		return "", cmp.Or(err, error(ErrPasswordLocked))
+	}
+	if ok, err := verifyPassword(row.Hash, password); err != nil {
+		return "", err
+	} else if !ok {
+		locked, err := s.failed(ctx, key, passwordTries, passwordWindow, passwordLock, sqlc.AuditParams{
+			Event: "login.password_locked", Sub: pgtype.Text{String: row.UserID, Valid: true}, Detail: []byte("{}"),
+		})
+		if locked {
+			return "", cmp.Or(err, error(ErrPasswordLocked))
+		}
+		return "", cmp.Or(err, error(ErrBadCredentials))
+	}
+	if err := s.q.ClearLoginFailures(ctx, key); err != nil {
+		return "", err
+	}
+	if row.Disabled {
+		return "", ErrDisabled
 	}
 	setting, err := s.q.PasswordLogin(ctx)
 	if err != nil {
@@ -152,9 +173,9 @@ func (s *Store) CheckPassword(ctx context.Context, identifier, password string) 
 
 var usernameRE = regexp.MustCompile(`^[a-z0-9._-]{3,32}$`)
 
-// checkUsername normalises a username. With no '@' or '+' it can never read
+// CheckUsername normalises a username. With no '@' or '+' it can never read
 // as an email or phone number.
-func checkUsername(s string) (string, error) {
+func CheckUsername(s string) (string, error) {
 	s = strings.ToLower(strings.TrimSpace(s))
 	if !usernameRE.MatchString(s) {
 		return "", ErrUsername
@@ -194,11 +215,13 @@ func ParseIdentifier(s string) (kind, value string, err error) {
 // SignIn returns the User holding a phone number or email that was just
 // verified, creating one if nobody does: logging in is signing up.
 func (s *Store) SignIn(ctx context.Context, kind, value string) (string, error) {
-	sub, err := s.q.UserByIdentifier(ctx, value)
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return sub, err
+	u, err := s.q.UserByIdentifier(ctx, value)
+	if err == nil && u.Disabled {
+		return "", ErrDisabled
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return u.UserID, err
 	}
-	sub = rand.Text()
+	sub := rand.Text()
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
 		if err := q.CreateUser(ctx, sub); err != nil {
@@ -207,7 +230,7 @@ func (s *Store) SignIn(ctx context.Context, kind, value string) (string, error) 
 		return q.AddIdentifier(ctx, sqlc.AddIdentifierParams{UserID: sub, Kind: kind, Value: value})
 	})
 	if isUniqueViolation(err) { // signed up a moment ago by a concurrent request
-		return s.q.UserByIdentifier(ctx, value)
+		return s.SignIn(ctx, kind, value)
 	}
 	return sub, err
 }

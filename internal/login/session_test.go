@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/zibyn/stars-auth/internal/db/sqlc"
 )
 
 // signIn logs the owner in through the password form and redeems the code.
@@ -62,6 +64,10 @@ func TestRefreshTokenReuseEndsTheSession(t *testing.T) {
 	}
 	if e.signedIn() {
 		t.Error("browser Session survived refresh token reuse")
+	}
+	var n int
+	if err := e.pool.QueryRow(context.Background(), "SELECT count(*) FROM audit_log WHERE event = 'refresh_token.reused'").Scan(&n); err != nil || n != 1 {
+		t.Errorf("audited %d reuses: %v", n, err)
 	}
 }
 
@@ -157,5 +163,59 @@ func TestReloginKeepsTheSession(t *testing.T) {
 	e.code(resp)
 	if _, errCode := e.refresh(tok.RefreshToken); errCode != "" {
 		t.Errorf("refresh after re-login: %q", errCode)
+	}
+}
+
+// Disabling a User (as the Management API does) ends their Sessions at
+// once: refresh tokens and the browser too; they cannot sign in again until
+// restored.
+func TestDisablingAUserEndsTheirSessions(t *testing.T) {
+	e := start(t)
+	e.bootstrap("owner", "password1")
+	tok := e.signIn()
+	var sub string
+	if err := e.pool.QueryRow(context.Background(), "SELECT user_id FROM identifiers WHERE value = 'owner'").Scan(&sub); err != nil {
+		t.Fatal(err)
+	}
+	q := sqlc.New(e.pool)
+	if _, err := q.SetUserDisabled(context.Background(), sqlc.SetUserDisabledParams{UserID: sub, Disabled: true, By: "ADMIN"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, errCode := e.refresh(tok.RefreshToken); errCode != "invalid_grant" {
+		t.Errorf("refresh: %q, want invalid_grant", errCode)
+	}
+	if e.signedIn() {
+		t.Error("browser Session survived")
+	}
+	_, page := e.authorize("")
+	if _, body := e.submit(page, "owner", "password1"); !strings.Contains(body, "已被管理员禁用") {
+		t.Errorf("hosted login: %.300s", body)
+	}
+	if r := e.challenge(url.Values{"username": {"owner"}, "password": {"password1"}, "altcha": {e.solve()}}); r.Status != 400 || r.Code != "" {
+		t.Errorf("direct login: %+v", r)
+	}
+
+	if _, err := q.SetUserDisabled(context.Background(), sqlc.SetUserDisabledParams{UserID: sub, Disabled: false, By: "ADMIN"}); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.challenge(url.Values{"username": {"owner"}, "password": {"password1"}, "altcha": {e.solve()}}); r.Status != 200 {
+		t.Errorf("restored: %+v", r)
+	}
+}
+
+// Fifty failures in an hour lock an IP out of logging in, whichever flow.
+func TestIPLockout(t *testing.T) {
+	e := start(t)
+	e.bootstrap("owner", "password1")
+	if _, err := e.pool.Exec(context.Background(), "INSERT INTO login_failures (key) SELECT 'ip:127.0.0.1' FROM generate_series(1, 49)"); err != nil {
+		t.Fatal(err)
+	}
+	if r := e.challenge(url.Values{"username": {"nobody"}, "password": {"x"}, "altcha": {e.solve()}}); r.Status != 400 {
+		t.Fatalf("50th failure: %+v", r)
+	}
+	_, page := e.authorize("")
+	if _, body := e.submit(page, "owner", "password1"); !strings.Contains(body, "1 小时后再试") {
+		t.Errorf("hosted login: %.300s", body)
 	}
 }

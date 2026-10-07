@@ -16,6 +16,7 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/zibyn/stars-auth/internal/channel"
@@ -71,6 +72,13 @@ func (s *Service) Register(mux *http.ServeMux) {
 	// Role names show in the Users list, so reading them needs no more than users:read.
 	get(api, "list-sessions", "users:read", "/users/{sub}/sessions", "A User's Sessions", s.listSessions)
 	op(api, http.MethodDelete, "end-session", "users:write", "/users/{sub}/sessions/{id}", "Sign a User out of one Session", s.endSession)
+	// Acting on an admin further needs admin-roles:assign.
+	op(api, http.MethodPost, "disable-user", "users:write", "/users/{sub}/disable", "Disable a User: no logins, every Session ended", s.disableUser, http.StatusConflict)
+	op(api, http.MethodPost, "enable-user", "users:write", "/users/{sub}/enable", "Restore a disabled User", s.enableUser, http.StatusConflict)
+	op(api, http.MethodDelete, "delete-user", "users:write", "/users/{sub}", "Delete a User and all their data", s.deleteUser, http.StatusConflict)
+	op(api, http.MethodPut, "replace-identifier", "users:write", "/users/{sub}/identifiers/{kind}", "Set a User's Identifier of a kind, replacing theirs", s.replaceIdentifier, http.StatusConflict)
+	get(api, "overview", "users:read", "/overview", "Counts for the console's overview", s.overview)
+	get(api, "list-audit", "audit:read", "/audit", "Search the audit log", s.listAudit)
 	get(api, "list-roles", "users:read", "/roles", "All Roles, for the Role filter", s.listRoles)
 	// Management API Roles further need admin-roles:assign.
 	get(api, "list-apis", "applications:read", "/apis", "APIs with their Permissions and Roles", s.listAPIs)
@@ -156,6 +164,7 @@ func (s *Service) authorize(api huma.API) func(huma.Context, func(huma.Context))
 			return
 		}
 		next(huma.WithValue(ctx, callerKey{}, caller{sub: sub, permissions: c.Permissions}))
+		s.auditWrite(ctx, sub)
 	}
 }
 
@@ -214,6 +223,7 @@ type Role struct {
 type User struct {
 	Sub         string       `json:"sub"`
 	CreatedAt   time.Time    `json:"createdAt"`
+	DisabledAt  *time.Time   `json:"disabledAt,omitempty" doc:"Set while the User is disabled"`
 	Identifiers []Identifier `json:"identifiers"`
 	Roles       []Role       `json:"roles"`
 }
@@ -270,7 +280,7 @@ func (s *Service) listUsers(ctx context.Context, in *listUsersInput) (*listUsers
 			out.Body.HasMore = true
 			break
 		}
-		u, err := user(r.ID, r.CreatedAt.Time, r.Identifiers, r.Roles)
+		u, err := user(r.ID, r.CreatedAt.Time, r.DisabledAt, r.Identifiers, r.Roles)
 		if err != nil {
 			return nil, err
 		}
@@ -290,15 +300,18 @@ func (s *Service) getUser(ctx context.Context, in *struct {
 	} else if err != nil {
 		return nil, err
 	}
-	u, err := user(r.ID, r.CreatedAt.Time, r.Identifiers, r.Roles)
+	u, err := user(r.ID, r.CreatedAt.Time, r.DisabledAt, r.Identifiers, r.Roles)
 	if err != nil {
 		return nil, err
 	}
 	return &getUserOutput{Body: UserDetail{User: u, HasPassword: r.HasPassword}}, nil
 }
 
-func user(sub string, created time.Time, identifiers, roles []byte) (User, error) {
+func user(sub string, created time.Time, disabled pgtype.Timestamptz, identifiers, roles []byte) (User, error) {
 	u := User{Sub: sub, CreatedAt: created}
+	if disabled.Valid {
+		u.DisabledAt = &disabled.Time
+	}
 	if err := json.Unmarshal(identifiers, &u.Identifiers); err != nil {
 		return u, err
 	}

@@ -36,6 +36,7 @@ import {
 	type Identifier,
 	type Role,
 	type RoleInfo,
+	type Session,
 	type User,
 	type UserDetail,
 } from "#/lib/console-api";
@@ -168,7 +169,14 @@ function Users() {
 										navigate({ search: (s) => ({ ...s, sub: u.sub }) })
 									}
 								>
-									<TableCell className="font-mono text-xs">{u.sub}</TableCell>
+									<TableCell className="font-mono text-xs">
+										{u.sub}
+										{u.disabledAt && (
+											<Badge variant="destructive" className="ml-2">
+												已禁用
+											</Badge>
+										)}
+									</TableCell>
 									<TableCell>
 										{u.identifiers.map((i) => i.value).join(" · ") || (
 											<span className="text-muted-foreground">—</span>
@@ -242,6 +250,8 @@ function Detail({ sub }: { sub: string }) {
 		queryKey: ["user", sub],
 		queryFn: () => api<UserDetail>(`/users/${encodeURIComponent(sub)}`),
 	});
+	const can = useCan();
+	const act = useUserAction(sub);
 	if (user.error) {
 		return (
 			<p className="px-4 text-destructive text-sm">{user.error.message}</p>
@@ -251,6 +261,11 @@ function Detail({ sub }: { sub: string }) {
 	if (!u) {
 		return null;
 	}
+	// Acting on an admin takes admin-roles:assign too.
+	const writable =
+		can("users:write") &&
+		(can("admin-roles:assign") ||
+			!u.roles.some((r) => r.api === managementAPI));
 	return (
 		<div className="space-y-4 px-4 pb-4">
 			<div>
@@ -265,16 +280,160 @@ function Detail({ sub }: { sub: string }) {
 						{u.identifiers.find((i) => i.kind === kind)?.value ?? (
 							<span className="text-muted-foreground">未绑定</span>
 						)}
+						{writable && (
+							<Button
+								size="sm"
+								variant="ghost"
+								disabled={act.isPending}
+								onClick={() => {
+									const value = prompt(`新的${kindLabel[kind]}`);
+									if (value) {
+										act.mutate({
+											method: "PUT",
+											path: `/identifiers/${kind}`,
+											body: { value },
+										});
+									}
+								}}
+							>
+								替换
+							</Button>
+						)}
 					</Row>
 				))}
 			</Section>
 			<Section title="安全">
+				<Row label="状态">
+					{u.disabledAt ? (
+						<Badge variant="destructive">已禁用 · {date(u.disabledAt)}</Badge>
+					) : (
+						"正常"
+					)}
+				</Row>
 				<Row label="密码">{u.hasPassword ? "已设置" : "未设置"}</Row>
+			</Section>
+			<Section title="Session">
+				<Sessions sub={u.sub} writable={writable} />
 			</Section>
 			<Section title="Role">
 				<RoleAssignment user={u} />
 			</Section>
+			{act.error && (
+				<p className="text-destructive text-sm">{act.error.message}</p>
+			)}
+			{writable && (
+				<div className="flex gap-2">
+					{u.disabledAt ? (
+						<Button
+							variant="outline"
+							disabled={act.isPending}
+							onClick={() => act.mutate({ method: "POST", path: "/enable" })}
+						>
+							恢复
+						</Button>
+					) : (
+						<Button
+							variant="outline"
+							disabled={act.isPending}
+							onClick={() =>
+								confirm(
+									"禁用后该 User 无法登录,所有 Session 立即下线。确定吗?",
+								) && act.mutate({ method: "POST", path: "/disable" })
+							}
+						>
+							禁用
+						</Button>
+					)}
+					<Button
+						variant="destructive"
+						disabled={act.isPending}
+						onClick={() =>
+							confirm(
+								"删除等同注销:该 User 的全部数据都将删除,无法恢复。确定吗?",
+							) && act.mutate({ method: "DELETE", path: "" })
+						}
+					>
+						删除
+					</Button>
+				</div>
+			)}
 		</div>
+	);
+}
+
+// useUserAction calls a users:write operation on sub (path under
+// /users/{sub}) and refreshes what it changes.
+function useUserAction(sub: string) {
+	const client = useQueryClient();
+	const navigate = useNavigate({ from: Route.fullPath });
+	return useMutation({
+		mutationFn: (a: {
+			method: "POST" | "PUT" | "DELETE";
+			path: string;
+			body?: unknown;
+		}) =>
+			api(`/users/${encodeURIComponent(sub)}${a.path}`, {
+				method: a.method,
+				body: a.body,
+			}),
+		onSuccess: (_, a) => {
+			if (a.method === "DELETE") {
+				navigate({ search: (s) => ({ ...s, sub: undefined }) });
+			}
+			return client.invalidateQueries();
+		},
+	});
+}
+
+function Sessions({ sub, writable }: { sub: string; writable: boolean }) {
+	const client = useQueryClient();
+	const sessions = useQuery({
+		queryKey: ["sessions", sub],
+		queryFn: () =>
+			api<{ sessions: Session[] }>(
+				`/users/${encodeURIComponent(sub)}/sessions`,
+			),
+	});
+	const end = useMutation({
+		mutationFn: (id: string) =>
+			api(
+				`/users/${encodeURIComponent(sub)}/sessions/${encodeURIComponent(id)}`,
+				{ method: "DELETE" },
+			),
+		onSuccess: () => client.invalidateQueries({ queryKey: ["sessions", sub] }),
+	});
+	const list = sessions.data?.sessions ?? [];
+	return (
+		<>
+			{list.map((s) => (
+				<Row
+					key={s.id}
+					label={`${s.kind === "app" ? "App" : "浏览器"} · ${s.application}`}
+				>
+					<span className="text-muted-foreground text-xs">
+						{s.active
+							? `活跃于 ${date(s.lastSeenAt)}`
+							: `已结束 ${date(s.endedAt ?? s.expiresAt)}`}
+					</span>
+					{writable && s.active && (
+						<Button
+							size="sm"
+							variant="ghost"
+							disabled={end.isPending}
+							onClick={() => end.mutate(s.id)}
+						>
+							下线
+						</Button>
+					)}
+				</Row>
+			))}
+			{sessions.isSuccess && list.length === 0 && (
+				<p className="py-3 text-muted-foreground text-sm">没有 Session</p>
+			)}
+			{end.error && (
+				<p className="pb-3 text-destructive text-sm">{end.error.message}</p>
+			)}
+		</>
 	);
 }
 
@@ -384,7 +543,7 @@ function Row({
 	return (
 		<div className="flex items-center justify-between gap-4 border-b py-3 text-sm last:border-0">
 			<span>{label}</span>
-			<span>{children}</span>
+			<span className="flex items-center gap-2">{children}</span>
 		</div>
 	);
 }

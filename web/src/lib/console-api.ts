@@ -137,12 +137,39 @@ export type Role = { api: string; key: string; name: string };
 export type User = {
 	sub: string;
 	createdAt: string;
+	disabledAt?: string;
 	identifiers: Identifier[];
 	roles: Role[];
 };
 export type UserDetail = User & { hasPassword: boolean };
 export type RoleInfo = Role & { apiName: string; builtin: boolean };
 export type Me = { sub: string; permissions: string[] };
+export type Session = {
+	id: string;
+	kind: "browser" | "app";
+	application: string;
+	authTime: string;
+	amr: string[];
+	lastSeenAt: string;
+	expiresAt: string;
+	endedAt?: string;
+	active: boolean;
+};
+export type AuditEvent = {
+	id: number;
+	at: string;
+	event: string;
+	sub?: string;
+	detail: Record<string, unknown>;
+};
+export type Overview = {
+	users: number;
+	loginsToday: number;
+	liveSessions: number;
+	applications: number;
+	sendsLastDay: number;
+	dailySendLimit: number;
+};
 
 export type ChannelField = {
 	key: string;

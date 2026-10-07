@@ -298,7 +298,7 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		if pending == "" && !agreed {
 			return fail(errAgree)
 		}
-		if err := s.codes.Check(ctx, value, r.PostFormValue("code")); err != nil {
+		if err := s.ids.FromIP(ctx, clientIP(r), func() error { return s.codes.Check(ctx, value, r.PostFormValue("code")) }); err != nil {
 			return fail(err)
 		}
 		if pending != "" {
@@ -312,7 +312,7 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		}
 		sub, err := s.ids.SignIn(ctx, kind, value)
 		if err != nil {
-			return goidc.StatusFailure, err
+			return fail(err)
 		}
 		return s.login(w, r, as, c, sub, codeAMR(kind), terms.TermsVersion)
 
@@ -323,8 +323,11 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		if !agreed {
 			return fail(errAgree)
 		}
-		sub, err := s.ids.CheckPassword(ctx, form.Username, r.PostFormValue("password"))
-		if err != nil {
+		var sub string
+		if err := s.ids.FromIP(ctx, clientIP(r), func() (err error) {
+			sub, err = s.ids.CheckPassword(ctx, form.Username, r.PostFormValue("password"))
+			return err
+		}); err != nil {
 			return fail(err)
 		}
 		return s.login(w, r, as, c, sub, goidc.AMRPassword, terms.TermsVersion)

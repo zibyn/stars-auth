@@ -168,7 +168,9 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 		sess, err := s.q.CreateSession(ctx, sqlc.CreateSessionParams{
 			ClientID: c.ID, UserID: sub, AuthTime: pgtype.Timestamptz{Time: authTime, Valid: true}, Amr: amr,
 		})
-		if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) { // disabled since authenticating
+			return "", &challengeError{status: http.StatusBadRequest, Code: string(goidc.ErrorCodeAccessDenied), Description: identity.ErrDisabled.Error()}
+		} else if err != nil {
 			return "", err
 		}
 		return s.op.IssueAuthCode(ctx, c, sub, st.Params, map[string]any{
@@ -190,7 +192,7 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 		if st.Identifier == "" {
 			return "", invalid("no code was sent in this auth_session")
 		}
-		if err := s.codes.Check(ctx, st.Identifier, r.PostFormValue("code")); err != nil {
+		if err := s.ids.FromIP(ctx, clientIP(r), func() error { return s.codes.Check(ctx, st.Identifier, r.PostFormValue("code")) }); err != nil {
 			return mistake(err)
 		}
 		kind, value, _ := identity.ParseIdentifier(st.Identifier)
@@ -202,7 +204,7 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 		}
 		sub, err := s.ids.SignIn(ctx, kind, value)
 		if err != nil {
-			return "", err
+			return mistake(err)
 		}
 		return signedIn(sub, time.Now(), []string{string(codeAMR(kind))})
 
@@ -230,8 +232,11 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 		if err := s.pow.Verify(ctx, r.PostFormValue("altcha")); err != nil {
 			return mistake(err)
 		}
-		sub, err := s.ids.CheckPassword(ctx, r.PostFormValue("username"), r.PostFormValue("password"))
-		if err != nil {
+		var sub string
+		if err := s.ids.FromIP(ctx, clientIP(r), func() (err error) {
+			sub, err = s.ids.CheckPassword(ctx, r.PostFormValue("username"), r.PostFormValue("password"))
+			return err
+		}); err != nil {
 			return mistake(err)
 		}
 		return signedIn(sub, time.Now(), []string{string(goidc.AMRPassword)})

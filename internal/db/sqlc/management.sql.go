@@ -28,6 +28,7 @@ SELECT count(*) > 0 AS admin,
                 FILTER (WHERE rp.permission IS NOT NULL), '{}')::text[] AS permissions
 FROM user_roles ur LEFT JOIN role_permissions rp USING (api, role)
 WHERE ur.user_id = $1 AND ur.api = $2
+  AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = ur.user_id AND u.disabled_at IS NOT NULL)
 `
 
 type CallerParams struct {
@@ -40,7 +41,8 @@ type CallerRow struct {
 	Permissions []string
 }
 
-// Holding any Role on the API makes an admin, even one with no Permissions.
+// Holding any Role on the API makes an admin, even one with no Permissions;
+// a disabled User is none.
 func (q *Queries) Caller(ctx context.Context, arg CallerParams) (CallerRow, error) {
 	row := q.db.QueryRow(ctx, caller, arg.UserID, arg.Api)
 	var i CallerRow
@@ -49,9 +51,11 @@ func (q *Queries) Caller(ctx context.Context, arg CallerParams) (CallerRow, erro
 }
 
 const countOwners = `-- name: CountOwners :one
-SELECT count(*) FROM user_roles WHERE api = 'urn:stars-auth:management-api' AND role = 'owner'
+SELECT count(*) FROM user_roles ur JOIN users u ON u.id = ur.user_id
+WHERE ur.api = 'urn:stars-auth:management-api' AND ur.role = 'owner' AND u.disabled_at IS NULL
 `
 
+// A disabled owner is no owner.
 func (q *Queries) CountOwners(ctx context.Context) (int64, error) {
 	row := q.db.QueryRow(ctx, countOwners)
 	var count int64
@@ -129,6 +133,29 @@ func (q *Queries) DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, 
 	return result.RowsAffected(), nil
 }
 
+const deleteUser = `-- name: DeleteUser :execrows
+WITH gone AS (
+    DELETE FROM users WHERE users.id = $2 RETURNING users.id
+)
+INSERT INTO audit_log (event, sub, detail)
+SELECT 'user.deleted', gone.id, jsonb_build_object('by', $1::text) FROM gone
+`
+
+type DeleteUserParams struct {
+	By     string
+	UserID string
+}
+
+// Deletes a User with everything of theirs (foreign keys cascade); their
+// audit events keep only the sub. Audited with who did it.
+func (q *Queries) DeleteUser(ctx context.Context, arg DeleteUserParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteUser, arg.By, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getSettings = `-- name: GetSettings :one
 SELECT password_login, require_phone, daily_send_limit, terms_url, privacy_url, terms_version, audit_retention_days
 FROM settings
@@ -160,7 +187,7 @@ func (q *Queries) GetSettings(ctx context.Context) (GetSettingsRow, error) {
 }
 
 const getUser = `-- name: GetUser :one
-SELECT u.id, u.created_at,
+SELECT u.id, u.created_at, u.disabled_at,
        COALESCE((SELECT json_agg(json_build_object('kind', i.kind, 'value', i.value) ORDER BY i.kind)
                  FROM identifiers i WHERE i.user_id = u.id), '[]')::jsonb AS identifiers,
        COALESCE((SELECT json_agg(json_build_object('api', r.api, 'key', r.key, 'name', r.name) ORDER BY r.api, r.key)
@@ -174,6 +201,7 @@ WHERE u.id = $1
 type GetUserRow struct {
 	ID          string
 	CreatedAt   pgtype.Timestamptz
+	DisabledAt  pgtype.Timestamptz
 	Identifiers []byte
 	Roles       []byte
 	HasPassword bool
@@ -185,6 +213,7 @@ func (q *Queries) GetUser(ctx context.Context, id string) (GetUserRow, error) {
 	err := row.Scan(
 		&i.ID,
 		&i.CreatedAt,
+		&i.DisabledAt,
 		&i.Identifiers,
 		&i.Roles,
 		&i.HasPassword,
@@ -321,6 +350,69 @@ func (q *Queries) ListApplications(ctx context.Context, clientID string) ([]List
 	return items, nil
 }
 
+const listAudit = `-- name: ListAudit :many
+SELECT id, at, event, COALESCE(sub, '')::text AS sub, detail FROM audit_log
+WHERE ($1::text = '' OR event = $1)
+  AND ($2::text = '' OR sub = $2 OR detail ->> 'by' = $2)
+  AND ($3::timestamptz IS NULL OR at >= $3)
+  AND ($4::timestamptz IS NULL OR at < $4)
+  AND ($5::bigint = 0 OR id < $5)
+ORDER BY id DESC
+LIMIT $6
+`
+
+type ListAuditParams struct {
+	Event  string
+	Sub    string
+	Since  pgtype.Timestamptz
+	Until  pgtype.Timestamptz
+	Before int64
+	Lim    int32
+}
+
+type ListAuditRow struct {
+	ID     int64
+	At     pgtype.Timestamptz
+	Event  string
+	Sub    string
+	Detail []byte
+}
+
+// Newest first. sub matches the User an event is about or the admin who
+// did it; before pages by id; empty filters match all.
+func (q *Queries) ListAudit(ctx context.Context, arg ListAuditParams) ([]ListAuditRow, error) {
+	rows, err := q.db.Query(ctx, listAudit,
+		arg.Event,
+		arg.Sub,
+		arg.Since,
+		arg.Until,
+		arg.Before,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAuditRow
+	for rows.Next() {
+		var i ListAuditRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.At,
+			&i.Event,
+			&i.Sub,
+			&i.Detail,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRoles = `-- name: ListRoles :many
 SELECT r.api, a.name AS api_name, r.key, r.name, r.builtin
 FROM roles r JOIN apis a ON a.identifier = r.api
@@ -391,7 +483,7 @@ func (q *Queries) ListSigningKeys(ctx context.Context) ([]ListSigningKeysRow, er
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT u.id, u.created_at,
+SELECT u.id, u.created_at, u.disabled_at,
        COALESCE((SELECT json_agg(json_build_object('kind', i.kind, 'value', i.value) ORDER BY i.kind)
                  FROM identifiers i WHERE i.user_id = u.id), '[]')::jsonb AS identifiers,
        COALESCE((SELECT json_agg(json_build_object('api', r.api, 'key', r.key, 'name', r.name) ORDER BY r.api, r.key)
@@ -418,6 +510,7 @@ type ListUsersParams struct {
 type ListUsersRow struct {
 	ID          string
 	CreatedAt   pgtype.Timestamptz
+	DisabledAt  pgtype.Timestamptz
 	Identifiers []byte
 	Roles       []byte
 }
@@ -443,6 +536,7 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUse
 		if err := rows.Scan(
 			&i.ID,
 			&i.CreatedAt,
+			&i.DisabledAt,
 			&i.Identifiers,
 			&i.Roles,
 		); err != nil {
@@ -464,6 +558,38 @@ SELECT pg_advisory_xact_lock(hashtext('owners'))
 func (q *Queries) LockOwners(ctx context.Context) error {
 	_, err := q.db.Exec(ctx, lockOwners)
 	return err
+}
+
+const overview = `-- name: Overview :one
+SELECT (SELECT count(*) FROM users) AS users,
+       (SELECT count(*) FROM sessions WHERE auth_time >= date_trunc('day', now())) AS logins_today,
+       (SELECT count(*) FROM live_sessions) AS live_sessions,
+       (SELECT count(*) FROM applications) AS applications,
+       (SELECT count(*) FROM sends WHERE sent_at >= now() - interval '1 day') AS sends_last_day,
+       (SELECT daily_send_limit FROM settings) AS daily_send_limit
+`
+
+type OverviewRow struct {
+	Users          int64
+	LoginsToday    int64
+	LiveSessions   int64
+	Applications   int64
+	SendsLastDay   int64
+	DailySendLimit int32
+}
+
+func (q *Queries) Overview(ctx context.Context) (OverviewRow, error) {
+	row := q.db.QueryRow(ctx, overview)
+	var i OverviewRow
+	err := row.Scan(
+		&i.Users,
+		&i.LoginsToday,
+		&i.LiveSessions,
+		&i.Applications,
+		&i.SendsLastDay,
+		&i.DailySendLimit,
+	)
+	return i, err
 }
 
 const putAPI = `-- name: PutAPI :execrows
@@ -513,6 +639,39 @@ type PutRoleParams struct {
 
 func (q *Queries) PutRole(ctx context.Context, arg PutRoleParams) (int64, error) {
 	result, err := q.db.Exec(ctx, putRole, arg.Api, arg.Key, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const replaceIdentifier = `-- name: ReplaceIdentifier :execrows
+WITH put AS (
+    INSERT INTO identifiers (user_id, kind, value)
+    SELECT users.id, $1, $3 FROM users WHERE users.id = $4
+    ON CONFLICT (user_id, kind) DO UPDATE SET value = EXCLUDED.value
+    RETURNING identifiers.user_id
+)
+INSERT INTO audit_log (event, sub, detail)
+SELECT 'identifier.replaced', put.user_id, jsonb_build_object('kind', $1::text, 'by', $2::text) FROM put
+`
+
+type ReplaceIdentifierParams struct {
+	Kind   string
+	By     string
+	Value  string
+	UserID string
+}
+
+// Sets a User's Identifier of a kind, replacing the one they had. Audited
+// with who did it, without the values.
+func (q *Queries) ReplaceIdentifier(ctx context.Context, arg ReplaceIdentifierParams) (int64, error) {
+	result, err := q.db.Exec(ctx, replaceIdentifier,
+		arg.Kind,
+		arg.By,
+		arg.Value,
+		arg.UserID,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -577,6 +736,36 @@ type SetRolePermissionsParams struct {
 func (q *Queries) SetRolePermissions(ctx context.Context, arg SetRolePermissionsParams) error {
 	_, err := q.db.Exec(ctx, setRolePermissions, arg.Api, arg.Role, arg.Permissions)
 	return err
+}
+
+const setUserDisabled = `-- name: SetUserDisabled :execrows
+WITH changed AS (
+    UPDATE users SET disabled_at = CASE WHEN $1::boolean THEN now() END
+    WHERE users.id = $3 AND (users.disabled_at IS NOT NULL) <> $1::boolean
+    RETURNING users.id
+), ended AS (
+    UPDATE sessions SET ended_at = now()
+    WHERE sessions.user_id IN (SELECT changed.id FROM changed) AND $1::boolean AND sessions.ended_at IS NULL
+)
+INSERT INTO audit_log (event, sub, detail)
+SELECT CASE WHEN $1::boolean THEN 'user.disabled' ELSE 'user.enabled' END AS event, changed.id, jsonb_build_object('by', $2::text)
+FROM changed
+`
+
+type SetUserDisabledParams struct {
+	Disabled bool
+	By       string
+	UserID   string
+}
+
+// Disables or restores a User; disabling ends all their Sessions. Audited
+// with who did it; no row when nothing changed.
+func (q *Queries) SetUserDisabled(ctx context.Context, arg SetUserDisabledParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setUserDisabled, arg.Disabled, arg.By, arg.UserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const setUserRoles = `-- name: SetUserRoles :exec

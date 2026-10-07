@@ -1,16 +1,18 @@
 -- name: Caller :one
--- Holding any Role on the API makes an admin, even one with no Permissions.
+-- Holding any Role on the API makes an admin, even one with no Permissions;
+-- a disabled User is none.
 SELECT count(*) > 0 AS admin,
        COALESCE(array_agg(DISTINCT rp.permission ORDER BY rp.permission)
                 FILTER (WHERE rp.permission IS NOT NULL), '{}')::text[] AS permissions
 FROM user_roles ur LEFT JOIN role_permissions rp USING (api, role)
-WHERE ur.user_id = $1 AND ur.api = $2;
+WHERE ur.user_id = $1 AND ur.api = $2
+  AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = ur.user_id AND u.disabled_at IS NOT NULL);
 
 -- name: ListUsers :many
 -- Search matches part of the sub or of any Identifier. An empty role skips
 -- the Role filter.
 -- ponytail: strpos scans every row; add a pg_trgm index when the pool is big.
-SELECT u.id, u.created_at,
+SELECT u.id, u.created_at, u.disabled_at,
        COALESCE((SELECT json_agg(json_build_object('kind', i.kind, 'value', i.value) ORDER BY i.kind)
                  FROM identifiers i WHERE i.user_id = u.id), '[]')::jsonb AS identifiers,
        COALESCE((SELECT json_agg(json_build_object('api', r.api, 'key', r.key, 'name', r.name) ORDER BY r.api, r.key)
@@ -26,7 +28,7 @@ ORDER BY u.created_at DESC, u.id
 LIMIT @lim OFFSET @off;
 
 -- name: GetUser :one
-SELECT u.id, u.created_at,
+SELECT u.id, u.created_at, u.disabled_at,
        COALESCE((SELECT json_agg(json_build_object('kind', i.kind, 'value', i.value) ORDER BY i.kind)
                  FROM identifiers i WHERE i.user_id = u.id), '[]')::jsonb AS identifiers,
        COALESCE((SELECT json_agg(json_build_object('api', r.api, 'key', r.key, 'name', r.name) ORDER BY r.api, r.key)
@@ -46,7 +48,9 @@ ORDER BY a.builtin DESC, r.api, r.builtin DESC, r.key;
 SELECT pg_advisory_xact_lock(hashtext('owners'));
 
 -- name: CountOwners :one
-SELECT count(*) FROM user_roles WHERE api = 'urn:stars-auth:management-api' AND role = 'owner';
+-- A disabled owner is no owner.
+SELECT count(*) FROM user_roles ur JOIN users u ON u.id = ur.user_id
+WHERE ur.api = 'urn:stars-auth:management-api' AND ur.role = 'owner' AND u.disabled_at IS NULL;
 
 -- name: SetUserRoles :exec
 -- Makes roles a User's Roles on an API; audited with who did it.
@@ -177,3 +181,59 @@ VALUES ('settings.updated', NULL, jsonb_build_object('by', @by::text));
 
 -- name: ListSigningKeys :many
 SELECT kid, created_at FROM signing_keys ORDER BY created_at DESC, kid;
+
+-- name: SetUserDisabled :execrows
+-- Disables or restores a User; disabling ends all their Sessions. Audited
+-- with who did it; no row when nothing changed.
+WITH changed AS (
+    UPDATE users SET disabled_at = CASE WHEN @disabled::boolean THEN now() END
+    WHERE users.id = @user_id AND (users.disabled_at IS NOT NULL) <> @disabled::boolean
+    RETURNING users.id
+), ended AS (
+    UPDATE sessions SET ended_at = now()
+    WHERE sessions.user_id IN (SELECT changed.id FROM changed) AND @disabled::boolean AND sessions.ended_at IS NULL
+)
+INSERT INTO audit_log (event, sub, detail)
+SELECT CASE WHEN @disabled::boolean THEN 'user.disabled' ELSE 'user.enabled' END AS event, changed.id, jsonb_build_object('by', @by::text)
+FROM changed;
+
+-- name: DeleteUser :execrows
+-- Deletes a User with everything of theirs (foreign keys cascade); their
+-- audit events keep only the sub. Audited with who did it.
+WITH gone AS (
+    DELETE FROM users WHERE users.id = @user_id RETURNING users.id
+)
+INSERT INTO audit_log (event, sub, detail)
+SELECT 'user.deleted', gone.id, jsonb_build_object('by', @by::text) FROM gone;
+
+-- name: ReplaceIdentifier :execrows
+-- Sets a User's Identifier of a kind, replacing the one they had. Audited
+-- with who did it, without the values.
+WITH put AS (
+    INSERT INTO identifiers (user_id, kind, value)
+    SELECT users.id, @kind, @value FROM users WHERE users.id = @user_id
+    ON CONFLICT (user_id, kind) DO UPDATE SET value = EXCLUDED.value
+    RETURNING identifiers.user_id
+)
+INSERT INTO audit_log (event, sub, detail)
+SELECT 'identifier.replaced', put.user_id, jsonb_build_object('kind', @kind::text, 'by', @by::text) FROM put;
+
+-- name: ListAudit :many
+-- Newest first. sub matches the User an event is about or the admin who
+-- did it; before pages by id; empty filters match all.
+SELECT id, at, event, COALESCE(sub, '')::text AS sub, detail FROM audit_log
+WHERE (@event::text = '' OR event = @event)
+  AND (@sub::text = '' OR sub = @sub OR detail ->> 'by' = @sub)
+  AND (sqlc.narg(since)::timestamptz IS NULL OR at >= sqlc.narg(since))
+  AND (sqlc.narg(until)::timestamptz IS NULL OR at < sqlc.narg(until))
+  AND (@before::bigint = 0 OR id < @before)
+ORDER BY id DESC
+LIMIT @lim;
+
+-- name: Overview :one
+SELECT (SELECT count(*) FROM users) AS users,
+       (SELECT count(*) FROM sessions WHERE auth_time >= date_trunc('day', now())) AS logins_today,
+       (SELECT count(*) FROM live_sessions) AS live_sessions,
+       (SELECT count(*) FROM applications) AS applications,
+       (SELECT count(*) FROM sends WHERE sent_at >= now() - interval '1 day') AS sends_last_day,
+       (SELECT daily_send_limit FROM settings) AS daily_send_limit;

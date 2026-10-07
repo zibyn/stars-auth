@@ -13,18 +13,19 @@ import (
 
 const createSession = `-- name: CreateSession :one
 INSERT INTO sessions (id_hash, client_id, user_id, auth_time, amr, idle_timeout)
-VALUES ($1, $2::text, $3, $4, $5,
-        COALESCE((SELECT session_idle_timeout FROM applications WHERE applications.client_id = $2),
-                 CASE WHEN $1::bytea IS NULL THEN interval '90 days' ELSE interval '30 days' END))
+SELECT $1, $2::text, u.id, $3, $4,
+       COALESCE((SELECT session_idle_timeout FROM applications WHERE applications.client_id = $2),
+                CASE WHEN $1::bytea IS NULL THEN interval '90 days' ELSE interval '30 days' END)
+FROM users u WHERE u.id = $5 AND u.disabled_at IS NULL
 RETURNING id, EXTRACT(EPOCH FROM idle_timeout)::integer AS idle_secs
 `
 
 type CreateSessionParams struct {
 	IDHash   []byte
 	ClientID string
-	UserID   string
 	AuthTime pgtype.Timestamptz
 	Amr      []string
+	UserID   string
 }
 
 type CreateSessionRow struct {
@@ -33,14 +34,15 @@ type CreateSessionRow struct {
 }
 
 // A NULL id_hash makes an App Session. The idle timeout is the
-// Application's, or the default of the Session's kind.
+// Application's, or the default of the Session's kind. No row for a
+// disabled User.
 func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (CreateSessionRow, error) {
 	row := q.db.QueryRow(ctx, createSession,
 		arg.IDHash,
 		arg.ClientID,
-		arg.UserID,
 		arg.AuthTime,
 		arg.Amr,
+		arg.UserID,
 	)
 	var i CreateSessionRow
 	err := row.Scan(&i.ID, &i.IdleSecs)

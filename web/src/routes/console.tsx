@@ -17,13 +17,13 @@ export function useCan() {
 	return (permission: string) => !!data?.permissions.includes(permission);
 }
 
-// Top-level groups; 概览 and 审计 are not built yet.
+// Top-level groups.
 const groups = [
-	{ label: "概览", permission: "users:read" },
+	{ label: "概览", permission: "users:read", to: "/console" },
 	{ label: "身份", permission: "users:read", to: "/console/users" },
 	{ label: "接入", permission: "applications:read", to: "/console/apps" },
 	{ label: "安全", permission: "config:read", to: "/console/security" },
-	{ label: "审计", permission: "audit:read" },
+	{ label: "审计", permission: "audit:read", to: "/console/audit" },
 ] as const;
 
 function Console() {
@@ -50,29 +50,20 @@ function Console() {
 				<nav className="flex gap-1">
 					{groups
 						.filter((g) => can(g.permission))
-						.map((g) =>
-							"to" in g ? (
-								<Link
-									key={g.label}
-									to={g.to}
-									className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted"
-									activeProps={{
-										className:
-											"bg-primary text-primary-foreground hover:bg-primary",
-									}}
-								>
-									{g.label}
-								</Link>
-							) : (
-								<span
-									key={g.label}
-									title="即将推出"
-									className="cursor-not-allowed rounded-md px-3 py-1.5 text-sm text-muted-foreground/50"
-								>
-									{g.label}
-								</span>
-							),
-						)}
+						.map((g) => (
+							<Link
+								key={g.label}
+								to={g.to}
+								activeOptions={{ exact: g.to === "/console" }}
+								className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted"
+								activeProps={{
+									className:
+										"bg-primary text-primary-foreground hover:bg-primary",
+								}}
+							>
+								{g.label}
+							</Link>
+						))}
 				</nav>
 				<div className="ml-auto font-mono text-muted-foreground text-xs">
 					{me.data.sub}

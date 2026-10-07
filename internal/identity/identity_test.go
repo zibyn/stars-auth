@@ -131,3 +131,120 @@ func TestPasswordLoginSetting(t *testing.T) {
 		}
 	}
 }
+
+func owner(t *testing.T, s *Store) string {
+	t.Helper()
+	ctx := context.Background()
+	token, _ := s.SetupToken(ctx)
+	sub, err := s.Bootstrap(ctx, token, "owner", "password1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sub
+}
+
+func audited(t *testing.T, s *Store, event string) int {
+	t.Helper()
+	var n int
+	if err := s.pool.QueryRow(context.Background(), "SELECT count(*) FROM audit_log WHERE event = $1", event).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestFiveWrongPasswordsLockPasswordLogin(t *testing.T) {
+	s := setup(t)
+	ctx := context.Background()
+	sub := owner(t, s)
+
+	// A right password in between starts the count over.
+	for range 4 {
+		if _, err := s.CheckPassword(ctx, "owner", "wrong"); !errors.Is(err, ErrBadCredentials) {
+			t.Fatal(err)
+		}
+	}
+	if got, err := s.CheckPassword(ctx, "owner", "password1"); got != sub {
+		t.Fatal(got, err)
+	}
+	for range 4 {
+		if _, err := s.CheckPassword(ctx, "owner", "wrong"); !errors.Is(err, ErrBadCredentials) {
+			t.Fatal(err)
+		}
+	}
+	// However slowly.
+	if _, err := s.pool.Exec(ctx, "UPDATE login_failures SET at = at - interval '1 hour'"); err != nil {
+		t.Fatal(err)
+	}
+	if audited(t, s, "login.password_locked") != 0 {
+		t.Fatal("locked after 4 in a row")
+	}
+	if _, err := s.CheckPassword(ctx, "owner", "wrong"); !errors.Is(err, ErrPasswordLocked) {
+		t.Fatalf("5th wrong password: %v", err)
+	}
+	if _, err := s.CheckPassword(ctx, "owner", "password1"); !errors.Is(err, ErrPasswordLocked) {
+		t.Fatalf("right password while locked: %v", err)
+	}
+	if n := audited(t, s, "login.password_locked"); n != 1 {
+		t.Errorf("audited %d lockouts", n)
+	}
+
+	// 15 minutes later.
+	if _, err := s.pool.Exec(ctx, "UPDATE lockouts SET until = now() - interval '1 second'"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.CheckPassword(ctx, "owner", "password1"); got != sub {
+		t.Fatalf("after the lockout: %q %v", got, err)
+	}
+}
+
+func TestFiftyFailuresLockAnIPOut(t *testing.T) {
+	s := setup(t)
+	ctx := context.Background()
+	owner(t, s)
+	wrong := func(ip string) error {
+		return s.FromIP(ctx, ip, func() error { return ErrWrongCode })
+	}
+	for i := range 49 {
+		user := []string{"owner", "nobody"}[i%2] // known or not, all count
+		if err := s.FromIP(ctx, "192.0.2.1", func() error {
+			_, err := s.CheckPassword(ctx, user, "wrong")
+			return err
+		}); !errors.Is(err, ErrBadCredentials) && !errors.Is(err, ErrPasswordLocked) {
+			t.Fatal(i, err)
+		}
+	}
+	if err := wrong("192.0.2.1"); !errors.Is(err, ErrWrongCode) {
+		t.Fatalf("50th failure: %v", err)
+	}
+	if n := audited(t, s, "login.ip_locked"); n != 1 {
+		t.Errorf("audited %d IP lockouts", n)
+	}
+	ran := false
+	if err := s.FromIP(ctx, "192.0.2.1", func() error { ran = true; return nil }); !errors.Is(err, ErrIPLocked) || ran {
+		t.Fatalf("while locked out: %v, check ran %v", err, ran)
+	}
+	if err := s.FromIP(ctx, "192.0.2.2", func() error { return nil }); err != nil {
+		t.Fatalf("another IP: %v", err)
+	}
+}
+
+func TestDisabledUserCannotSignIn(t *testing.T) {
+	s := setup(t)
+	ctx := context.Background()
+	owner(t, s)
+	if _, err := s.SignIn(ctx, "email", "a@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.pool.Exec(ctx, "UPDATE users SET disabled_at = now()"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CheckPassword(ctx, "owner", "password1"); !errors.Is(err, ErrDisabled) {
+		t.Errorf("password: %v", err)
+	}
+	if _, err := s.CheckPassword(ctx, "owner", "wrong"); !errors.Is(err, ErrBadCredentials) {
+		t.Errorf("wrong password: %v", err) // being disabled tells no one the password
+	}
+	if _, err := s.SignIn(ctx, "email", "a@example.com"); !errors.Is(err, ErrDisabled) {
+		t.Errorf("code: %v", err)
+	}
+}

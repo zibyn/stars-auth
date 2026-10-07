@@ -14,6 +14,7 @@ import { Route as AccountRouteImport } from './routes/account'
 import { Route as ConsoleRouteImport } from './routes/console'
 import { Route as ConsoleIndexRouteImport } from './routes/console.index'
 import { Route as ConsoleAppsRouteImport } from './routes/console.apps'
+import { Route as ConsoleAuditRouteImport } from './routes/console.audit'
 import { Route as ConsoleSecurityRouteImport } from './routes/console.security'
 import { Route as ConsoleUsersRouteImport } from './routes/console.users'
 import { Route as ConsoleCallbackRouteImport } from './routes/console_.callback'
@@ -43,6 +44,11 @@ const ConsoleAppsRoute = ConsoleAppsRouteImport.update({
   path: '/apps',
   getParentRoute: () => ConsoleRoute,
 } as any)
+const ConsoleAuditRoute = ConsoleAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => ConsoleRoute,
+} as any)
 const ConsoleSecurityRoute = ConsoleSecurityRouteImport.update({
   id: '/security',
   path: '/security',
@@ -64,6 +70,7 @@ export interface FileRoutesByFullPath {
   '/account': typeof AccountRoute
   '/console': typeof ConsoleRouteWithChildren
   '/console/apps': typeof ConsoleAppsRoute
+  '/console/audit': typeof ConsoleAuditRoute
   '/console/security': typeof ConsoleSecurityRoute
   '/console/users': typeof ConsoleUsersRoute
   '/console/callback': typeof ConsoleCallbackRoute
@@ -73,6 +80,7 @@ export interface FileRoutesByTo {
   '/$': typeof SplatRoute
   '/account': typeof AccountRoute
   '/console/apps': typeof ConsoleAppsRoute
+  '/console/audit': typeof ConsoleAuditRoute
   '/console/security': typeof ConsoleSecurityRoute
   '/console/users': typeof ConsoleUsersRoute
   '/console/callback': typeof ConsoleCallbackRoute
@@ -84,6 +92,7 @@ export interface FileRoutesById {
   '/account': typeof AccountRoute
   '/console': typeof ConsoleRouteWithChildren
   '/console/apps': typeof ConsoleAppsRoute
+  '/console/audit': typeof ConsoleAuditRoute
   '/console/security': typeof ConsoleSecurityRoute
   '/console/users': typeof ConsoleUsersRoute
   '/console_/callback': typeof ConsoleCallbackRoute
@@ -96,6 +105,7 @@ export interface FileRouteTypes {
     | '/account'
     | '/console'
     | '/console/apps'
+    | '/console/audit'
     | '/console/security'
     | '/console/users'
     | '/console/callback'
@@ -105,6 +115,7 @@ export interface FileRouteTypes {
     | '/$'
     | '/account'
     | '/console/apps'
+    | '/console/audit'
     | '/console/security'
     | '/console/users'
     | '/console/callback'
@@ -115,6 +126,7 @@ export interface FileRouteTypes {
     | '/account'
     | '/console'
     | '/console/apps'
+    | '/console/audit'
     | '/console/security'
     | '/console/users'
     | '/console_/callback'
@@ -165,6 +177,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ConsoleAppsRouteImport
       parentRoute: typeof ConsoleRoute
     }
+    '/console/audit': {
+      id: '/console/audit'
+      path: '/audit'
+      fullPath: '/console/audit'
+      preLoaderRoute: typeof ConsoleAuditRouteImport
+      parentRoute: typeof ConsoleRoute
+    }
     '/console/security': {
       id: '/console/security'
       path: '/security'
@@ -191,6 +210,7 @@ declare module '@tanstack/react-router' {
 
 interface ConsoleRouteChildren {
   ConsoleAppsRoute: typeof ConsoleAppsRoute
+  ConsoleAuditRoute: typeof ConsoleAuditRoute
   ConsoleSecurityRoute: typeof ConsoleSecurityRoute
   ConsoleUsersRoute: typeof ConsoleUsersRoute
   ConsoleIndexRoute: typeof ConsoleIndexRoute
@@ -198,6 +218,7 @@ interface ConsoleRouteChildren {
 
 const ConsoleRouteChildren: ConsoleRouteChildren = {
   ConsoleAppsRoute: ConsoleAppsRoute,
+  ConsoleAuditRoute: ConsoleAuditRoute,
   ConsoleSecurityRoute: ConsoleSecurityRoute,
   ConsoleUsersRoute: ConsoleUsersRoute,
   ConsoleIndexRoute: ConsoleIndexRoute,

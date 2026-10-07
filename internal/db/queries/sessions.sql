@@ -1,10 +1,12 @@
 -- name: CreateSession :one
 -- A NULL id_hash makes an App Session. The idle timeout is the
--- Application's, or the default of the Session's kind.
+-- Application's, or the default of the Session's kind. No row for a
+-- disabled User.
 INSERT INTO sessions (id_hash, client_id, user_id, auth_time, amr, idle_timeout)
-VALUES (sqlc.narg(id_hash), @client_id::text, @user_id, @auth_time, @amr,
-        COALESCE((SELECT session_idle_timeout FROM applications WHERE applications.client_id = @client_id),
-                 CASE WHEN sqlc.narg(id_hash)::bytea IS NULL THEN interval '90 days' ELSE interval '30 days' END))
+SELECT sqlc.narg(id_hash), @client_id::text, u.id, @auth_time, @amr,
+       COALESCE((SELECT session_idle_timeout FROM applications WHERE applications.client_id = @client_id),
+                CASE WHEN sqlc.narg(id_hash)::bytea IS NULL THEN interval '90 days' ELSE interval '30 days' END)
+FROM users u WHERE u.id = @user_id AND u.disabled_at IS NULL
 RETURNING id, EXTRACT(EPOCH FROM idle_timeout)::integer AS idle_secs;
 
 -- name: TouchSession :one

@@ -80,6 +80,16 @@ type LiveSession struct {
 	ID string
 }
 
+type Lockout struct {
+	Key   string
+	Until pgtype.Timestamptz
+}
+
+type LoginFailure struct {
+	Key string
+	At  pgtype.Timestamptz
+}
+
 type OidcAuthnSession struct {
 	ID        string
 	ExpiresAt pgtype.Timestamptz
@@ -182,8 +192,9 @@ type SigningKey struct {
 }
 
 type User struct {
-	ID        string
-	CreatedAt pgtype.Timestamptz
+	ID         string
+	CreatedAt  pgtype.Timestamptz
+	DisabledAt pgtype.Timestamptz
 }
 
 type UserRole struct {
