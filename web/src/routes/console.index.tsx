@@ -195,7 +195,7 @@ function Recent() {
 						超过审计保留期的记录已经删除。
 					</EmptyState>
 				) : (
-					<EventTable events={events.data?.events ?? []} empty={false} />
+					<EventTable events={events.data?.events ?? []} />
 				)}
 			</CardContent>
 		</Card>

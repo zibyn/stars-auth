@@ -42,6 +42,8 @@ export type AuditEvent = {
 	at: string;
 	event: string;
 	sub?: string;
+	user?: string; // sub's primary Identifier; absent once deleted
+	byUser?: string; // detail.by's, likewise
 	detail: Record<string, unknown>;
 };
 export type Overview = {

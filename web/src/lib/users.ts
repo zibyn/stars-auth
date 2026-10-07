@@ -20,6 +20,13 @@ export const identifierKinds: Identifier["kind"][] = [
 	"username",
 ];
 
+// kindName is what each kind of Identifier is called.
+export const kindName: Record<Identifier["kind"], string> = {
+	phone: "手机号",
+	email: "邮箱",
+	username: "用户名",
+};
+
 // primaryIdentifier is the Identifier a User is shown by.
 export const primaryIdentifier = (identifiers: Identifier[]) =>
 	identifierKinds

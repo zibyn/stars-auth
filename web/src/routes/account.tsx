@@ -26,10 +26,10 @@ import {
 	APIError,
 	api,
 	forget,
-	type Identifier,
 	type Me,
 	type Session,
 } from "#/lib/account-api";
+import { kindName } from "#/lib/users";
 
 export const Route = createFileRoute("/account")({ component: Account });
 
@@ -43,12 +43,6 @@ const sessionsQuery = queryOptions({
 	queryKey: ["account", "sessions"],
 	queryFn: () => api<{ sessions: Session[] }>("/sessions"),
 });
-
-const kindLabel: Record<Identifier["kind"], string> = {
-	phone: "手机号",
-	email: "邮箱",
-	username: "用户名",
-};
 
 const date = (s: string) => new Date(s).toLocaleString("zh-CN");
 
@@ -206,11 +200,7 @@ function LoginMethods({ me, guard }: { me: Me; guard: Guard }) {
 				{(["phone", "email"] as const).map((kind) => {
 					const id = me.identifiers.find((i) => i.kind === kind);
 					return (
-						<Row
-							key={kind}
-							label={kindLabel[kind]}
-							hint={id?.value ?? "未绑定"}
-						>
+						<Row key={kind} label={kindName[kind]} hint={id?.value ?? "未绑定"}>
 							{id ? (
 								<>
 									<Button
@@ -284,9 +274,9 @@ function BindIdentifier({
 	return (
 		<Dialog open onOpenChange={(open) => !open && onClose()}>
 			<DialogContent>
-				<DialogTitle>绑定新{kindLabel[kind]}</DialogTitle>
+				<DialogTitle>绑定新{kindName[kind]}</DialogTitle>
 				<DialogDescription>
-					验证码会发到新{kindLabel[kind]},无需验证原来的。
+					验证码会发到新{kindName[kind]},无需验证原来的。
 				</DialogDescription>
 				<form
 					className="space-y-3"
@@ -614,7 +604,7 @@ function Reauth({
 									setSecret("");
 								}}
 							>
-								{m === "password" ? "密码" : `${kindLabel[m]}验证码`}
+								{m === "password" ? "密码" : `${kindName[m]}验证码`}
 							</Button>
 						))}
 					</div>

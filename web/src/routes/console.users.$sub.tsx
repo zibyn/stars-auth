@@ -8,24 +8,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card";
 import {
 	type Application,
 	api,
-	type Identifier,
 	type RoleInfo,
 	type Session,
 	type UserDetail,
 } from "#/lib/console-api";
-import { identifierKinds, managementAPI, primaryIdentifier } from "#/lib/users";
+import {
+	identifierKinds,
+	kindName,
+	managementAPI,
+	primaryIdentifier,
+} from "#/lib/users";
 import { useCan } from "./console";
 import { date, rolesQuery } from "./console.users.index";
 
 export const Route = createFileRoute("/console/users/$sub")({
 	component: UserPage,
 });
-
-const kindLabel: Record<Identifier["kind"], string> = {
-	phone: "手机号",
-	email: "邮箱",
-	username: "用户名",
-};
 
 function UserPage() {
 	const { sub } = Route.useParams();
@@ -62,7 +60,7 @@ function UserPage() {
 					{can("audit:read") && (
 						<Link
 							to="/console/audit"
-							search={{ sub: u.sub }}
+							search={{ sub: u.sub, q: name ?? u.sub }}
 							className="text-muted-foreground text-sm underline"
 						>
 							查看审计记录
@@ -112,7 +110,7 @@ function UserPage() {
 			</Card>
 			<Section title="登录标识与密码">
 				{identifierKinds.map((kind) => (
-					<Row key={kind} label={kindLabel[kind]}>
+					<Row key={kind} label={kindName[kind]}>
 						{u.identifiers.find((i) => i.kind === kind)?.value ?? (
 							<span className="text-muted-foreground">未绑定</span>
 						)}
@@ -122,7 +120,7 @@ function UserPage() {
 								variant="ghost"
 								disabled={act.isPending}
 								onClick={() => {
-									const value = prompt(`新的${kindLabel[kind]}`);
+									const value = prompt(`新的${kindName[kind]}`);
 									if (value) {
 										act.mutate({
 											method: "PUT",
