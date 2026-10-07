@@ -1,10 +1,19 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	queryOptions,
+	useMutation,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
-import { Button } from "#/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card";
+import { type ReactNode, useState } from "react";
+import { ConfirmDialog, Field, SaveBar, Section } from "#/components/console";
 import { Input } from "#/components/ui/input";
-import { Label } from "#/components/ui/label";
-import { api, type Policy } from "#/lib/console-api";
+import {
+	api,
+	type ChannelPlugin,
+	type ChannelSettings,
+	type Policy,
+} from "#/lib/console-api";
 import { useCan } from "./console";
 
 export const Route = createFileRoute("/console/login")({ component: Login });
@@ -35,105 +44,146 @@ function Login() {
 	);
 }
 
-// usePolicy loads the login settings and saves part of them: PUT /settings
-// takes the whole Policy, so the values a page doesn't show go back as they
-// were.
+export const channelsQuery = queryOptions({
+	queryKey: ["channels"],
+	queryFn: () =>
+		api<{ plugins: ChannelPlugin[]; channels: ChannelSettings[] }>("/channels"),
+});
+
+const settingsKey = ["settings"];
+
 export function usePolicy() {
 	const can = useCan();
-	const client = useQueryClient();
 	const policy = useQuery({
-		queryKey: ["settings"],
+		queryKey: settingsKey,
 		queryFn: () => api<Policy>("/settings"),
 	});
-	const save = useMutation({
-		mutationFn: (patch: Partial<Policy>) =>
-			api("/settings", {
-				method: "PUT",
-				body: { ...policy.data, ...patch },
-			}),
-		onSuccess: () => client.invalidateQueries({ queryKey: ["settings"] }),
+	return { policy, editable: can("config:write") };
+}
+
+// useSavePolicy saves one section: PUT /settings takes the whole Policy, so
+// the rest goes back as it was, read from the cache. A save writes what it
+// sent into the cache at once, so another section's save before the refetch
+// doesn't undo it.
+export function useSavePolicy() {
+	const client = useQueryClient();
+	return useMutation({
+		mutationFn: async (patch: Partial<Policy>) => {
+			const body = { ...client.getQueryData<Policy>(settingsKey), ...patch };
+			await api("/settings", { method: "PUT", body });
+			return body;
+		},
+		onSuccess: (body) => {
+			client.setQueryData(settingsKey, body);
+			return client.invalidateQueries({ queryKey: settingsKey });
+		},
 	});
-	return { policy, save, editable: can("config:write") };
 }
 
-export function PolicyField({
-	label,
-	help,
-	children,
-}: {
-	label: string;
-	help?: string;
-	children: React.ReactElement<{ id: string }>;
-}) {
-	return (
-		<div className="grid gap-1.5">
-			<Label htmlFor={children.props.id}>{label}</Label>
-			{children}
-			{help && <p className="text-muted-foreground text-xs">{help}</p>}
-		</div>
-	);
-}
-
-// PolicyNumber edits one numeric login setting in its own card.
+// PolicyNumber edits one numeric setting in its own section. warning shows
+// under the field as it is typed; confirm, when it applies to the change,
+// asks before saving.
 export function PolicyNumber({
 	title,
 	field,
 	label,
+	suffix,
 	help,
 	min,
+	warning,
+	confirm,
 }: {
 	title: string;
 	field: "dailySendLimit" | "auditRetentionDays";
 	label: string;
-	help?: string;
+	suffix: string;
+	help: string;
 	min: number;
+	warning?: (value: number) => ReactNode;
+	confirm?: {
+		when: (before: number, after: number) => boolean;
+		title: string;
+		action: string;
+		body: ReactNode;
+	};
 }) {
-	const { policy, save, editable } = usePolicy();
+	const { policy, editable } = usePolicy();
+	if (policy.error) {
+		return <p className="text-destructive text-sm">{policy.error.message}</p>;
+	}
+	if (!policy.data) {
+		return null;
+	}
+	const props = { title, field, label, suffix, help, min, warning, confirm };
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>{title}</CardTitle>
-			</CardHeader>
-			<CardContent>
-				{policy.error && (
-					<p className="text-destructive text-sm">{policy.error.message}</p>
-				)}
-				{policy.data && (
-					<form
-						key={policy.data[field]}
-						className="grid gap-4 sm:grid-cols-2"
-						onSubmit={(e) => {
-							e.preventDefault();
-							const f = new FormData(e.currentTarget);
-							save.mutate({ [field]: Number(f.get(field)) });
-						}}
-					>
-						<PolicyField label={label} help={help}>
-							<Input
-								id={field}
-								name={field}
-								type="number"
-								min={min}
-								required
-								disabled={!editable}
-								defaultValue={policy.data[field]}
-							/>
-						</PolicyField>
-						{save.error && (
-							<p className="text-destructive text-sm sm:col-span-2">
-								{save.error.message}
-							</p>
-						)}
-						{editable && (
-							<div className="sm:col-span-2">
-								<Button type="submit" disabled={save.isPending}>
-									保存
-								</Button>
-							</div>
-						)}
-					</form>
-				)}
-			</CardContent>
-		</Card>
+		<NumberForm {...props} current={policy.data[field]} editable={editable} />
 	);
 }
+
+function NumberForm({
+	current,
+	editable,
+	title,
+	field,
+	label,
+	suffix,
+	help,
+	min,
+	warning,
+	confirm,
+}: Parameters<typeof PolicyNumber>[0] & {
+	current: number;
+	editable: boolean;
+}) {
+	const save = useSavePolicy();
+	const [value, setValue] = useState(String(current));
+	const [asking, setAsking] = useState(false);
+	const next = Number(value);
+	return (
+		<Section
+			title={title}
+			editable={editable}
+			onSubmit={() => {
+				if (confirm?.when(current, next)) {
+					setAsking(true);
+				} else {
+					save.mutate({ [field]: next });
+				}
+			}}
+			footer={editable && <SaveBar save={save} />}
+		>
+			<Field label={label} help={help}>
+				<div className="flex items-center gap-2">
+					<Input
+						name={field}
+						type="number"
+						min={min}
+						required
+						className="w-32"
+						value={value}
+						onChange={(e) => setValue(e.target.value)}
+					/>
+					<span className="text-sm">{suffix}</span>
+				</div>
+				{value !== "" && warning?.(next)}
+			</Field>
+			{confirm && (
+				<ConfirmDialog
+					open={asking}
+					onOpenChange={setAsking}
+					title={confirm.title}
+					action={confirm.action}
+					onConfirm={() => save.mutate({ [field]: next })}
+				>
+					{confirm.body}
+				</ConfirmDialog>
+			)}
+		</Section>
+	);
+}
+
+// toChannels links to the 通道 page from a hint that needs a channel.
+export const toChannels = {
+	label: "去设置通道",
+	to: "/console/login/channels",
+} as const;

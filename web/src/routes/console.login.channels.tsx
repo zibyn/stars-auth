@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { ConfirmDialog } from "#/components/console";
+import { ConfirmDialog, InlineWarning } from "#/components/console";
 import { Button } from "#/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card";
 import { Input } from "#/components/ui/input";
@@ -18,16 +18,28 @@ import {
 	type ChannelPlugin,
 	type ChannelSettings,
 } from "#/lib/console-api";
+import { sendsNothing, smsLocked } from "#/lib/login";
 import { useCan } from "./console";
-import { PolicyNumber } from "./console.login";
+import { channelsQuery, PolicyNumber, usePolicy } from "./console.login";
 
 export const Route = createFileRoute("/console/login/channels")({
 	component: ChannelsPage,
 });
 
+// lose is what users can't do while the kind has no channel.
 const kinds = [
-	{ kind: "phone", label: "短信", placeholder: "+8613800001111" },
-	{ kind: "email", label: "邮件", placeholder: "you@example.com" },
+	{
+		kind: "phone",
+		label: "短信",
+		placeholder: "+8613800001111",
+		lose: "用户不能用手机号收验证码登录，也不能绑定手机号。",
+	},
+	{
+		kind: "email",
+		label: "邮件",
+		placeholder: "you@example.com",
+		lose: "用户不能用邮箱收验证码登录。",
+	},
 ] as const;
 
 const date = (s: string) => new Date(s).toLocaleString("zh-CN");
@@ -39,28 +51,30 @@ function ChannelsPage() {
 			<PolicyNumber
 				title="每日发送上限"
 				field="dailySendLimit"
-				label="每日发送上限(条)"
-				help="全实例每天最多发送的验证码"
+				label="每天最多发送"
+				suffix="条"
+				help="认证服务每天最多发出这么多条验证码，防止短信被盗刷。达到上限后，当天不再发送。"
 				min={0}
+				warning={(n) =>
+					sendsNothing(n) && (
+						<InlineWarning>
+							设为 0 后所有验证码都不再发送，包括登录和绑定手机号。
+						</InlineWarning>
+					)
+				}
 			/>
 		</>
 	);
 }
 
 function Channels() {
-	const channels = useQuery({
-		queryKey: ["channels"],
-		queryFn: () =>
-			api<{ plugins: ChannelPlugin[]; channels: ChannelSettings[] }>(
-				"/channels",
-			),
-	});
+	const channels = useQuery(channelsQuery);
 	return (
 		<Card>
 			<CardHeader>
-				<CardTitle>通道</CardTitle>
+				<CardTitle>验证码通道</CardTitle>
 				<p className="text-muted-foreground text-sm">
-					把验证码送到手机号或邮箱;每类只启用一个。
+					认证服务通过它们把验证码发到手机号或邮箱。短信和邮件各启用一个服务商。
 				</p>
 			</CardHeader>
 			<CardContent className="space-y-6">
@@ -87,17 +101,22 @@ function Channel({
 	kind,
 	label,
 	placeholder,
+	lose,
 	plugins,
 	current,
 }: {
 	kind: "phone" | "email";
 	label: string;
 	placeholder: string;
+	lose: string;
 	plugins: ChannelPlugin[];
 	current?: ChannelSettings;
 }) {
 	const can = useCan();
 	const editable = can("config:write");
+	const { policy } = usePolicy();
+	// Until the policy loads, assume the lock so SMS can't slip out.
+	const needed = smsLocked(kind, policy.data?.requirePhone ?? true);
 	const client = useQueryClient();
 	const [pluginKey, setPluginKey] = useState(current?.plugin ?? "");
 	const plugin = plugins.find((p) => p.key === pluginKey);
@@ -135,31 +154,32 @@ function Channel({
 				<span className="text-muted-foreground text-xs">
 					{current ? `已启用 · 更新于 ${date(current.updatedAt)}` : "未启用"}
 				</span>
-				<div className="ml-auto">
-					<Select
-						value={pluginKey}
-						disabled={!editable}
-						onValueChange={(v) => {
-							setPluginKey(`${v ?? ""}`);
-							save.reset();
-						}}
-					>
-						<SelectTrigger className="w-48" aria-label={`${label} Channel`}>
-							<SelectValue>
-								{(v: string) =>
-									plugins.find((p) => p.key === v)?.name ?? "选择 Channel"
-								}
-							</SelectValue>
-						</SelectTrigger>
-						<SelectContent>
-							{plugins.map((p) => (
-								<SelectItem key={p.key} value={p.key}>
-									{p.name}
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				</div>
+			</div>
+			<p className="text-muted-foreground text-sm">没开启时，{lose}</p>
+			<div>
+				<Select
+					value={pluginKey}
+					disabled={!editable}
+					onValueChange={(v) => {
+						setPluginKey(`${v ?? ""}`);
+						save.reset();
+					}}
+				>
+					<SelectTrigger className="w-48" aria-label={`${label}服务商`}>
+						<SelectValue>
+							{(v: string) =>
+								plugins.find((p) => p.key === v)?.name ?? "选择服务商"
+							}
+						</SelectValue>
+					</SelectTrigger>
+					<SelectContent>
+						{plugins.map((p) => (
+							<SelectItem key={p.key} value={p.key}>
+								{p.name}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
 			</div>
 
 			{plugin && (
@@ -224,10 +244,23 @@ function Channel({
 										</Button>
 									}
 									title={`停用${label}通道？`}
-									action={`停用${label}通道`}
-									onConfirm={() => remove.mutate()}
+									{...(needed
+										? {}
+										: {
+												action: `停用${label}通道`,
+												onConfirm: () => remove.mutate(),
+											})}
 								>
-									停用后将无法发送{label}验证码。
+									{needed ? (
+										<>
+											先在登录方式里关闭必须绑定手机号。开着它时停用短信，没有手机号的用户收不到绑定验证码，就登录不进来。{" "}
+											<Link to="/console/login" className="underline">
+												去登录方式
+											</Link>
+										</>
+									) : (
+										`停用后，${lose}`
+									)}
 								</ConfirmDialog>
 							)}
 						</div>
@@ -251,7 +284,7 @@ function Channel({
 						className="w-64"
 					/>
 					<Button type="submit" variant="outline" disabled={test.isPending}>
-						发送测试码
+						发送测试验证码
 					</Button>
 					{test.data && (
 						<span className="text-sm">

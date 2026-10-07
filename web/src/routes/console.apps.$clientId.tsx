@@ -1,11 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { useState } from "react";
 import { z } from "zod";
-import { ConfirmDialog, DangerZone, InlineWarning } from "#/components/console";
+import {
+	ConfirmDialog,
+	DangerZone,
+	Field,
+	InlineWarning,
+	SaveBar,
+	Section,
+} from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card";
 import { Input } from "#/components/ui/input";
 import {
 	Select,
@@ -484,90 +490,5 @@ function WebhookTab({ app, editable }: TabProps) {
 			</Field>
 			{error && <p className="text-destructive text-sm">{error}</p>}
 		</Section>
-	);
-}
-
-// Section is one form: children are what an editor may change, extra
-// stays usable for readers (copying client_id).
-function Section({
-	title,
-	intro,
-	editable,
-	onSubmit,
-	extra,
-	footer,
-	children,
-}: {
-	title: string;
-	intro?: string;
-	editable: boolean;
-	onSubmit: (f: FormData, form: HTMLFormElement) => void;
-	extra?: ReactNode;
-	footer: ReactNode;
-	children: ReactNode;
-}) {
-	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>{title}</CardTitle>
-				{intro && <p className="text-muted-foreground text-sm">{intro}</p>}
-			</CardHeader>
-			<CardContent>
-				<form
-					className="space-y-5"
-					onSubmit={(e) => {
-						e.preventDefault();
-						onSubmit(new FormData(e.currentTarget), e.currentTarget);
-					}}
-				>
-					<fieldset disabled={!editable} className="space-y-5">
-						{children}
-					</fieldset>
-					{extra}
-					{footer}
-				</form>
-			</CardContent>
-		</Card>
-	);
-}
-
-function SaveBar({ save }: { save: ReturnType<typeof useSave> }) {
-	return (
-		<div className="flex items-center gap-3">
-			<Button type="submit" disabled={save.isPending}>
-				保存
-			</Button>
-			{save.isSuccess && <span className="text-green-700 text-sm">已保存</span>}
-			{save.error && (
-				<span className="text-destructive text-sm">{save.error.message}</span>
-			)}
-		</div>
-	);
-}
-
-function Field({
-	label,
-	en,
-	help,
-	children,
-}: {
-	label: string;
-	en?: string; // the original term, in small print beside the label
-	help?: string;
-	children: ReactNode;
-}) {
-	return (
-		<div className="grid gap-1.5">
-			<span className="font-medium text-sm">
-				{label}
-				{en && (
-					<span className="ml-1 font-normal text-muted-foreground text-xs">
-						{en}
-					</span>
-				)}
-			</span>
-			{children}
-			{help && <p className="text-muted-foreground text-xs">{help}</p>}
-		</div>
 	);
 }

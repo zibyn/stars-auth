@@ -1,10 +1,15 @@
+import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { ConfirmDialog } from "#/components/console";
-import { Button } from "#/components/ui/button";
+import {
+	ConfirmDialog,
+	Field,
+	InlineWarning,
+	SaveBar,
+	Section,
+} from "#/components/console";
 import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card";
 import { Input } from "#/components/ui/input";
-import { Label } from "#/components/ui/label";
 import {
 	Select,
 	SelectContent,
@@ -14,92 +19,102 @@ import {
 } from "#/components/ui/select";
 import { Switch } from "#/components/ui/switch";
 import type { Policy } from "#/lib/console-api";
-import { PolicyField, usePolicy } from "./console.login";
+import {
+	asksRequirePhone,
+	asksTermsVersion,
+	hasChannel,
+	passwordLocksOut,
+	termsError,
+} from "#/lib/login";
+import {
+	channelsQuery,
+	toChannels,
+	usePolicy,
+	useSavePolicy,
+} from "./console.login";
 
 export const Route = createFileRoute("/console/login/")({
-	component: LoginPolicy,
+	component: LoginMethods,
 });
 
-const passwordModes = { off: "关闭", admins: "仅管理员", all: "所有 User" };
+const passwordModes = { off: "关闭", admins: "仅管理员", all: "所有用户" };
 
-type LoginFields = Pick<
-	Policy,
-	"passwordLogin" | "requirePhone" | "termsUrl" | "privacyUrl" | "termsVersion"
->;
+const codeKinds = [
+	{ kind: "phone", label: "手机号", channel: "短信" },
+	{ kind: "email", label: "邮箱", channel: "邮件" },
+] as const;
 
-function LoginPolicy() {
-	const { policy, save, editable } = usePolicy();
+function LoginMethods() {
+	const { policy, editable } = usePolicy();
+	const channels = useQuery(channelsQuery);
+	const error = policy.error ?? channels.error;
+	if (error) {
+		return <p className="text-destructive text-sm">{error.message}</p>;
+	}
+	if (!policy.data || !channels.data) {
+		return null;
+	}
+	const p = policy.data;
+	const sms = hasChannel(channels.data.channels, "phone");
+	return (
+		<>
+			<CodeLogin channels={channels.data.channels} />
+			<PasswordLogin current={p} editable={editable} />
+			<RequirePhone current={p} editable={editable} sms={sms} />
+			<Terms current={p} editable={editable} />
+		</>
+	);
+}
+
+type SectionProps = { current: Policy; editable: boolean };
+
+function CodeLogin({
+	channels,
+}: {
+	channels: Parameters<typeof hasChannel>[0];
+}) {
 	return (
 		<Card>
 			<CardHeader>
-				<CardTitle>登录策略</CardTitle>
+				<CardTitle>验证码登录</CardTitle>
 			</CardHeader>
-			<CardContent>
-				{policy.error && (
-					<p className="text-destructive text-sm">{policy.error.message}</p>
-				)}
-				{policy.data && (
-					<PolicyForm
-						key={JSON.stringify(policy.data)}
-						current={policy.data}
-						editable={editable}
-						saving={save.isPending}
-						error={save.error?.message}
-						onSave={(p) => save.mutate(p)}
-					/>
+			<CardContent className="space-y-3">
+				{codeKinds.map((k) =>
+					hasChannel(channels, k.kind) ? (
+						<p key={k.kind} className="text-sm">
+							用户可以用{k.label}收验证码登录。
+						</p>
+					) : (
+						<InlineWarning key={k.kind} link={toChannels}>
+							没有启用{k.channel}通道，用户不能用{k.label}收验证码登录。
+						</InlineWarning>
+					),
 				)}
 			</CardContent>
 		</Card>
 	);
 }
 
-function PolicyForm({
-	current,
-	editable,
-	saving,
-	error,
-	onSave,
-}: {
-	current: Policy;
-	editable: boolean;
-	saving: boolean;
-	error?: string;
-	onSave: (p: LoginFields) => void;
-}) {
-	const [passwordLogin, setPasswordLogin] = useState(current.passwordLogin);
-	const [requirePhone, setRequirePhone] = useState(current.requirePhone);
-	// A changed terms version waits here for the admin to confirm it.
-	const [pending, setPending] = useState<LoginFields>();
+function PasswordLogin({ current, editable }: SectionProps) {
+	const save = useSavePolicy();
+	const [mode, setMode] = useState(current.passwordLogin);
 	return (
-		<form
-			className="grid gap-4 sm:grid-cols-2"
-			onSubmit={(e) => {
-				e.preventDefault();
-				const f = new FormData(e.currentTarget);
-				const text = (k: string) => `${f.get(k) ?? ""}`.trim();
-				const version = text("termsVersion");
-				const p = {
-					passwordLogin,
-					requirePhone,
-					termsUrl: text("termsUrl"),
-					privacyUrl: text("privacyUrl"),
-					termsVersion: version,
-				};
-				if (current.termsVersion && version !== current.termsVersion) {
-					setPending(p);
-				} else {
-					onSave(p);
-				}
-			}}
+		<Section
+			title="密码登录"
+			editable={editable}
+			onSubmit={() => save.mutate({ passwordLogin: mode })}
+			footer={editable && <SaveBar save={save} />}
 		>
-			<div className="grid gap-1.5">
-				<Label>密码登录</Label>
+			<Field
+				label="密码登录范围"
+				help="用户可以用手机号、邮箱或用户名加密码登录。关闭后，已经设置的密码会保留，但不能用来登录。"
+			>
 				<Select
-					value={passwordLogin}
+					value={mode}
 					disabled={!editable}
-					onValueChange={(v) => setPasswordLogin(v as Policy["passwordLogin"])}
+					onValueChange={(v) => setMode(v as Policy["passwordLogin"])}
 				>
-					<SelectTrigger aria-label="密码登录">
+					<SelectTrigger className="w-48" aria-label="密码登录范围">
 						<SelectValue>
 							{(v: Policy["passwordLogin"]) => passwordModes[v]}
 						</SelectValue>
@@ -112,69 +127,142 @@ function PolicyForm({
 						))}
 					</SelectContent>
 				</Select>
-				<p className="text-muted-foreground text-xs">
-					关闭期间,已设的密码保留但不能用
-				</p>
-			</div>
-			<div className="flex items-center gap-2 self-start pt-7">
+				{passwordLocksOut(mode) && (
+					<InlineWarning>
+						只用用户名登录的用户将无法登录，账号中心也不能设置密码。
+					</InlineWarning>
+				)}
+			</Field>
+		</Section>
+	);
+}
+
+function RequirePhone({
+	current,
+	editable,
+	sms,
+}: SectionProps & { sms: boolean }) {
+	const save = useSavePolicy();
+	const [on, setOn] = useState(current.requirePhone);
+	const [asking, setAsking] = useState(false);
+	// Without SMS it can only be turned off, never on.
+	const blocked = !sms && !on;
+	return (
+		<Section
+			title="必须绑定手机号"
+			editable={editable}
+			onSubmit={() =>
+				asksRequirePhone(current.requirePhone, on)
+					? setAsking(true)
+					: save.mutate({ requirePhone: on })
+			}
+			footer={editable && <SaveBar save={save} />}
+		>
+			<Field
+				label="必须绑定手机号"
+				help="让每个用户都有手机号，方便找回账号和发通知。开启后，没有手机号的用户要先绑定才能登录。"
+			>
 				<Switch
-					id="requirePhone"
-					checked={requirePhone}
-					disabled={!editable}
-					onCheckedChange={setRequirePhone}
+					aria-label="必须绑定手机号"
+					checked={on}
+					disabled={!editable || blocked}
+					onCheckedChange={setOn}
 				/>
-				<Label htmlFor="requirePhone">必须绑定手机号</Label>
-			</div>
-			<PolicyField label="《用户协议》URL">
+				{!sms && (
+					<InlineWarning
+						link={{ label: "去启用短信通道", to: "/console/login/channels" }}
+					>
+						先启用短信通道。没有短信通道，用户收不到绑定手机号的验证码。
+					</InlineWarning>
+				)}
+			</Field>
+			<ConfirmDialog
+				open={asking}
+				onOpenChange={setAsking}
+				title="开启必须绑定手机号？"
+				action="开启必须绑定手机号"
+				destructive={false}
+				onConfirm={() => save.mutate({ requirePhone: true })}
+			>
+				没有手机号的用户下次登录时要先绑定才能继续。
+			</ConfirmDialog>
+		</Section>
+	);
+}
+
+function Terms({ current, editable }: SectionProps) {
+	const save = useSavePolicy();
+	const [error, setError] = useState("");
+	const [pending, setPending] = useState<Partial<Policy>>();
+	return (
+		<Section
+			title="用户协议"
+			editable={editable}
+			onSubmit={(f) => {
+				const text = (k: string) => `${f.get(k) ?? ""}`.trim();
+				const t = {
+					termsUrl: text("termsUrl"),
+					privacyUrl: text("privacyUrl"),
+					termsVersion: text("termsVersion"),
+				};
+				const err = termsError(t);
+				setError(err);
+				if (err) {
+					return;
+				}
+				if (asksTermsVersion(current.termsVersion, t.termsVersion)) {
+					setPending(t);
+				} else {
+					save.mutate(t);
+				}
+			}}
+			footer={
+				editable && (
+					<>
+						{error && <p className="text-destructive text-sm">{error}</p>}
+						<SaveBar save={save} />
+					</>
+				)
+			}
+		>
+			<Field label="用户协议地址">
 				<Input
-					id="termsUrl"
 					name="termsUrl"
 					type="url"
-					disabled={!editable}
 					defaultValue={current.termsUrl}
+					placeholder="https://example.com/terms"
 				/>
-			</PolicyField>
-			<PolicyField label="《隐私政策》URL">
+			</Field>
+			<Field label="隐私政策地址">
 				<Input
-					id="privacyUrl"
 					name="privacyUrl"
 					type="url"
-					disabled={!editable}
 					defaultValue={current.privacyUrl}
+					placeholder="https://example.com/privacy"
 				/>
-			</PolicyField>
-			<PolicyField
+			</Field>
+			<Field
 				label="协议版本"
-				help="登录时须勾选同意;改动后 User 下次登录须重新同意。留空则不要求同意"
+				help="用户登录时要勾选同意这一版协议。留空就不要求同意。"
 			>
 				<Input
-					id="termsVersion"
 					name="termsVersion"
 					maxLength={64}
-					disabled={!editable}
+					className="w-48"
 					defaultValue={current.termsVersion}
+					placeholder="如 2026-10"
 				/>
-			</PolicyField>
-			{error && (
-				<p className="text-destructive text-sm sm:col-span-2">{error}</p>
-			)}
+			</Field>
 			<ConfirmDialog
 				open={!!pending}
 				onOpenChange={(o) => !o && setPending(undefined)}
 				title="更新协议版本？"
-				destructive={false}
 				action="更新协议版本"
-				onConfirm={() => pending && onSave(pending)}
+				destructive={false}
+				onConfirm={() => pending && save.mutate(pending)}
 			>
-				改动协议版本后，所有 User 下次登录时都须重新同意。
+				所有用户下次登录都要重新同意。接了直连认证 API 的 App 要带上新版本号。
 			</ConfirmDialog>
-			{editable && (
-				<div className="sm:col-span-2">
-					<Button type="submit" disabled={saving}>
-						保存
-					</Button>
-				</div>
-			)}
-		</form>
+		</Section>
 	);
 }
