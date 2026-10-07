@@ -12,7 +12,7 @@
 | 协议 | 裁剪后的 go-oidc:authorization code + PKCE、refresh 轮换与重用检测、JWKS、userinfo、revocation、RP-Initiated Logout;直连 challenge 端点(`/v1`);Session 模型;`amr` |
 | RBAC | API / Role / Permission、`roles` / `entitlements` 进入 access token、Management API 及其内置 Role 与实时鉴权 |
 | 安全与合规 | 发送限流与每日上限、ALTCHA PoW、失败锁定、审计日志、协议同意、数据留存、个人信息导出 |
-| 界面 | 管理端(概览 / 身份 / 接入 / 安全 / 审计)、账号中心(单页)、托管登录页(`one-time-code` 标注) |
+| 界面 | 管理端(七组导航,见 [consoles.md](consoles.md#导航))、账号中心(单页)、托管登录页(`one-time-code` 标注) |
 | 集成 | `user.deleted` webhook、KMP SDK、OpenAPI 文档与 SDK 行为说明 |
 | 发布 | GHCR 镜像与二进制、compose 样例、部署文档、CI 中跑 conformance 回归 |
 
