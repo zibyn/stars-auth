@@ -5,7 +5,6 @@ import { type ReactNode, useState } from "react";
 import { z } from "zod";
 import { Star } from "#/components/star";
 import { Button } from "#/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card";
 import { Input } from "#/components/ui/input";
 import {
 	Select,
@@ -122,124 +121,117 @@ function Audit() {
 	const filtered = !!(event || sub || since || until);
 
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>审计日志</CardTitle>
-			</CardHeader>
-			<CardContent className="space-y-4">
-				<div className="flex flex-wrap gap-2">
-					<Select
-						value={event}
-						onValueChange={(v) => set("event", `${v ?? ""}`)}
-					>
-						<SelectTrigger className="w-56">
-							<SelectValue>
-								{(v: string) => (v ? eventName(v) : "全部事件")}
-							</SelectValue>
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value="">全部事件</SelectItem>
-							{eventGroups.map(([group, list]) => (
-								<SelectGroup key={group}>
-									<SelectLabel>{group}</SelectLabel>
-									{list.map(([k, name]) => (
-										<SelectItem key={k} value={k}>
-											{name}
-										</SelectItem>
-									))}
-								</SelectGroup>
-							))}
-						</SelectContent>
-					</Select>
-					<form
-						className="flex-1"
-						onSubmit={(e) => {
-							e.preventDefault();
-							find(`${new FormData(e.currentTarget).get("q") ?? ""}`.trim());
-						}}
-					>
-						<Input
-							key={filters.q}
-							name="q"
-							defaultValue={filters.q}
-							disabled={finding}
-							placeholder={
-								can("users:read") ? "手机号、邮箱、用户名或用户 ID" : "用户 ID"
-							}
-						/>
-					</form>
+		<div className="space-y-6">
+			<h1 className="font-semibold text-2xl tracking-tight">审计日志</h1>
+			<div className="flex flex-wrap gap-2">
+				<Select value={event} onValueChange={(v) => set("event", `${v ?? ""}`)}>
+					<SelectTrigger className="w-56">
+						<SelectValue>
+							{(v: string) => (v ? eventName(v) : "全部事件")}
+						</SelectValue>
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="">全部事件</SelectItem>
+						{eventGroups.map(([group, list]) => (
+							<SelectGroup key={group}>
+								<SelectLabel>{group}</SelectLabel>
+								{list.map(([k, name]) => (
+									<SelectItem key={k} value={k}>
+										{name}
+									</SelectItem>
+								))}
+							</SelectGroup>
+						))}
+					</SelectContent>
+				</Select>
+				<form
+					className="flex-1"
+					onSubmit={(e) => {
+						e.preventDefault();
+						find(`${new FormData(e.currentTarget).get("q") ?? ""}`.trim());
+					}}
+				>
 					<Input
-						type="date"
-						className="w-40"
-						aria-label="起始日期"
-						value={since}
-						onChange={(e) => set("since", e.target.value)}
+						key={filters.q}
+						name="q"
+						defaultValue={filters.q}
+						disabled={finding}
+						placeholder={
+							can("users:read") ? "手机号、邮箱、用户名或用户 ID" : "用户 ID"
+						}
 					/>
-					<Input
-						type="date"
-						className="w-40"
-						aria-label="截止日期"
-						value={until}
-						onChange={(e) => set("until", e.target.value)}
-					/>
-				</div>
-				{choices && (
-					<div className="space-y-2 rounded-lg border p-3 text-sm">
-						<p>找到 {choices.length} 个用户，选一个查看记录：</p>
-						<ul className="flex flex-wrap gap-2">
-							{choices.map((u) => (
-								<li key={u.sub}>
-									<Button
-										size="sm"
-										variant="outline"
-										onClick={() =>
-											filterBy(primaryIdentifier(u.identifiers) ?? u.sub, u.sub)
-										}
-									>
-										{primaryIdentifier(u.identifiers) ?? (
-											<span className="font-mono">{u.sub.slice(0, 8)}</span>
-										)}
-									</Button>
-								</li>
-							))}
-						</ul>
-					</div>
-				)}
-				<EventTable
-					events={rows}
-					empty={
-						events.isSuccess &&
-						filtered && (
-							<>
-								<span>没有符合条件的事件</span>
+				</form>
+				<Input
+					type="date"
+					className="w-40"
+					aria-label="起始日期"
+					value={since}
+					onChange={(e) => set("since", e.target.value)}
+				/>
+				<Input
+					type="date"
+					className="w-40"
+					aria-label="截止日期"
+					value={until}
+					onChange={(e) => set("until", e.target.value)}
+				/>
+			</div>
+			{choices && (
+				<div className="space-y-2 rounded-xl bg-primary-soft px-4 py-3 text-sm">
+					<p>找到 {choices.length} 个用户，选一个查看记录：</p>
+					<ul className="flex flex-wrap gap-2">
+						{choices.map((u) => (
+							<li key={u.sub}>
 								<Button
 									size="sm"
 									variant="outline"
-									onClick={() => {
-										setChoices(undefined);
-										navigate({ search: {} });
-									}}
+									onClick={() =>
+										filterBy(primaryIdentifier(u.identifiers) ?? u.sub, u.sub)
+									}
 								>
-									清除筛选
+									{primaryIdentifier(u.identifiers) ?? (
+										<span className="font-mono">{u.sub.slice(0, 8)}</span>
+									)}
 								</Button>
-							</>
-						)
-					}
-				/>
-				{events.error && (
-					<p className="text-destructive text-sm">{events.error.message}</p>
-				)}
-				{events.hasNextPage && (
-					<Button
-						variant="outline"
-						disabled={events.isFetchingNextPage}
-						onClick={() => events.fetchNextPage()}
-					>
-						加载更多
-					</Button>
-				)}
-			</CardContent>
-		</Card>
+							</li>
+						))}
+					</ul>
+				</div>
+			)}
+			<EventTable
+				events={rows}
+				empty={
+					events.isSuccess &&
+					filtered && (
+						<>
+							<span>没有符合条件的事件</span>
+							<Button
+								size="sm"
+								variant="outline"
+								onClick={() => {
+									setChoices(undefined);
+									navigate({ search: {} });
+								}}
+							>
+								清除筛选
+							</Button>
+						</>
+					)
+				}
+			/>
+			{events.error && (
+				<p className="text-destructive text-sm">{events.error.message}</p>
+			)}
+			{events.hasNextPage && (
+				<Button
+					variant="outline"
+					disabled={events.isFetchingNextPage}
+					onClick={() => events.fetchNextPage()}
+				>
+					加载更多
+				</Button>
+			)}
+		</div>
 	);
 }
 
@@ -294,45 +286,43 @@ export function EventTable({
 }) {
 	const { names, naming } = useNames();
 	return (
-		<div className="overflow-hidden rounded-lg border">
-			<Table>
-				<TableHeader>
-					<TableRow>
-						<TableHead>时间</TableHead>
-						<TableHead>操作人</TableHead>
-						<TableHead>事件描述</TableHead>
-					</TableRow>
-				</TableHeader>
-				<TableBody>
-					{(naming ? [] : events).map((ev) => {
-						const { parts, title } = describe(ev, names);
-						return (
-							<TableRow key={ev.id}>
-								<TableCell className="whitespace-nowrap text-muted-foreground">
-									{date(ev.at)}
-								</TableCell>
-								<TableCell className="whitespace-nowrap">
-									<Sentence parts={actor(ev)} />
-								</TableCell>
-								<TableCell className="whitespace-normal" title={title}>
-									<Sentence parts={parts} />
-								</TableCell>
-							</TableRow>
-						);
-					})}
-					{empty && !naming && events.length === 0 && (
-						<TableRow>
-							<TableCell
-								colSpan={3}
-								className="space-x-2 text-center text-muted-foreground"
-							>
-								{empty}
+		<Table>
+			<TableHeader>
+				<TableRow>
+					<TableHead>时间</TableHead>
+					<TableHead>操作人</TableHead>
+					<TableHead>事件描述</TableHead>
+				</TableRow>
+			</TableHeader>
+			<TableBody>
+				{(naming ? [] : events).map((ev) => {
+					const { parts, title } = describe(ev, names);
+					return (
+						<TableRow key={ev.id}>
+							<TableCell className="whitespace-nowrap text-faint text-xs">
+								{date(ev.at)}
+							</TableCell>
+							<TableCell className="whitespace-nowrap">
+								<Sentence parts={actor(ev)} />
+							</TableCell>
+							<TableCell className="whitespace-normal" title={title}>
+								<Sentence parts={parts} />
 							</TableCell>
 						</TableRow>
-					)}
-				</TableBody>
-			</Table>
-		</div>
+					);
+				})}
+				{empty && !naming && events.length === 0 && (
+					<TableRow>
+						<TableCell
+							colSpan={3}
+							className="space-x-2 text-center text-muted-foreground"
+						>
+							{empty}
+						</TableCell>
+					</TableRow>
+				)}
+			</TableBody>
+		</Table>
 	);
 }
 

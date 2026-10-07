@@ -4,7 +4,6 @@ import { useState } from "react";
 import { ConfirmDialog, EmptyState } from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card";
 import {
 	type Application,
 	api,
@@ -19,7 +18,7 @@ import {
 	primaryIdentifier,
 } from "#/lib/users";
 import { useCan } from "./console";
-import { date, rolesQuery } from "./console.users.index";
+import { Avatar, date, rolesQuery } from "./console.users.index";
 
 export const Route = createFileRoute("/console/users/$sub")({
 	component: UserPage,
@@ -48,20 +47,29 @@ function UserPage() {
 	const name = primaryIdentifier(u.identifiers);
 	const who = name ? `用户 ${name}` : "这个用户";
 	return (
-		<>
-			<Card>
-				<CardHeader className="flex flex-row flex-wrap items-center gap-3">
-					<CardTitle className="text-lg">{name ?? "未绑定登录标识"}</CardTitle>
+		<div className="space-y-10">
+			<div className="space-y-3">
+				<Link
+					to="/console/users"
+					className="text-muted-foreground text-sm hover:underline"
+				>
+					用户 ›
+				</Link>
+				<div className="flex flex-wrap items-center gap-3">
+					<Avatar name={name} className="size-10 text-base" />
+					<h1 className="font-semibold text-2xl tracking-tight">
+						{name ?? "未绑定登录标识"}
+					</h1>
 					{u.disabledAt ? (
 						<Badge variant="destructive">已禁用 · {date(u.disabledAt)}</Badge>
 					) : (
-						<Badge variant="secondary">正常</Badge>
+						<Badge className="bg-green-500/10 text-green-700">正常</Badge>
 					)}
 					{can("audit:read") && (
 						<Link
 							to="/console/audit"
 							search={{ sub: u.sub, q: name ?? u.sub }}
-							className="text-muted-foreground text-sm underline"
+							className="text-primary-ink text-sm hover:underline"
 						>
 							查看审计记录
 						</Link>
@@ -101,13 +109,11 @@ function UserPage() {
 							/>
 						</div>
 					)}
-				</CardHeader>
+				</div>
 				{act.error && (
-					<CardContent>
-						<p className="text-destructive text-sm">{act.error.message}</p>
-					</CardContent>
+					<p className="text-destructive text-sm">{act.error.message}</p>
 				)}
-			</Card>
+			</div>
 			<Section title="登录标识与密码">
 				{identifierKinds.map((kind) => (
 					<Row key={kind} label={kindName[kind]}>
@@ -143,14 +149,16 @@ function UserPage() {
 			<Section title="角色">
 				<RoleAssignment user={u} />
 			</Section>
-			<details className="rounded-xl border bg-card px-4 py-3 text-sm">
-				<summary className="cursor-pointer font-medium">更多信息</summary>
+			<details className="text-sm">
+				<summary className="cursor-pointer text-[13px] text-muted-foreground">
+					更多信息
+				</summary>
 				<Row label="用户 ID">
 					<span className="font-mono text-xs">{u.sub}</span>
 				</Row>
 				<Row label="注册时间">{date(u.createdAt)}</Row>
 			</details>
-		</>
+		</div>
 	);
 }
 
@@ -256,14 +264,14 @@ function Sessions({ sub, writable }: { sub: string; writable: boolean }) {
 				</Row>
 			))}
 			{sessions.isSuccess && !list.some((s) => s.active) && (
-				<div className="pb-4">
+				<div className="py-3">
 					<EmptyState title="没有登录中的设备">
 						这个用户目前在任何设备上都没有保持登录。
 					</EmptyState>
 				</div>
 			)}
 			{end.error && (
-				<p className="pb-3 text-destructive text-sm">{end.error.message}</p>
+				<p className="py-3 text-destructive text-sm">{end.error.message}</p>
 			)}
 		</>
 	);
@@ -294,7 +302,7 @@ function RoleAssignment({ user }: { user: UserDetail }) {
 		can("roles:assign") && (!noOwnRoles || can("admin-roles:assign"));
 	if (user.roles.length === 0 && !assigning) {
 		return (
-			<div className="pb-4">
+			<div className="py-3">
 				<EmptyState
 					title="没有角色"
 					action={
@@ -320,7 +328,7 @@ function RoleAssignment({ user }: { user: UserDetail }) {
 		);
 	}
 	return (
-		<div className="divide-y">
+		<div className="divide-y divide-border">
 			{[...byAPI].map(([apiID, list]) => (
 				<APIRoles key={apiID} user={user} apiID={apiID} roles={list} />
 			))}
@@ -363,12 +371,15 @@ function APIRoles({
 				save.mutate(new FormData(e.currentTarget).getAll("roles").map(String));
 			}}
 		>
-			<div className="text-muted-foreground text-xs">{roles[0].apiName}</div>
+			<div className="text-[13px] text-muted-foreground">
+				{roles[0].apiName}
+			</div>
 			<div className="flex flex-wrap gap-x-4 gap-y-1">
 				{roles.map((r) => (
 					<label key={r.key} className="flex items-center gap-1 text-sm">
 						<input
 							type="checkbox"
+							className="accent-primary"
 							name="roles"
 							value={r.key}
 							disabled={!editable}
@@ -395,6 +406,8 @@ function APIRoles({
 	);
 }
 
+// Section looks like the console Section but holds no form: its rows act
+// on their own (更换, 下线) and each API resource's Roles are a form.
 function Section({
 	title,
 	children,
@@ -403,9 +416,9 @@ function Section({
 	children: React.ReactNode;
 }) {
 	return (
-		<section className="rounded-xl border bg-card px-4">
-			<h3 className="pt-3 font-medium text-sm">{title}</h3>
-			{children}
+		<section>
+			<h2 className="font-semibold text-[15px]">{title}</h2>
+			<div className="mt-2">{children}</div>
 		</section>
 	);
 }
@@ -419,7 +432,7 @@ function Row({
 }) {
 	return (
 		<div className="flex items-center justify-between gap-4 border-b py-3 text-sm last:border-0">
-			<span>{label}</span>
+			<span className="text-muted-foreground">{label}</span>
 			<span className="flex items-center gap-2">{children}</span>
 		</div>
 	);
