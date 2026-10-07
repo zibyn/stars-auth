@@ -1,6 +1,6 @@
 # 客户端与接入
 
-各端之间共享的契约是 HTTP API,不是代码。权威约定只有两份:OpenAPI 文档,以及一份 **SDK 行为说明**(single-flight 刷新、refresh token 重用后的处理、登出)。
+各端之间共享的契约是 HTTP API,不是代码。权威约定只有两份:OpenAPI 文档,以及一份 **[SDK 行为说明](../sdk-behavior.md)**(single-flight 刷新、refresh token 重用后的处理、登出)。
 
 ## SDK 清单
 

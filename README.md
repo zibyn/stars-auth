@@ -40,7 +40,8 @@ good. The owner signs in to the admin console at `/console`.
 The Management API lives under `/v1/management`; its OpenAPI document is at
 `/v1/management/openapi.json`. Apps sign in without a browser through the
 direct auth API at `/v1/auth/challenge`, documented at `/v1/auth/openapi.json`
-(account deletion for Apps included). Users manage their account at `/account`,
+(account deletion for Apps included); iOS and Android Apps use the KMP SDK in
+`sdk/kmp`. Users manage their account at `/account`,
 which calls the Account API (`/v1/account/openapi.json`).
 
 An Application's webhook receives `user.deleted` as
