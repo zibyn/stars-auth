@@ -17,11 +17,11 @@ export function useCan() {
 	return (permission: string) => !!data?.permissions.includes(permission);
 }
 
-// Top-level groups; only 身份 and 安全 are built so far.
+// Top-level groups; 概览 and 审计 are not built yet.
 const groups = [
 	{ label: "概览", permission: "users:read" },
 	{ label: "身份", permission: "users:read", to: "/console/users" },
-	{ label: "接入", permission: "applications:read" },
+	{ label: "接入", permission: "applications:read", to: "/console/apps" },
 	{ label: "安全", permission: "config:read", to: "/console/security" },
 	{ label: "审计", permission: "audit:read" },
 ] as const;

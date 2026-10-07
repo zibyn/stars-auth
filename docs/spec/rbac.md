@@ -30,7 +30,8 @@ Stars Auth 自带的内置 API,是一套 REST 接口。管理端前端只调用�
   - confidential Application 走 `client_credentials` 拿到的令牌(二期)。
 - **实时鉴权**:每次请求都从数据库实时读取调用者的 Role,令牌只用来确认是谁,所以降级或撤销立即生效。
 - **默认 Role**:不允许设置,免得新注册的人自动成为管理员。
-- **内置 Role**:内置 Role 和内置 Permission 不能修改,也不能删除;可以另建自定义 Role。
+- **内置 Role**:内置 Role 和内置 Permission 不能修改,也不能删除;可以另建自定义 Role。定义、修改或删除 Management API 上的自定义 Role 需要 `admin-roles:assign`,否则 `applications:write` 就能绕过它给自己加权限。
+- **默认 API**:Management API 只能是管理端的默认 API;其他 Application 不能以它为默认 API,免得它拿着登录管理员的令牌调用 Management API。
 
 ### 内置 Permission 与 Role
 

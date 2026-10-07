@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"html"
 	"io"
 	"net/http"
@@ -339,5 +340,37 @@ func TestConsoleAccessTokenIsForManagementAPI(t *testing.T) {
 	claims := e.claims(e.exchange(login.ConsoleClientID, redirect, e.code(resp)).AccessToken)
 	if claims["aud"] != identity.ManagementAPI || claims["client_id"] != login.ConsoleClientID {
 		t.Errorf("access token claims: %v", claims)
+	}
+}
+
+// The access token carries the User's Roles and their Permissions on the
+// API it is for, and only that API's; the ID token carries none.
+func TestAccessTokenCarriesRolesOfItsAPI(t *testing.T) {
+	e := start(t)
+	e.bootstrap("owner", "password1")
+	if _, err := e.pool.Exec(context.Background(), `
+		INSERT INTO apis (identifier, name) VALUES ('https://track.example', 'Track'), ('https://other.example', 'Other');
+		INSERT INTO permissions (api, key, name) VALUES
+			('https://track.example', 'track:read', 'r'), ('https://track.example', 'track:write', 'w'),
+			('https://other.example', 'other:x', 'x');
+		INSERT INTO roles (api, key, name) VALUES
+			('https://track.example', 'viewer', 'V'), ('https://track.example', 'editor', 'E'), ('https://other.example', 'boss', 'B');
+		INSERT INTO role_permissions VALUES
+			('https://track.example', 'viewer', 'track:read'), ('https://track.example', 'editor', 'track:read'),
+			('https://track.example', 'editor', 'track:write'), ('https://other.example', 'boss', 'other:x');
+		INSERT INTO user_roles SELECT user_id, r.api, r.key FROM identifiers, roles r WHERE value = 'owner' AND NOT r.builtin;
+		UPDATE applications SET default_api = 'https://track.example' WHERE client_id = 'rp'`); err != nil {
+		t.Fatal(err)
+	}
+	_, page := e.authorize("")
+	resp, _ := e.submit(page, "owner", "password1")
+	tok := e.exchange(clientID, callback, e.code(resp))
+	at := e.claims(tok.AccessToken)
+	if at["aud"] != "https://track.example" ||
+		fmt.Sprint(at["roles"]) != "[editor viewer]" || fmt.Sprint(at["entitlements"]) != "[track:read track:write]" {
+		t.Errorf("access token: %v", at)
+	}
+	if id := e.claims(tok.IDToken); id["roles"] != nil || id["entitlements"] != nil || id["groups"] != nil {
+		t.Errorf("ID token: %v", id)
 	}
 }

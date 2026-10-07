@@ -27,6 +27,11 @@ type Application struct {
 	Builtin                bool
 	CreatedAt              pgtype.Timestamptz
 	RefreshTokens          bool
+	WebhookUrl             pgtype.Text
+	WebhookSecret          []byte
+	WebhookSecretUpdatedAt pgtype.Timestamptz
+	AppleAppIds            []string
+	AndroidApps            []byte
 }
 
 type AuditLog struct {

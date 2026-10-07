@@ -1,4 +1,9 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import {
+	useInfiniteQuery,
+	useMutation,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 import { Badge } from "#/components/ui/badge";
@@ -34,6 +39,7 @@ import {
 	type User,
 	type UserDetail,
 } from "#/lib/console-api";
+import { useCan } from "./console";
 
 const search = z.object({
 	q: z.string().optional(),
@@ -41,6 +47,13 @@ const search = z.object({
 	role: z.string().optional(),
 	sub: z.string().optional(), // the User shown in the side sheet
 });
+
+const managementAPI = "urn:stars-auth:management-api";
+
+const rolesQuery = {
+	queryKey: ["roles"],
+	queryFn: () => api<{ roles: RoleInfo[] }>("/roles"),
+};
 
 export const Route = createFileRoute("/console/users")({
 	validateSearch: search,
@@ -63,10 +76,7 @@ const date = (s: string) => new Date(s).toLocaleString("zh-CN");
 function Users() {
 	const { q = "", api: roleAPI = "", role = "", sub } = Route.useSearch();
 	const navigate = useNavigate({ from: Route.fullPath });
-	const roles = useQuery({
-		queryKey: ["roles"],
-		queryFn: () => api<{ roles: RoleInfo[] }>("/roles"),
-	});
+	const roles = useQuery(rolesQuery);
 	const users = useInfiniteQuery({
 		queryKey: ["users", q, roleAPI, role],
 		initialPageParam: 0,
@@ -262,19 +272,90 @@ function Detail({ sub }: { sub: string }) {
 				<Row label="密码">{u.hasPassword ? "已设置" : "未设置"}</Row>
 			</Section>
 			<Section title="Role">
-				{u.roles.length === 0 ? (
-					<p className="py-3 text-muted-foreground text-sm">没有 Role</p>
-				) : (
-					u.roles.map((r) => (
-						<Row key={roleKey(r)} label={r.name}>
-							<span className="font-mono text-muted-foreground text-xs">
-								{r.api}
-							</span>
-						</Row>
-					))
-				)}
+				<RoleAssignment user={u} />
 			</Section>
 		</div>
+	);
+}
+
+// RoleAssignment lists every API's Roles with the User's ticked; each API
+// saves on its own. Management API Roles need admin-roles:assign.
+function RoleAssignment({ user }: { user: UserDetail }) {
+	const roles = useQuery(rolesQuery);
+	const byAPI = new Map<string, RoleInfo[]>();
+	for (const r of roles.data?.roles ?? []) {
+		byAPI.set(r.api, [...(byAPI.get(r.api) ?? []), r]);
+	}
+	return (
+		<div className="divide-y">
+			{[...byAPI].map(([apiID, list]) => (
+				<APIRoles key={apiID} user={user} apiID={apiID} roles={list} />
+			))}
+		</div>
+	);
+}
+
+function APIRoles({
+	user,
+	apiID,
+	roles,
+}: {
+	user: UserDetail;
+	apiID: string;
+	roles: RoleInfo[];
+}) {
+	const can = useCan();
+	const client = useQueryClient();
+	const editable = can(
+		apiID === managementAPI ? "admin-roles:assign" : "roles:assign",
+	);
+	const held = user.roles.filter((r) => r.api === apiID).map((r) => r.key);
+	const save = useMutation({
+		mutationFn: (keys: string[]) =>
+			api(`/users/${encodeURIComponent(user.sub)}/roles`, {
+				method: "PUT",
+				body: { api: apiID, roles: keys },
+			}),
+		onSuccess: () => client.invalidateQueries(),
+	});
+	return (
+		<form
+			key={held.join()}
+			className="space-y-2 py-3"
+			onSubmit={(e) => {
+				e.preventDefault();
+				save.mutate(new FormData(e.currentTarget).getAll("roles").map(String));
+			}}
+		>
+			<div className="text-muted-foreground text-xs">{roles[0].apiName}</div>
+			<div className="flex flex-wrap gap-x-4 gap-y-1">
+				{roles.map((r) => (
+					<label key={r.key} className="flex items-center gap-1 text-sm">
+						<input
+							type="checkbox"
+							name="roles"
+							value={r.key}
+							disabled={!editable}
+							defaultChecked={held.includes(r.key)}
+						/>
+						{r.name}
+					</label>
+				))}
+			</div>
+			{save.error && (
+				<p className="text-destructive text-sm">{save.error.message}</p>
+			)}
+			{editable && (
+				<Button
+					type="submit"
+					size="sm"
+					variant="outline"
+					disabled={save.isPending}
+				>
+					保存
+				</Button>
+			)}
+		</form>
 	);
 }
 

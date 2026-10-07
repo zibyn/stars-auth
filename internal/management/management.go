@@ -31,13 +31,15 @@ const Prefix = "/v1/management"
 
 type Service struct {
 	issuer   string
+	pool     *pgxpool.Pool
+	keyring  *crypt.Keyring
 	q        *sqlc.Queries
 	keys     *oidcstore.Keys
 	channels *channel.Store
 }
 
 func New(pool *pgxpool.Pool, keyring *crypt.Keyring, issuer string) *Service {
-	return &Service{issuer: issuer, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring), channels: channel.NewStore(pool, keyring)}
+	return &Service{issuer: issuer, pool: pool, keyring: keyring, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring), channels: channel.NewStore(pool, keyring)}
 }
 
 type callerKey struct{}
@@ -70,6 +72,21 @@ func (s *Service) Register(mux *http.ServeMux) {
 	get(api, "list-sessions", "users:read", "/users/{sub}/sessions", "A User's Sessions", s.listSessions)
 	op(api, http.MethodDelete, "end-session", "users:write", "/users/{sub}/sessions/{id}", "Sign a User out of one Session", s.endSession)
 	get(api, "list-roles", "users:read", "/roles", "All Roles, for the Role filter", s.listRoles)
+	// Management API Roles further need admin-roles:assign.
+	get(api, "list-apis", "applications:read", "/apis", "APIs with their Permissions and Roles", s.listAPIs)
+	op(api, http.MethodPut, "put-api", "applications:write", "/apis/{api}", "Register an API or rename it", s.putAPI, http.StatusConflict)
+	op(api, http.MethodDelete, "delete-api", "applications:write", "/apis/{api}", "Delete an API with its Permissions and Roles", s.deleteAPI, http.StatusConflict)
+	op(api, http.MethodPut, "put-permission", "applications:write", "/apis/{api}/permissions/{key}", "Define a Permission or rename it", s.putPermission, http.StatusConflict)
+	op(api, http.MethodDelete, "delete-permission", "applications:write", "/apis/{api}/permissions/{key}", "Delete a Permission; Roles lose it too", s.deletePermission, http.StatusConflict)
+	op(api, http.MethodPut, "put-role", "applications:write", "/apis/{api}/roles/{key}", "Define a Role or change its name and Permissions", s.putRole, http.StatusConflict)
+	op(api, http.MethodDelete, "delete-role", "applications:write", "/apis/{api}/roles/{key}", "Delete a Role", s.deleteRole, http.StatusConflict)
+	get(api, "list-applications", "applications:read", "/applications", "All Applications", s.listApplications)
+	get(api, "get-application", "applications:read", "/applications/{clientId}", "An Application", s.getApplication)
+	op(api, http.MethodPost, "create-application", "applications:write", "/applications", "Register an Application", s.createApplication)
+	op(api, http.MethodPut, "update-application", "applications:write", "/applications/{clientId}", "Change an Application's settings", s.updateApplication, http.StatusConflict)
+	op(api, http.MethodDelete, "delete-application", "applications:write", "/applications/{clientId}", "Delete an Application", s.deleteApplication, http.StatusConflict)
+	op(api, http.MethodPost, "new-application-secret", "applications:write", "/applications/{clientId}/secret", "Replace a confidential Application's client secret", s.newSecret, http.StatusConflict)
+	op(api, http.MethodPut, "set-user-roles", "roles:assign", "/users/{sub}/roles", "Set a User's Roles on one API", s.setUserRoles, http.StatusConflict)
 
 	get(api, "list-channels", "config:read", "/channels", "Channel plugins and the enabled Channel of each Identifier kind", s.listChannels)
 	op(api, http.MethodPut, "put-channel", "config:write", "/channels/{kind}", "Enable and configure the Channel of an Identifier kind", s.putChannel)

@@ -111,6 +111,9 @@ func CreateApplication(ctx context.Context, pool *pgxpool.Pool, app Application)
 	return sqlc.New(pool).CreateApplication(ctx, params)
 }
 
+// SecretHash is how a client secret is stored.
+func SecretHash(secret string) []byte { return hash(secret) }
+
 // VerifyClientSecret checks a presented secret against the stored hash (the
 // hex Client.Secret); plug it in with provider.WithClientSecretVerifier.
 func VerifyClientSecret(_ context.Context, stored, presented string) error {

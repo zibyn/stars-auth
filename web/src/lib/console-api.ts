@@ -165,3 +165,46 @@ export type ChannelSettings = {
 	secrets: Record<string, string>; // field → when it was last set
 	updatedAt: string;
 };
+
+export type AndroidApp = {
+	packageName: string;
+	sha256CertFingerprints: string[];
+};
+export type ApplicationSettings = {
+	name: string;
+	redirectUris: string[];
+	postLogoutRedirectUris: string[];
+	defaultApi?: string;
+	sessionIdleTimeout?: number; // seconds; 0 or absent for the default
+	refreshTokens: boolean;
+	webhookUrl?: string;
+	webhookSecret?: string; // write-only; empty keeps the stored one
+	appleAppIds: string[];
+	androidApps: AndroidApp[];
+};
+export type Application = ApplicationSettings & {
+	clientId: string;
+	type: "public" | "confidential";
+	builtin: boolean;
+	createdAt: string;
+	webhookSecretUpdatedAt?: string;
+};
+export type PermissionInfo = { key: string; name: string; builtin: boolean };
+export type RoleDef = {
+	key: string;
+	name: string;
+	builtin: boolean;
+	permissions: string[];
+	users: number;
+};
+export type APIDef = {
+	identifier: string;
+	name: string;
+	builtin: boolean;
+	permissions: PermissionInfo[];
+	roles: RoleDef[];
+};
+
+// apiPath names an API in a Management API path; identifiers are often URLs.
+export const apiPath = (identifier: string) =>
+	`/apis/${encodeURIComponent(identifier)}`;

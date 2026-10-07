@@ -113,3 +113,12 @@ SELECT pg_advisory_xact_lock(hashtext('signing_keys'));
 
 -- name: SetRedirectURIs :exec
 UPDATE applications SET redirect_uris = $2, post_logout_redirect_uris = $3 WHERE client_id = $1;
+
+-- name: TokenRoles :one
+-- A User's Roles on an API and the Permissions they add up to, for the
+-- access token (RFC 9068 §2.2.3.1).
+SELECT COALESCE(array_agg(DISTINCT ur.role ORDER BY ur.role), '{}')::text[] AS roles,
+       COALESCE(array_agg(DISTINCT rp.permission ORDER BY rp.permission)
+                FILTER (WHERE rp.permission IS NOT NULL), '{}')::text[] AS entitlements
+FROM user_roles ur LEFT JOIN role_permissions rp USING (api, role)
+WHERE ur.user_id = $1 AND ur.api = $2;

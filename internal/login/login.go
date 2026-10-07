@@ -158,14 +158,24 @@ func (s *Service) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /setup", s.setup)
 }
 
-// audience makes an access token for the Application's default API.
-// ponytail: one PG read per token; fold into Client if it shows up.
+// audience makes an access token for the Application's default API, with
+// the User's Roles there (RFC 9068 §2.2.3.1), read as they stand now.
+// ponytail: two PG reads per token; fold into Client if it shows up.
 func (s *Service) audience(ctx context.Context, _ *goidc.Token, g *goidc.Grant) map[string]any {
 	app, err := s.q.Application(ctx, g.ClientID)
 	if err != nil || !app.DefaultApi.Valid {
 		return nil
 	}
-	return map[string]any{goidc.ClaimAudience: app.DefaultApi.String}
+	claims := map[string]any{goidc.ClaimAudience: app.DefaultApi.String}
+	r, err := s.q.TokenRoles(ctx, sqlc.TokenRolesParams{UserID: g.Subject, Api: app.DefaultApi.String})
+	if err != nil {
+		slog.Error("token roles", "err", err)
+		return claims
+	}
+	if len(r.Roles) > 0 {
+		claims["roles"], claims["entitlements"] = r.Roles, r.Entitlements
+	}
+	return claims
 }
 
 // DeleteOldSessions removes Sessions ended or idle for over 30 days; run by

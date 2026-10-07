@@ -12,7 +12,7 @@ import (
 )
 
 const application = `-- name: Application :one
-SELECT client_id, name, type, secret_hash, redirect_uris, post_logout_redirect_uris, default_api, session_idle_timeout, builtin, created_at, refresh_tokens FROM applications WHERE client_id = $1
+SELECT client_id, name, type, secret_hash, redirect_uris, post_logout_redirect_uris, default_api, session_idle_timeout, builtin, created_at, refresh_tokens, webhook_url, webhook_secret, webhook_secret_updated_at, apple_app_ids, android_apps FROM applications WHERE client_id = $1
 `
 
 func (q *Queries) Application(ctx context.Context, clientID string) (Application, error) {
@@ -30,6 +30,11 @@ func (q *Queries) Application(ctx context.Context, clientID string) (Application
 		&i.Builtin,
 		&i.CreatedAt,
 		&i.RefreshTokens,
+		&i.WebhookUrl,
+		&i.WebhookSecret,
+		&i.WebhookSecretUpdatedAt,
+		&i.AppleAppIds,
+		&i.AndroidApps,
 	)
 	return i, err
 }
@@ -405,4 +410,31 @@ func (q *Queries) SigningKeys(ctx context.Context) ([]SigningKeysRow, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const tokenRoles = `-- name: TokenRoles :one
+SELECT COALESCE(array_agg(DISTINCT ur.role ORDER BY ur.role), '{}')::text[] AS roles,
+       COALESCE(array_agg(DISTINCT rp.permission ORDER BY rp.permission)
+                FILTER (WHERE rp.permission IS NOT NULL), '{}')::text[] AS entitlements
+FROM user_roles ur LEFT JOIN role_permissions rp USING (api, role)
+WHERE ur.user_id = $1 AND ur.api = $2
+`
+
+type TokenRolesParams struct {
+	UserID string
+	Api    string
+}
+
+type TokenRolesRow struct {
+	Roles        []string
+	Entitlements []string
+}
+
+// A User's Roles on an API and the Permissions they add up to, for the
+// access token (RFC 9068 §2.2.3.1).
+func (q *Queries) TokenRoles(ctx context.Context, arg TokenRolesParams) (TokenRolesRow, error) {
+	row := q.db.QueryRow(ctx, tokenRoles, arg.UserID, arg.Api)
+	var i TokenRolesRow
+	err := row.Scan(&i.Roles, &i.Entitlements)
+	return i, err
 }

@@ -11,6 +11,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const aPIBuiltin = `-- name: APIBuiltin :one
+SELECT builtin FROM apis WHERE identifier = $1
+`
+
+func (q *Queries) APIBuiltin(ctx context.Context, identifier string) (bool, error) {
+	row := q.db.QueryRow(ctx, aPIBuiltin, identifier)
+	var builtin bool
+	err := row.Scan(&builtin)
+	return builtin, err
+}
+
 const caller = `-- name: Caller :one
 SELECT count(*) > 0 AS admin,
        COALESCE(array_agg(DISTINCT rp.permission ORDER BY rp.permission)
@@ -35,6 +46,87 @@ func (q *Queries) Caller(ctx context.Context, arg CallerParams) (CallerRow, erro
 	var i CallerRow
 	err := row.Scan(&i.Admin, &i.Permissions)
 	return i, err
+}
+
+const countOwners = `-- name: CountOwners :one
+SELECT count(*) FROM user_roles WHERE api = 'urn:stars-auth:management-api' AND role = 'owner'
+`
+
+func (q *Queries) CountOwners(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countOwners)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const deleteAPI = `-- name: DeleteAPI :execrows
+DELETE FROM apis
+WHERE apis.identifier = $1 AND NOT apis.builtin
+  AND ($2::boolean OR NOT EXISTS (SELECT 1 FROM user_roles ur WHERE ur.api = apis.identifier))
+`
+
+type DeleteAPIParams struct {
+	Identifier string
+	Force      bool
+}
+
+// Its Permissions, Roles and their assignments go with it, but only when
+// force confirms that; no row while someone holds one of its Roles.
+func (q *Queries) DeleteAPI(ctx context.Context, arg DeleteAPIParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteAPI, arg.Identifier, arg.Force)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteApplication = `-- name: DeleteApplication :exec
+DELETE FROM applications WHERE client_id = $1 AND NOT builtin
+`
+
+func (q *Queries) DeleteApplication(ctx context.Context, clientID string) error {
+	_, err := q.db.Exec(ctx, deleteApplication, clientID)
+	return err
+}
+
+const deletePermission = `-- name: DeletePermission :execrows
+DELETE FROM permissions WHERE api = $1 AND key = $2 AND NOT builtin
+`
+
+type DeletePermissionParams struct {
+	Api string
+	Key string
+}
+
+// Its Roles lose it too (role_permissions cascades).
+func (q *Queries) DeletePermission(ctx context.Context, arg DeletePermissionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deletePermission, arg.Api, arg.Key)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const deleteRole = `-- name: DeleteRole :execrows
+DELETE FROM roles
+WHERE roles.api = $1 AND roles.key = $2 AND NOT roles.builtin
+  AND ($3::boolean OR NOT EXISTS (SELECT 1 FROM user_roles ur WHERE ur.api = roles.api AND ur.role = roles.key))
+`
+
+type DeleteRoleParams struct {
+	Api   string
+	Key   string
+	Force bool
+}
+
+// Its assignments go with it (user_roles cascades), but only when force
+// confirms that; no row while someone holds it.
+func (q *Queries) DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteRole, arg.Api, arg.Key, arg.Force)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getUser = `-- name: GetUser :one
@@ -68,6 +160,135 @@ func (q *Queries) GetUser(ctx context.Context, id string) (GetUserRow, error) {
 		&i.HasPassword,
 	)
 	return i, err
+}
+
+const insertApplication = `-- name: InsertApplication :exec
+INSERT INTO applications (client_id, name, type, secret_hash) VALUES ($1, '', $2, $3)
+`
+
+type InsertApplicationParams struct {
+	ClientID   string
+	Type       string
+	SecretHash []byte
+}
+
+func (q *Queries) InsertApplication(ctx context.Context, arg InsertApplicationParams) error {
+	_, err := q.db.Exec(ctx, insertApplication, arg.ClientID, arg.Type, arg.SecretHash)
+	return err
+}
+
+const listAPIs = `-- name: ListAPIs :many
+SELECT a.identifier, a.name, a.builtin,
+       COALESCE((SELECT json_agg(json_build_object('key', p.key, 'name', p.name, 'builtin', p.builtin) ORDER BY p.key)
+                 FROM permissions p WHERE p.api = a.identifier), '[]')::jsonb AS permissions,
+       COALESCE((SELECT json_agg(json_build_object(
+                     'key', r.key, 'name', r.name, 'builtin', r.builtin,
+                     'permissions', COALESCE((SELECT json_agg(rp.permission ORDER BY rp.permission) FROM role_permissions rp
+                                              WHERE rp.api = r.api AND rp.role = r.key), '[]'),
+                     'users', (SELECT count(*) FROM user_roles ur WHERE ur.api = r.api AND ur.role = r.key))
+                     ORDER BY r.builtin DESC, r.key)
+                 FROM roles r WHERE r.api = a.identifier), '[]')::jsonb AS roles
+FROM apis a
+ORDER BY a.builtin DESC, a.identifier
+`
+
+type ListAPIsRow struct {
+	Identifier  string
+	Name        string
+	Builtin     bool
+	Permissions []byte
+	Roles       []byte
+}
+
+// Every API with its Permissions and Roles; users counts who holds a Role.
+func (q *Queries) ListAPIs(ctx context.Context) ([]ListAPIsRow, error) {
+	rows, err := q.db.Query(ctx, listAPIs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAPIsRow
+	for rows.Next() {
+		var i ListAPIsRow
+		if err := rows.Scan(
+			&i.Identifier,
+			&i.Name,
+			&i.Builtin,
+			&i.Permissions,
+			&i.Roles,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listApplications = `-- name: ListApplications :many
+SELECT client_id, name, type, builtin, created_at, redirect_uris, post_logout_redirect_uris,
+       COALESCE(default_api, '')::text AS default_api,
+       COALESCE(extract(epoch FROM session_idle_timeout), 0)::int AS session_idle_timeout,
+       refresh_tokens, COALESCE(webhook_url, '')::text AS webhook_url, webhook_secret_updated_at,
+       apple_app_ids, android_apps
+FROM applications
+WHERE $1::text = '' OR client_id = $1
+ORDER BY builtin DESC, created_at, client_id
+`
+
+type ListApplicationsRow struct {
+	ClientID               string
+	Name                   string
+	Type                   string
+	Builtin                bool
+	CreatedAt              pgtype.Timestamptz
+	RedirectUris           []string
+	PostLogoutRedirectUris []string
+	DefaultApi             string
+	SessionIdleTimeout     int32
+	RefreshTokens          bool
+	WebhookUrl             string
+	WebhookSecretUpdatedAt pgtype.Timestamptz
+	AppleAppIds            []string
+	AndroidApps            []byte
+}
+
+// One Application, or all of them for an empty client_id.
+func (q *Queries) ListApplications(ctx context.Context, clientID string) ([]ListApplicationsRow, error) {
+	rows, err := q.db.Query(ctx, listApplications, clientID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListApplicationsRow
+	for rows.Next() {
+		var i ListApplicationsRow
+		if err := rows.Scan(
+			&i.ClientID,
+			&i.Name,
+			&i.Type,
+			&i.Builtin,
+			&i.CreatedAt,
+			&i.RedirectUris,
+			&i.PostLogoutRedirectUris,
+			&i.DefaultApi,
+			&i.SessionIdleTimeout,
+			&i.RefreshTokens,
+			&i.WebhookUrl,
+			&i.WebhookSecretUpdatedAt,
+			&i.AppleAppIds,
+			&i.AndroidApps,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listRoles = `-- name: ListRoles :many
@@ -174,4 +395,212 @@ func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUse
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockOwners = `-- name: LockOwners :exec
+SELECT pg_advisory_xact_lock(hashtext('owners'))
+`
+
+// Serialises changes that could leave the instance without an owner.
+func (q *Queries) LockOwners(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, lockOwners)
+	return err
+}
+
+const putAPI = `-- name: PutAPI :execrows
+INSERT INTO apis (identifier, name) VALUES ($1, $2)
+ON CONFLICT (identifier) DO UPDATE SET name = EXCLUDED.name WHERE NOT apis.builtin
+`
+
+type PutAPIParams struct {
+	Identifier string
+	Name       string
+}
+
+func (q *Queries) PutAPI(ctx context.Context, arg PutAPIParams) (int64, error) {
+	result, err := q.db.Exec(ctx, putAPI, arg.Identifier, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const putPermission = `-- name: PutPermission :exec
+INSERT INTO permissions (api, key, name) VALUES ($1, $2, $3)
+ON CONFLICT (api, key) DO UPDATE SET name = EXCLUDED.name
+`
+
+type PutPermissionParams struct {
+	Api  string
+	Key  string
+	Name string
+}
+
+func (q *Queries) PutPermission(ctx context.Context, arg PutPermissionParams) error {
+	_, err := q.db.Exec(ctx, putPermission, arg.Api, arg.Key, arg.Name)
+	return err
+}
+
+const putRole = `-- name: PutRole :execrows
+INSERT INTO roles (api, key, name) VALUES ($1, $2, $3)
+ON CONFLICT (api, key) DO UPDATE SET name = EXCLUDED.name WHERE NOT roles.builtin
+`
+
+type PutRoleParams struct {
+	Api  string
+	Key  string
+	Name string
+}
+
+func (q *Queries) PutRole(ctx context.Context, arg PutRoleParams) (int64, error) {
+	result, err := q.db.Exec(ctx, putRole, arg.Api, arg.Key, arg.Name)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const roleUsers = `-- name: RoleUsers :one
+SELECT r.builtin, (SELECT count(*) FROM user_roles ur WHERE ur.api = r.api AND ur.role = r.key) AS users
+FROM roles r WHERE r.api = $1 AND r.key = $2
+`
+
+type RoleUsersParams struct {
+	Api string
+	Key string
+}
+
+type RoleUsersRow struct {
+	Builtin bool
+	Users   int64
+}
+
+func (q *Queries) RoleUsers(ctx context.Context, arg RoleUsersParams) (RoleUsersRow, error) {
+	row := q.db.QueryRow(ctx, roleUsers, arg.Api, arg.Key)
+	var i RoleUsersRow
+	err := row.Scan(&i.Builtin, &i.Users)
+	return i, err
+}
+
+const setApplicationSecret = `-- name: SetApplicationSecret :execrows
+UPDATE applications SET secret_hash = $2 WHERE client_id = $1 AND type = 'confidential' AND NOT builtin
+`
+
+type SetApplicationSecretParams struct {
+	ClientID   string
+	SecretHash []byte
+}
+
+func (q *Queries) SetApplicationSecret(ctx context.Context, arg SetApplicationSecretParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setApplicationSecret, arg.ClientID, arg.SecretHash)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setRolePermissions = `-- name: SetRolePermissions :exec
+WITH gone AS (
+    DELETE FROM role_permissions
+    WHERE role_permissions.api = $1 AND role_permissions.role = $2 AND NOT (role_permissions.permission = ANY ($3::text[]))
+)
+INSERT INTO role_permissions (api, role, permission)
+SELECT $1, $2, p FROM unnest($3::text[]) AS p
+ON CONFLICT DO NOTHING
+`
+
+type SetRolePermissionsParams struct {
+	Api         string
+	Role        string
+	Permissions []string
+}
+
+func (q *Queries) SetRolePermissions(ctx context.Context, arg SetRolePermissionsParams) error {
+	_, err := q.db.Exec(ctx, setRolePermissions, arg.Api, arg.Role, arg.Permissions)
+	return err
+}
+
+const setUserRoles = `-- name: SetUserRoles :exec
+WITH gone AS (
+    DELETE FROM user_roles
+    WHERE user_roles.user_id = $1 AND user_roles.api = $2 AND NOT (user_roles.role = ANY ($3::text[]))
+), added AS (
+    INSERT INTO user_roles (user_id, api, role)
+    SELECT $1, $2, r FROM unnest($3::text[]) AS r
+    ON CONFLICT DO NOTHING
+)
+INSERT INTO audit_log (event, sub, detail)
+VALUES ('roles.assigned', $1::text, jsonb_build_object('api', $2::text, 'roles', $3::text[], 'by', $4::text))
+`
+
+type SetUserRolesParams struct {
+	UserID string
+	Api    string
+	Roles  []string
+	By     string
+}
+
+// Makes roles a User's Roles on an API; audited with who did it.
+func (q *Queries) SetUserRoles(ctx context.Context, arg SetUserRolesParams) error {
+	_, err := q.db.Exec(ctx, setUserRoles,
+		arg.UserID,
+		arg.Api,
+		arg.Roles,
+		arg.By,
+	)
+	return err
+}
+
+const updateApplication = `-- name: UpdateApplication :execrows
+UPDATE applications SET
+    name = $1,
+    redirect_uris = $2,
+    post_logout_redirect_uris = $3,
+    default_api = NULLIF($4::text, ''),
+    session_idle_timeout = NULLIF($5::int, 0) * interval '1 second',
+    refresh_tokens = $6,
+    webhook_url = NULLIF($7::text, ''),
+    webhook_secret = CASE WHEN $7 = '' THEN NULL ELSE COALESCE($8, webhook_secret) END,
+    webhook_secret_updated_at = CASE WHEN $7 = '' THEN NULL
+                                     WHEN $8 IS NOT NULL THEN now()
+                                     ELSE webhook_secret_updated_at END,
+    apple_app_ids = $9,
+    android_apps = $10
+WHERE client_id = $11 AND NOT builtin
+`
+
+type UpdateApplicationParams struct {
+	Name                   string
+	RedirectUris           []string
+	PostLogoutRedirectUris []string
+	DefaultApi             string
+	IdleSecs               int32
+	RefreshTokens          bool
+	WebhookUrl             string
+	WebhookSecret          []byte
+	AppleAppIds            []string
+	AndroidApps            []byte
+	ClientID               string
+}
+
+// An empty webhook_url turns the webhook off; a NULL webhook_secret keeps
+// the stored one. idle_secs 0 means the default Session lifetime.
+func (q *Queries) UpdateApplication(ctx context.Context, arg UpdateApplicationParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateApplication,
+		arg.Name,
+		arg.RedirectUris,
+		arg.PostLogoutRedirectUris,
+		arg.DefaultApi,
+		arg.IdleSecs,
+		arg.RefreshTokens,
+		arg.WebhookUrl,
+		arg.WebhookSecret,
+		arg.AppleAppIds,
+		arg.AndroidApps,
+		arg.ClientID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
