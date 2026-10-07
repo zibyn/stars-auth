@@ -1,0 +1,41 @@
+# Stars Auth + PostgreSQL behind an existing reverse proxy. Installed to
+# /opt/auth by deploy.sh, which also writes /opt/auth/.env on first run.
+# The proxy terminates TLS for STARS_AUTH_ISSUER and forwards to port
+# STARS_AUTH_PORT (default 8080).
+
+services:
+  stars-auth:
+    image: registry.starsdom.com:9443/zibyn/stars-auth:latest
+    restart: unless-stopped
+    environment:
+      STARS_AUTH_DATABASE_URL: postgres://stars:${POSTGRES_PASSWORD:?}@postgres:5432/stars?sslmode=disable
+      STARS_AUTH_MASTER_KEY: ${STARS_AUTH_MASTER_KEY:?}
+      STARS_AUTH_ISSUER: ${STARS_AUTH_ISSUER:?}
+      # A proxy on this host reaches the published port from the network's
+      # gateway; a proxy elsewhere comes from its own address.
+      STARS_AUTH_TRUSTED_PROXIES: 172.31.254.1,${PROXY_IP:-}
+    ports: ["${STARS_AUTH_PORT:-8080}:8080"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: registry.starsdom.com:9443/docker.io/library/postgres:18-alpine # Harbor proxy cache
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: stars
+      POSTGRES_DB: stars
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+    # PostgreSQL 18 images keep data under /var/lib/postgresql/18/docker.
+    volumes: [pg:/var/lib/postgresql]
+    healthcheck:
+      test: [CMD, pg_isready, -U, stars]
+      interval: 5s
+
+networks:
+  default:
+    ipam:
+      config: [{ subnet: 172.31.254.0/24, gateway: 172.31.254.1 }]
+
+volumes:
+  pg:
