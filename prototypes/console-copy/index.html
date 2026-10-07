@@ -1,0 +1,364 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway. 答 #45「文案风格指南与样页改写」。
+  样页:应用详情(独立页,标签 基本 / 登录 / Webhook,按 #43、#44 的结构与用语)。
+  四个版本用 ?variant= 切换:0 现状文案 / A 行内说明 / B 分区导语 / C 左说明右控件。
+  A/B/C 用同一份指南草案改写,区别在"为什么要配"放在哪。依赖提示的样式不在本题(#47)。
+  直接双击打开即可,无后端,所有数据是假数据。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>样页:应用详情(原型)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  main input,main textarea,main select{border:1px solid #e4e4e7;border-radius:.5rem;padding:.4rem .6rem;width:100%;font-size:.875rem;background:#fff}
+  textarea{min-height:4.5rem}
+  .btn{white-space:nowrap;border-radius:.5rem;padding:.4rem .9rem;font-size:.875rem;border:1px solid #e4e4e7;background:#fff}
+  .btn-primary{background:#18181b;color:#fff;border-color:#18181b}
+  .btn-danger{color:#dc2626;border-color:#fecaca}
+  .help{color:#71717a;font-size:.8rem;line-height:1.5}
+  .err{color:#dc2626;font-size:.8rem}
+</style>
+</head>
+<body class="bg-zinc-50 text-zinc-900">
+<div class="flex min-h-screen">
+  <aside class="w-44 shrink-0 border-r bg-white p-4 text-sm space-y-1">
+    <div class="font-semibold mb-3">Stars Auth</div>
+    <div class="text-zinc-500 px-2 py-1">概览</div>
+    <div class="text-zinc-500 px-2 py-1">用户</div>
+    <div class="bg-zinc-100 rounded px-2 py-1 font-medium">应用</div>
+    <div class="text-zinc-500 px-2 py-1">API 资源</div>
+    <div class="text-zinc-500 px-2 py-1">登录</div>
+    <div class="text-zinc-500 px-2 py-1">审计</div>
+    <div class="text-zinc-500 px-2 py-1">设置</div>
+  </aside>
+  <main class="flex-1 p-8 pb-32 max-w-4xl" id="page"></main>
+</div>
+
+<!-- 原型控制条:不属于被评审的设计 -->
+<div class="fixed bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 rounded-full bg-fuchsia-700 text-white px-4 py-2 shadow-xl text-sm z-50">
+  <button id="prev">◀</button>
+  <span id="label" class="min-w-56 text-center"></span>
+  <button id="next">▶</button>
+  <span class="opacity-60">|</span>
+  <label class="flex items-center gap-1">应用类型
+    <select id="apptype" class="!w-auto !py-0 !text-zinc-900">
+      <option value="public">无后端</option>
+      <option value="confidential">有后端</option>
+    </select>
+  </label>
+</div>
+
+<div id="modal" class="hidden fixed inset-0 bg-black/40 grid place-items-center z-40"></div>
+
+<script>
+const VARIANTS = {
+  "0": "现状文案(对照)",
+  A: "行内说明",
+  B: "分区导语",
+  C: "左说明 · 右控件",
+};
+const keys = Object.keys(VARIANTS);
+const qs = new URLSearchParams(location.search);
+let variant = keys.includes(qs.get("variant")) ? qs.get("variant") : "A";
+let tab = qs.get("tab") || "basic";
+let type = qs.get("type") || "public";
+let advancedOpen = false;
+let webhookError = "";
+
+const app = {
+  name: "星选商城",
+  clientId: "app_7Hq2kLx9",
+  defaultApi: "https://api.shop.example.com",
+  redirectUris: "com.example.shop://callback",
+  postLogout: "",
+  idleDays: "",
+  refresh: true,
+  webhookUrl: "",
+};
+
+// ---------- 文案:现状 ----------
+// 照搬 console.apps.tsx 当前抽屉里的文案(iOS / Android 已按 #43 撤下,不再列出)。
+const OLD = {
+  title: "Application",
+  typeLine: () => `client_id: ${app.clientId} · ${type}`,
+  fields: {
+    name: ["名称", ""],
+    redirect: ["回调地址", "每行一个"],
+    postLogout: ["退出后跳转地址", "每行一个"],
+    defaultApi: ["默认 API", "access token 的 aud"],
+    idle: ["Session 闲置寿命(天)", "留空用默认:浏览器 30 天,App 90 天"],
+    refresh: ["签发 refresh token", ""],
+    webhookUrl: ["webhook URL", "接收 user.deleted;留空不发送"],
+    webhookSecret: ["webhook 签名密钥", ""],
+  },
+  rotateConfirm: "生成新的 client secret 后,旧的立即失效。确定吗?",
+  deleteConfirm: `删除 ${app.name}?它将无法再登录 User。`,
+  webhookError: "webhook 需要签名密钥",
+};
+
+// ---------- 文案:按指南草案改写 ----------
+// what = 是什么(标签);why = 为什么要配 / 不配会怎样;fmt = 格式与默认值(放占位符或短提示)
+const NEW = {
+  typeName: { public: "无后端应用", confidential: "有后端应用" },
+  typeWhy: {
+    public: "适合 App、小程序和纯前端网页。没有 client secret,登录时靠 PKCE 防止授权码被截走。类型创建后不能更改。",
+    confidential: "适合有自己服务器的网站。后端用 client secret 证明自己的身份。类型创建后不能更改。",
+  },
+  sections: {
+    basic: {
+      title: "基本信息",
+      intro: "应用接入时要用到的身份信息都在这里。把 client_id 填进 SDK 或登录请求,认证服务才知道是哪个应用在请求登录。",
+    },
+    token: {
+      title: "访问令牌",
+      intro: "选定默认 API 资源后,用户登录这个应用拿到的 access token 就能调用它,里面也会带上用户在该 API 资源上的角色。不选,token 里就没有角色。",
+    },
+    danger: { title: "删除应用", intro: "删除后,用户不能再通过这个应用登录。此操作无法撤销。" },
+    redirect: {
+      title: "登录跳转",
+      intro: "用户在登录页完成登录或退出后,会被送回这里登记的地址。没登记的地址一律拒绝,这样登录结果不会被送到别人的网站。",
+    },
+    keep: {
+      title: "保持登录",
+      intro: "决定用户多久不用就要重新登录。浏览器默认 30 天,App 默认 90 天;大多数应用不用改。",
+    },
+    webhook: {
+      title: "用户删除通知",
+      intro: "用户被管理员删除或自己注销账号时,认证服务会通知这个地址,方便你的后端同步清理这个用户的业务数据。不需要的话留空即可。",
+    },
+  },
+  fields: {
+    name: { what: "名称", why: "", fmt: "如:星选商城 App" },
+    clientId: { what: "client_id", why: "应用的唯一编号。在 SDK 或登录请求里填它,认证服务就知道是哪个应用。" },
+    secret: { what: "client secret", why: "你的后端换取令牌时用的密码。只在生成时显示一次,请立即保存到服务器配置里。" },
+    defaultApi: { what: "默认 API 资源", why: "用户登录后拿到的 access token 用于调用它,并带上用户在其中的角色。不选,token 里没有角色。" },
+    redirect: { what: "回调地址", en: "redirect URI", why: "登录完成后跳回应用的地址。只接受这里登记过的地址。", fmt: "每行一个,如 https://shop.example.com/callback" },
+    postLogout: { what: "退出后跳转地址", en: "post-logout redirect URI", why: "用户退出后回到的页面。同样只接受登记过的地址。", fmt: "每行一个,可不填" },
+    refresh: { what: "允许 App 保持登录", why: "开启后,App 可在后台续期,用户不用反复登录。关闭后,大约 10 分钟就要重新登录。", en: "签发 refresh token,每次刷新都给会话续期" },
+    idle: { what: "闲置多久需重新登录", why: "用户连续这么多天没用这个应用,下次打开就要重新登录。修改只影响之后新登录的用户。", fmt: { public: "默认 90", confidential: "默认 30" } },
+    webhookUrl: { what: "通知地址", why: "需能从公网访问。", fmt: "https://shop.example.com/hooks/stars" },
+    webhookSecret: { what: "Webhook 密钥", why: "你的后端用它验证通知确实来自认证服务。填写通知地址时必须一起设置。", fmt: "自行生成一串随机字符,可用 whsec_ 开头的格式" },
+  },
+  rotateConfirm: {
+    title: "重新生成 client secret?",
+    body: "旧的 secret 会立即失效,还在用它的后端会登录失败。请先准备好替换,再生成。",
+    ok: "重新生成",
+  },
+  deleteConfirm: {
+    title: `删除「${app.name}」?`,
+    body: "用户将不能再通过这个应用登录。此操作无法撤销。",
+    ok: "删除应用",
+  },
+  webhookError: "请设置 Webhook 密钥。填写通知地址后,必须同时设置密钥。",
+  saved: "已保存",
+};
+
+// ---------- 小部件 ----------
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const tabs = [["basic", "基本"], ["login", "登录"], ["webhook", "Webhook"]];
+const tabBar = () =>
+  `<div class="flex gap-1 border-b mb-6">${tabs
+    .map(([k, l]) => `<button data-tab="${k}" class="px-3 py-2 text-sm ${tab === k ? "border-b-2 border-zinc-900 font-medium" : "text-zinc-500"}">${l}</button>`)
+    .join("")}</div>`;
+const header = (title, sub) => `
+  <div class="text-sm text-zinc-500 mb-1">应用 › ${esc(app.name)}</div>
+  <div class="flex items-center gap-3 mb-4"><h1 class="text-2xl font-semibold">${title}</h1>${sub}</div>`;
+
+const control = {
+  name: () => `<input value="${esc(app.name)}" placeholder="${NEW.fields.name.fmt}">`,
+  nameOld: () => `<input value="${esc(app.name)}">`,
+  clientId: () => `<div class="flex gap-2"><input class="mono" readonly value="${app.clientId}"><button class="btn">复制</button></div>`,
+  secret: () => `<div class="flex gap-2 items-center"><input class="mono" readonly value="••••••••••••••••"><button class="btn" data-act="rotate">重新生成</button></div>`,
+  defaultApi: (old) => `<select><option>${old ? "无" : "不选"}</option><option selected>商城 API${old ? "" : "(https://api.shop.example.com)"}</option></select>`,
+  redirect: (old) => `<textarea class="mono" placeholder="${old ? "" : NEW.fields.redirect.fmt}">${app.redirectUris}</textarea>`,
+  postLogout: (old) => `<textarea class="mono" placeholder="${old ? "" : NEW.fields.postLogout.fmt}"></textarea>`,
+  idle: (old) =>
+    old
+      ? `<input type="number">`
+      : `<div class="flex items-center gap-2"><input type="number" class="!w-28" placeholder="${NEW.fields.idle.fmt[type]}"><span class="text-sm">天</span></div>`,
+  refresh: () => `<label class="inline-flex items-center gap-2"><input type="checkbox" class="!w-4" ${app.refresh ? "checked" : ""}></label>`,
+  webhookUrl: (old) => `<input id="wurl" class="mono" value="${esc(app.webhookUrl)}" placeholder="${old ? "" : NEW.fields.webhookUrl.fmt}">`,
+  webhookSecret: (old) => `<input type="password" placeholder="${old ? "" : NEW.fields.webhookSecret.fmt}" class="${webhookError ? "!border-red-500" : ""}">`,
+};
+const saveBar = (label = "保存") =>
+  `<div class="flex items-center gap-3 pt-2"><button class="btn btn-primary" data-act="save">${label}</button><span id="saved" class="text-sm text-green-700"></span></div>`;
+const errLine = () => (webhookError ? `<p class="err">${webhookError}</p>` : "");
+const enHint = (f) => (f.en ? `<span class="text-zinc-400 text-xs font-normal ml-1">${f.en}</span>` : "");
+
+// ---------- 版本 0:现状 ----------
+function variant0() {
+  const f = OLD.fields;
+  const row = (k, c) => `<div class="grid gap-1.5"><label class="text-sm font-medium">${f[k][0]}</label>${c}${f[k][1] ? `<p class="help">${f[k][1]}</p>` : ""}</div>`;
+  return `
+  ${header(OLD.title, "")}
+  <p class="text-sm text-zinc-500 mb-4">现状:抽屉里一张长表单,不分标签。这里平铺展示,便于对照。</p>
+  <div class="bg-white border rounded-xl p-6 space-y-4">
+    <p class="mono text-sm">${OLD.typeLine()}</p>
+    ${row("name", control.nameOld())}
+    ${row("redirect", control.redirect(true))}
+    ${row("postLogout", control.postLogout(true))}
+    ${row("defaultApi", control.defaultApi(true))}
+    ${row("idle", control.idle(true))}
+    <div class="flex items-center gap-2">${control.refresh()}<span class="text-sm">${f.refresh[0]}</span></div>
+    ${row("webhookUrl", control.webhookUrl(true))}
+    ${row("webhookSecret", control.webhookSecret(true))}
+    ${errLine()}
+    <div class="flex gap-2"><button class="btn btn-primary" data-act="save">保存</button>
+    ${type === "confidential" ? `<button class="btn" data-act="rotate">重新生成 secret</button>` : ""}
+    <button class="btn" data-act="delete">删除</button></div>
+  </div>`;
+}
+
+// ---------- 版本 A:行内说明 ----------
+// 每个字段:标签 → 控件 → 一句"是什么 + 为什么"。格式与默认值放占位符。分区只有标题。
+function variantA() {
+  const F = NEW.fields;
+  const row = (k, c) => `<div class="grid gap-1.5"><label class="text-sm font-medium">${F[k].what}${enHint(F[k])}</label>${c}${F[k].why ? `<p class="help">${F[k].why}</p>` : ""}</div>`;
+  const card = (title, body) => `<section class="bg-white border rounded-xl p-6 space-y-5"><h2 class="font-medium">${title}</h2>${body}</section>`;
+  const S = NEW.sections;
+  const pages = {
+    basic: [
+      card(S.basic.title, `
+        ${row("name", control.name())}
+        <div class="grid gap-1.5"><label class="text-sm font-medium">类型</label><div class="text-sm">${NEW.typeName[type]}</div><p class="help">${NEW.typeWhy[type]}</p></div>
+        ${row("clientId", control.clientId())}
+        ${type === "confidential" ? row("secret", control.secret()) : ""}
+        ${saveBar()}`),
+      card(S.token.title, `${row("defaultApi", control.defaultApi())}${saveBar()}`),
+      card(S.danger.title, `<p class="help">${S.danger.intro}</p><button class="btn btn-danger" data-act="delete">删除应用</button>`),
+    ],
+    login: [
+      card(S.redirect.title, `${row("redirect", control.redirect())}${row("postLogout", control.postLogout())}${saveBar()}`),
+      `<details class="bg-white border rounded-xl p-6" ${advancedOpen ? "open" : ""} data-adv><summary class="font-medium cursor-pointer">高级:保持登录</summary><div class="space-y-5 mt-5">
+        ${row("refresh", control.refresh())}${row("idle", control.idle())}${saveBar()}</div></details>`,
+    ],
+    webhook: [
+      card(S.webhook.title, `<p class="help -mt-3">${S.webhook.intro}</p>${row("webhookUrl", control.webhookUrl())}${row("webhookSecret", control.webhookSecret())}${errLine()}${saveBar()}`),
+    ],
+  };
+  return `${header(esc(app.name), `<span class="text-xs rounded-full bg-zinc-100 px-2 py-0.5">${NEW.typeName[type]}</span>`)}${tabBar()}<div class="space-y-6">${pages[tab].join("")}</div>`;
+}
+
+// ---------- 版本 B:分区导语 ----------
+// 每个分区开头一段话讲清"为什么要配、不配会怎样";字段下只剩格式、默认值这类短提示。
+function variantB() {
+  const F = NEW.fields;
+  const S = NEW.sections;
+  const row = (k, c, hint) => `<div class="grid gap-1.5"><label class="text-sm font-medium">${F[k].what}${enHint(F[k])}</label>${c}${hint ? `<p class="help">${hint}</p>` : ""}</div>`;
+  const sec = (s, body) => `<section class="py-6 border-b last:border-0"><h2 class="text-lg font-semibold">${s.title}</h2><p class="text-sm text-zinc-600 leading-relaxed mt-1 mb-5 max-w-2xl">${s.intro}</p><div class="space-y-5 max-w-xl">${body}</div></section>`;
+  const pages = {
+    basic: [
+      sec({ title: S.basic.title, intro: `${S.basic.intro}${type === "confidential" ? "client secret 只在生成时显示一次,请立即保存到服务器配置里。" : ""}` }, `
+        ${row("name", control.name())}
+        <div class="grid gap-1.5"><label class="text-sm font-medium">类型</label><div class="text-sm">${NEW.typeName[type]} <span class="help">· 创建后不能更改</span></div></div>
+        ${row("clientId", control.clientId())}
+        ${type === "confidential" ? row("secret", control.secret()) : ""}${saveBar()}`),
+      sec(S.token, `${row("defaultApi", control.defaultApi())}${saveBar()}`),
+      sec(S.danger, `<button class="btn btn-danger" data-act="delete">删除应用</button>`),
+    ],
+    login: [
+      sec(S.redirect, `${row("redirect", control.redirect(), "每行一个完整地址")}${row("postLogout", control.postLogout(), "每行一个,可不填")}${saveBar()}`),
+      sec({ title: S.keep.title, intro: `${S.keep.intro}关闭"允许 App 保持登录"后,用户大约 10 分钟就要重新登录。` }, `
+        ${row("refresh", control.refresh())}${row("idle", control.idle(), "只影响之后新登录的用户")}${saveBar()}`),
+    ],
+    webhook: [
+      sec(S.webhook, `${row("webhookUrl", control.webhookUrl(), "需能从公网访问")}${row("webhookSecret", control.webhookSecret(), "填写通知地址时必须一起设置")}${errLine()}${saveBar()}`),
+    ],
+  };
+  return `${header(esc(app.name), `<span class="text-xs rounded-full bg-zinc-100 px-2 py-0.5">${NEW.typeName[type]}</span>`)}${tabBar()}<div class="bg-white border rounded-xl px-6">${pages[tab].join("")}</div>`;
+}
+
+// ---------- 版本 C:左说明 · 右控件 ----------
+// 设置页常见的两栏:左边是标签和完整说明,右边是控件;一个字段一行,行间分隔线。
+function variantC() {
+  const F = NEW.fields;
+  const S = NEW.sections;
+  const row = (k, c) => `<div class="grid md:grid-cols-[1fr_1.3fr] gap-4 py-5 border-b last:border-0">
+    <div><div class="text-sm font-medium">${F[k].what}</div>${F[k].en ? `<div class="text-xs text-zinc-400 mono">${F[k].en}</div>` : ""}${F[k].why ? `<p class="help mt-1">${F[k].why}</p>` : ""}</div><div>${c}</div></div>`;
+  const group = (s, body, foot = saveBar()) => `<section class="bg-white border rounded-xl"><div class="px-6 pt-5"><h2 class="font-medium">${s.title}</h2></div><div class="px-6">${body}</div><div class="px-6 pb-5">${foot}</div></section>`;
+  const pages = {
+    basic: [
+      group(S.basic, `${row("name", control.name())}
+        <div class="grid md:grid-cols-[1fr_1.3fr] gap-4 py-5 border-b"><div><div class="text-sm font-medium">类型</div><p class="help mt-1">${NEW.typeWhy[type]}</p></div><div class="text-sm">${NEW.typeName[type]}</div></div>
+        ${row("clientId", control.clientId())}${type === "confidential" ? row("secret", control.secret()) : ""}`),
+      group(S.token, row("defaultApi", control.defaultApi())),
+      `<section class="border border-red-200 rounded-xl p-6 flex items-center justify-between gap-4"><div><div class="font-medium">${S.danger.title}</div><p class="help">${S.danger.intro}</p></div><button class="btn btn-danger shrink-0" data-act="delete">删除应用</button></section>`,
+    ],
+    login: [
+      group(S.redirect, `${row("redirect", control.redirect())}${row("postLogout", control.postLogout())}`),
+      group({ title: "高级" }, `${row("refresh", control.refresh())}${row("idle", control.idle())}`),
+    ],
+    webhook: [
+      group(S.webhook, `<p class="help pb-2">${S.webhook.intro}</p>${row("webhookUrl", control.webhookUrl())}${row("webhookSecret", control.webhookSecret())}${errLine()}`),
+    ],
+  };
+  return `${header(esc(app.name), `<span class="text-xs rounded-full bg-zinc-100 px-2 py-0.5">${NEW.typeName[type]}</span>`)}${tabBar()}<div class="space-y-6">${pages[tab].join("")}</div>`;
+}
+
+// ---------- 确认框 ----------
+function confirmBox(kind) {
+  const m = document.getElementById("modal");
+  if (variant === "0") {
+    // 现状用的是浏览器原生 confirm()
+    confirm(kind === "rotate" ? OLD.rotateConfirm : OLD.deleteConfirm);
+    return;
+  }
+  const c = kind === "rotate" ? NEW.rotateConfirm : NEW.deleteConfirm;
+  m.innerHTML = `<div class="bg-white rounded-xl p-6 w-[26rem] space-y-3 shadow-xl">
+    <h3 class="font-semibold">${c.title}</h3><p class="text-sm text-zinc-600">${c.body}</p>
+    <div class="flex justify-end gap-2 pt-2"><button class="btn" data-close>取消</button><button class="btn ${kind === "delete" ? "bg-red-600 text-white border-red-600" : "btn-primary"}" data-close>${c.ok}</button></div></div>`;
+  m.classList.remove("hidden");
+}
+
+// ---------- 渲染与切换 ----------
+function render() {
+  document.getElementById("page").innerHTML = { "0": variant0, A: variantA, B: variantB, C: variantC }[variant]();
+  document.getElementById("label").textContent = `${variant}(${VARIANTS[variant]})`;
+  document.getElementById("apptype").value = type;
+}
+function go(v) {
+  variant = v;
+  const p = new URLSearchParams({ variant, tab, type });
+  history.replaceState(null, "", `?${p}`);
+  render();
+}
+const step = (d) => go(keys[(keys.indexOf(variant) + d + keys.length) % keys.length]);
+document.getElementById("prev").onclick = () => step(-1);
+document.getElementById("next").onclick = () => step(1);
+document.getElementById("apptype").onchange = (e) => { type = e.target.value; go(variant); };
+document.addEventListener("keydown", (e) => {
+  if (e.target.closest("input,textarea,select,[contenteditable]")) return;
+  if (e.key === "ArrowLeft") step(-1);
+  if (e.key === "ArrowRight") step(1);
+});
+document.addEventListener("toggle", (e) => { if (e.target.matches("[data-adv]")) advancedOpen = e.target.open; }, true);
+document.addEventListener("click", (e) => {
+  const t = e.target.closest("[data-tab],[data-act],[data-close]");
+  if (!t) return;
+  if (t.dataset.tab) { tab = t.dataset.tab; webhookError = ""; go(variant); }
+  if (t.dataset.close !== undefined) document.getElementById("modal").classList.add("hidden");
+  const act = t.dataset.act;
+  if (act === "rotate" || act === "delete") confirmBox(act);
+  if (act === "save") {
+    // 演示错误提示:Webhook 填了地址没填密钥
+    const idx = [...document.querySelectorAll('[data-act=save]')].indexOf(t);
+    const url = document.getElementById("wurl");
+    app.webhookUrl = url ? url.value : app.webhookUrl;
+    webhookError = url && url.value && !document.querySelector('input[type=password]').value
+      ? (variant === "0" ? OLD.webhookError : NEW.webhookError) : "";
+    render();
+    if (!webhookError && variant !== "0") {
+      const mine = document.querySelectorAll("#saved")[idx];
+      if (mine) { mine.textContent = NEW.saved; setTimeout(() => (mine.textContent = ""), 1500); }
+    }
+  }
+});
+render();
+</script>
+</body>
+</html>
