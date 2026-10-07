@@ -94,10 +94,14 @@ const someone = (sub: string, identifier?: string): Part[] =>
 		? ["用户 ", { text: identifier, user: sub }]
 		: ["已删除的用户 ", raw(sub.slice(0, 8))];
 
+// doneBy is the sub of whoever did it; undefined when the system did.
+export const doneBy = (ev: AuditEvent) =>
+	typeof ev.detail.by === "string" && ev.detail.by ? ev.detail.by : undefined;
+
 // actor is who did it: an admin, the User themselves, or the system.
 export function actor(ev: AuditEvent): Part[] {
-	const by = ev.detail.by;
-	if (typeof by !== "string" || !by) {
+	const by = doneBy(ev);
+	if (!by) {
 		return ["系统"];
 	}
 	if (by === ev.sub) {

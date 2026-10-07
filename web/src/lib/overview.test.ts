@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { checklist, checklistDone, showChecklist } from "./overview.ts";
+import { checklist, checklistDone, checklistSummary } from "./overview.ts";
 
 const owner = ["users:read", "applications:read", "config:read"];
 const builtinOnly = [{ builtin: true }];
@@ -55,28 +55,6 @@ test("nothing is listed while a visible step's data is loading", () => {
 
 const done = { channels: [{ kind: "phone" as const }], apps: own, apis: own };
 
-test("the checklist shows while a step is left and it wasn't closed", () => {
-	assert.equal(showChecklist(checklist(owner, fresh), false), true);
-});
-
-test("the checklist hides once every step is done", () => {
-	assert.equal(showChecklist(checklist(owner, done), false), false);
-	// Done counts only the steps the admin can see.
-	assert.equal(
-		showChecklist(
-			checklist(["config:read"], { channels: done.channels }),
-			false,
-		),
-		false,
-	);
-});
-
-test("the checklist hides once closed, while loading, or with no steps", () => {
-	assert.equal(showChecklist(checklist(owner, fresh), true), false);
-	assert.equal(showChecklist(checklist(owner, {}), false), false);
-	assert.equal(showChecklist(checklist(["users:read"], {}), false), false);
-});
-
 test("each step is judged on its own data", () => {
 	assert.deepEqual(
 		state(checklist(owner, { channels: [], apps: [], apis: own })),
@@ -97,4 +75,30 @@ test("a checklist with a step left, loading or empty isn't done", () => {
 	assert.equal(checklistDone(checklist(owner, fresh)), false);
 	assert.equal(checklistDone(checklist(owner, {})), false);
 	assert.equal(checklistDone(checklist(["users:read"], {})), false);
+});
+
+test("the summary counts what's done and points at the first step left", () => {
+	const s = checklistSummary(
+		checklist(owner, {
+			channels: [{ kind: "email" }],
+			apps: builtinOnly,
+			apis: own,
+		}),
+	);
+	assert.equal(s?.done, 2);
+	assert.equal(s?.total, 3);
+	assert.equal(s?.title, "还差 1 步就配置好了");
+	assert.equal(s?.next.label, "创建应用");
+	assert.equal(s?.next.to, "/console/apps");
+	assert.match(s?.next.hint ?? "", /^下一步:/);
+});
+
+test("a finished or loading checklist has no summary", () => {
+	assert.equal(checklistSummary(checklist(owner, done)), undefined);
+	// Done counts only the steps the admin can see.
+	assert.equal(
+		checklistSummary(checklist(["config:read"], { channels: done.channels })),
+		undefined,
+	);
+	assert.equal(checklistSummary(checklist(owner, {})), undefined);
 });

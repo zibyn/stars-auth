@@ -1,5 +1,7 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
+import { UserRound } from "lucide-react";
+import { Star } from "#/components/star";
 import { APIError, api, type Me } from "#/lib/console-api";
 import { navGroups } from "#/lib/nav";
 
@@ -35,31 +37,52 @@ function Console() {
 		return null;
 	}
 	return (
-		<div className="min-h-svh bg-muted/40">
-			<header className="flex h-14 items-center gap-4 border-b bg-background px-5">
-				<div className="font-semibold">✦ Stars Auth</div>
-				<nav className="flex gap-1">
+		<div className="flex min-h-svh bg-canvas p-2 text-sm">
+			<aside className="sticky top-2 flex h-[calc(100svh-1rem)] w-60 shrink-0 flex-col p-4">
+				{/* Room to switch to other Stars products later; not clickable yet. */}
+				<div className="flex items-center gap-3 px-2 py-2">
+					<span className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
+						<Star className="size-4" />
+					</span>
+					<span className="leading-tight">
+						<span className="block font-semibold">Stars</span>
+						<span className="block text-muted-foreground text-xs">Auth</span>
+					</span>
+				</div>
+				<nav className="mt-6 space-y-0.5">
 					{navGroups(me.data.permissions).map((g) => (
 						<Link
 							key={g.label}
 							to={g.to}
 							activeOptions={{ exact: g.to === "/console" }}
-							className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted"
+							className="flex items-center rounded-lg px-3 py-2"
+							inactiveProps={{
+								className: "text-muted-foreground hover:text-foreground",
+							}}
 							activeProps={{
-								className:
-									"bg-primary text-primary-foreground hover:bg-primary",
+								className: "bg-card font-medium shadow-xs ring-1 ring-border",
 							}}
 						>
 							{g.label}
 						</Link>
 					))}
 				</nav>
-				<div className="ml-auto font-mono text-muted-foreground text-xs">
-					{me.data.sub}
+				<div className="mt-auto flex items-center gap-3 px-3">
+					<span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary-soft text-primary-ink">
+						<UserRound className="size-3.5" />
+					</span>
+					<span
+						className="truncate font-mono text-muted-foreground text-xs"
+						title={me.data.sub}
+					>
+						{me.data.sub}
+					</span>
 				</div>
-			</header>
-			<main className="mx-auto max-w-5xl space-y-6 p-8">
-				<Outlet />
+			</aside>
+			<main className="min-w-0 flex-1 rounded-2xl bg-card px-14 py-11 shadow-xs ring-1 ring-border">
+				<div className="max-w-4xl space-y-6">
+					<Outlet />
+				</div>
 			</main>
 		</div>
 	);

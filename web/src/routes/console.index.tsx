@@ -1,17 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Check, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { EmptyState } from "#/components/console";
-import { Button } from "#/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card";
+import { Button, buttonVariants } from "#/components/ui/button";
 import { ownCount } from "#/lib/apps";
 import { type AuditEvent, api, type Overview } from "#/lib/console-api";
-import { checklist, checklistDone, showChecklist } from "#/lib/overview";
+import { checklist, checklistDone, checklistSummary } from "#/lib/overview";
 import { meQuery, useCan } from "./console";
 import { apisQuery } from "./console.apis.index";
 import { applicationsQuery } from "./console.apps.index";
-import { EventTable } from "./console.audit";
+import { EventList } from "./console.audit";
 import { channelsQuery } from "./console.login";
 
 export const Route = createFileRoute("/console/")({ component: Home });
@@ -45,39 +44,32 @@ function Home() {
 		stats.push({ label: "应用", value: apps && ownCount(apps.applications) });
 	}
 	return (
-		<>
+		<div className="space-y-10">
+			<h1 className="font-semibold text-2xl tracking-tight">概览</h1>
 			{o && o.sendsLastDay >= o.dailySendLimit && (
-				<p className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-destructive text-sm">
+				<p className="rounded-xl bg-destructive/10 px-6 py-6 text-destructive">
 					过去 24 小时已发送 {o.sendsLastDay} 条验证码,达到每日上限{" "}
 					{o.dailySendLimit},已停发。可在「通道」中调整上限。
 				</p>
 			)}
 			<Checklist />
-			<div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-				{stats.map(({ label, value, hint }) => (
-					<Card key={label}>
-						<CardHeader>
-							<CardTitle
-								className="font-normal text-muted-foreground text-sm"
-								title={hint}
-							>
-								{hint ? (
-									<span className="underline decoration-dotted underline-offset-4">
-										{label}
-									</span>
-								) : (
-									label
-								)}
-							</CardTitle>
-						</CardHeader>
-						<CardContent className="font-semibold text-3xl">
-							{value ?? "–"}
-						</CardContent>
-					</Card>
-				))}
-			</div>
+			{stats.length > 0 && (
+				<section className="flex divide-x divide-border">
+					{stats.map(({ label, value, hint }) => (
+						<div key={label} className="flex-1 px-6 first:pl-0 last:pr-0">
+							<div className="text-[13px] text-muted-foreground">{label}</div>
+							<div className="mt-2 font-semibold text-3xl tabular-nums tracking-tight">
+								{value ?? "–"}
+							</div>
+							{hint && (
+								<div className="mt-1 text-[13px] text-faint">{hint}</div>
+							)}
+						</div>
+					))}
+				</section>
+			)}
 			{can("audit:read") && <Recent />}
-		</>
+		</div>
 	);
 }
 
@@ -124,50 +116,67 @@ function Checklist() {
 			rememberClosed();
 		}
 	}, [done]);
-	if (!steps || !showChecklist(steps, closed)) {
+	const summary = checklistSummary(steps);
+	if (!summary || closed) {
 		return null;
 	}
+	const r = 15;
+	const arc = (2 * Math.PI * r * summary.done) / summary.total;
 	return (
-		<Card>
-			<CardHeader className="flex flex-row items-center justify-between">
-				<CardTitle>上手清单</CardTitle>
-				<Button
-					variant="ghost"
-					size="icon"
-					aria-label="关闭上手清单"
-					onClick={() => {
-						setClosed(true);
-						rememberClosed();
-					}}
+		<section className="flex items-center gap-4 rounded-xl bg-primary-soft px-6 py-6">
+			<div className="relative size-12 shrink-0">
+				<svg
+					viewBox="0 0 36 36"
+					className="-rotate-90 size-12"
+					aria-hidden="true"
 				>
-					<X />
-				</Button>
-			</CardHeader>
-			<CardContent>
-				<ol className="space-y-2">
-					{steps.map((s, i) => (
-						<li key={s.label}>
-							<Link
-								to={s.to}
-								className="flex items-center gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-muted"
-							>
-								<span
-									className={`flex size-6 items-center justify-center rounded-full border text-xs ${s.done ? "border-primary bg-primary text-primary-foreground" : ""}`}
-								>
-									{s.done ? <Check className="size-3.5" /> : i + 1}
-								</span>
-								<span className={s.done ? "text-muted-foreground" : ""}>
-									{s.label}
-								</span>
-								{s.done && (
-									<span className="text-muted-foreground text-xs">已完成</span>
-								)}
-							</Link>
-						</li>
-					))}
-				</ol>
-			</CardContent>
-		</Card>
+					<circle
+						cx="18"
+						cy="18"
+						r={r}
+						fill="none"
+						strokeWidth="3"
+						className="stroke-border"
+					/>
+					{summary.done > 0 && (
+						<circle
+							cx="18"
+							cy="18"
+							r={r}
+							fill="none"
+							strokeWidth="3"
+							strokeLinecap="round"
+							strokeDasharray={`${arc} ${2 * Math.PI * r}`}
+							className="stroke-primary"
+						/>
+					)}
+				</svg>
+				<span className="absolute inset-0 grid place-items-center font-semibold text-primary-ink text-xs tabular-nums">
+					{summary.done}/{summary.total}
+				</span>
+			</div>
+			<div className="flex-1">
+				<h2 className="font-semibold text-[15px]">{summary.title}</h2>
+				<p className="mt-1 text-[13px] text-muted-foreground">
+					{summary.next.hint}
+				</p>
+			</div>
+			<Link to={summary.next.to} className={buttonVariants({ size: "lg" })}>
+				{summary.next.label}
+			</Link>
+			<Button
+				variant="ghost"
+				size="icon"
+				aria-label="关闭上手清单"
+				className="text-faint hover:bg-transparent"
+				onClick={() => {
+					setClosed(true);
+					rememberClosed();
+				}}
+			>
+				<X />
+			</Button>
+		</section>
 	);
 }
 
@@ -177,27 +186,25 @@ function Recent() {
 		queryFn: () => api<{ events: AuditEvent[] }>("/audit?limit=10"),
 	});
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>
-					最近事件{" "}
-					<Link
-						to="/console/audit"
-						className="font-normal text-muted-foreground text-sm"
-					>
-						全部 →
-					</Link>
-				</CardTitle>
-			</CardHeader>
-			<CardContent>
+		<section>
+			<div className="flex items-baseline justify-between">
+				<h2 className="font-semibold text-[15px]">最近事件</h2>
+				<Link
+					to="/console/audit"
+					className="font-medium text-[13px] text-primary-ink"
+				>
+					全部 →
+				</Link>
+			</div>
+			<div className="mt-3">
 				{events.isSuccess && events.data.events.length === 0 ? (
 					<EmptyState title="最近没有事件">
 						超过审计保留期的记录已经删除。
 					</EmptyState>
 				) : (
-					<EventTable events={events.data?.events ?? []} />
+					<EventList events={events.data?.events ?? []} />
 				)}
-			</CardContent>
-		</Card>
+			</div>
+		</section>
 	);
 }

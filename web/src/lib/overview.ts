@@ -19,18 +19,21 @@ export const checklist = (
 	const steps = [
 		{
 			label: "配置通道",
+			hint: "下一步:配置验证码通道,用户才能收到验证码登录。",
 			to: "/console/login/channels",
 			permission: "config:read",
 			done: data.channels && data.channels.length > 0,
 		},
 		{
 			label: "创建应用",
+			hint: "下一步:创建应用,让你的产品接入登录。",
 			to: "/console/apps",
 			permission: "applications:read",
 			done: data.apps && !onlyBuiltin(data.apps),
 		},
 		{
 			label: "添加 API 资源",
+			hint: "下一步:添加 API 资源,让应用拿到访问你后端的令牌。",
 			to: "/console/apis",
 			permission: "applications:read",
 			done: data.apis && !onlyBuiltin(data.apis),
@@ -48,8 +51,19 @@ export const checklist = (
 export const checklistDone = (steps: ReturnType<typeof checklist>) =>
 	!!steps?.length && steps.every((s) => s.done);
 
-// showChecklist: shown until it is done or the admin closes it.
-export const showChecklist = (
-	steps: ReturnType<typeof checklist>,
-	closed: boolean,
-) => !closed && !!steps?.some((s) => !s.done);
+// checklistSummary is what the checklist block shows: progress and the
+// first step left. Undefined once nothing is left or while loading.
+export const checklistSummary = (steps: ReturnType<typeof checklist>) => {
+	const next = steps?.find((s) => !s.done);
+	if (!steps || !next) {
+		return undefined;
+	}
+	const done = steps.filter((s) => s.done).length;
+	const left = steps.length - done;
+	return {
+		done,
+		total: steps.length,
+		title: `还差 ${left} 步就配置好了`,
+		next,
+	};
+};

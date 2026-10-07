@@ -1,7 +1,9 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { UserRound } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { z } from "zod";
+import { Star } from "#/components/star";
 import { Button } from "#/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card";
 import { Input } from "#/components/ui/input";
@@ -25,6 +27,7 @@ import {
 import {
 	actor,
 	describe,
+	doneBy,
 	eventGroups,
 	eventName,
 	findUser,
@@ -289,16 +292,7 @@ export function EventTable({
 	events: AuditEvent[];
 	empty?: ReactNode;
 }) {
-	const can = useCan();
-	const readApps = can("applications:read");
-	const apps = useQuery({ ...applicationsQuery, enabled: readApps });
-	const apis = useQuery({ ...apisQuery, enabled: readApps });
-	const names = {
-		apps: readApps ? apps.data?.applications : undefined,
-		apis: apis.data?.apis,
-	};
-	// Wait for the names, or every ID would show raw as if deleted.
-	const naming = readApps && (apps.isPending || apis.isPending);
+	const { names, naming } = useNames();
 	return (
 		<div className="overflow-hidden rounded-lg border">
 			<Table>
@@ -339,5 +333,61 @@ export function EventTable({
 				</TableBody>
 			</Table>
 		</div>
+	);
+}
+
+// useNames fetches the Application and API resource names events refer
+// to; naming is true until they're in.
+function useNames() {
+	const can = useCan();
+	const readApps = can("applications:read");
+	const apps = useQuery({ ...applicationsQuery, enabled: readApps });
+	const apis = useQuery({ ...apisQuery, enabled: readApps });
+	return {
+		names: {
+			apps: readApps ? apps.data?.applications : undefined,
+			apis: apis.data?.apis,
+		},
+		// Wait for the names, or every ID would show raw as if deleted.
+		naming: readApps && (apps.isPending || apis.isPending),
+	};
+}
+
+// EventList is the overview's recent events: one line each, who did it
+// and what, then when.
+export function EventList({ events }: { events: AuditEvent[] }) {
+	const { names, naming } = useNames();
+	return (
+		<ul className="divide-y divide-border">
+			{(naming ? [] : events).map((ev) => {
+				const { parts, title } = describe(ev, names);
+				const who = actor(ev);
+				const [first] = who;
+				return (
+					<li key={ev.id} className="flex items-center gap-3 py-3">
+						{!doneBy(ev) ? (
+							<span className="grid size-6 shrink-0 place-items-center rounded-full bg-canvas text-faint">
+								<Star className="size-3" />
+							</span>
+						) : (
+							<span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary-soft font-medium text-primary-ink text-xs uppercase">
+								{typeof first === "string" ? (
+									<UserRound className="size-3.5" />
+								) : (
+									first.text[0]
+								)}
+							</span>
+						)}
+						<span className="min-w-0 flex-1" title={title}>
+							<span className="font-medium">
+								<Sentence parts={who} />
+							</span>{" "}
+							<Sentence parts={parts} />
+						</span>
+						<span className="shrink-0 text-faint text-xs">{date(ev.at)}</span>
+					</li>
+				);
+			})}
+		</ul>
 	);
 }
