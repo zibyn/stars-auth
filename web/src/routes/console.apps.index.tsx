@@ -31,7 +31,7 @@ import {
 import { onlyBuiltin, typeName, typeWhy } from "#/lib/apps";
 import { type Application, api } from "#/lib/console-api";
 import { useCan } from "./console";
-import { apisQuery } from "./console.apis";
+import { apisQuery } from "./console.apis.index";
 
 const search = z.object({
 	new: z.boolean().optional(), // the create sheet is open

@@ -23,7 +23,7 @@ import {
 	api,
 } from "#/lib/console-api";
 import { useCan } from "./console";
-import { apisQuery } from "./console.apis";
+import { apisQuery } from "./console.apis.index";
 import { applicationsQuery } from "./console.apps.index";
 import { date } from "./console.users.index";
 
@@ -78,7 +78,14 @@ function ApplicationPage() {
 	}
 	const app = apps.data.applications.find((a) => a.clientId === clientId);
 	if (!app) {
-		return <p className="text-sm">没有这个应用，它可能已经被删除。</p>;
+		return (
+			<p className="text-sm">
+				没有这个应用，它可能已经被删除。
+				<Link to="/console/apps" className="underline">
+					返回应用列表
+				</Link>
+			</p>
+		);
 	}
 	const editable = can("applications:write") && !app.builtin;
 	return (
@@ -236,8 +243,11 @@ function BasicTab({ app, editable }: TabProps) {
 								</SelectContent>
 							</Select>
 							{app.defaultApi && (
-								// ponytail: the API resource list until its detail page (#56)
-								<Link to="/console/apis" className="text-sm underline">
+								<Link
+									to="/console/apis/$api"
+									params={{ api: app.defaultApi }}
+									className="text-sm underline"
+								>
 									查看 API 资源
 								</Link>
 							)}
