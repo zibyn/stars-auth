@@ -13,6 +13,8 @@ type auditEvent struct {
 	At     time.Time
 	Event  string
 	Sub    string
+	User   string
+	ByUser string
 	Detail map[string]any
 }
 
@@ -34,6 +36,25 @@ func (e *env) audited(event string) auditEvent {
 		e.t.Fatalf("no %s event", event)
 	}
 	return got[0]
+}
+
+func TestAuditShowsWhoByTheirPrimaryIdentifier(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", nil, "username:alice", "email:alice@example.com", "phone:+8613800000001")
+	owner := e.token(e.owner, nil)
+
+	e.call("POST", owner, "/users/ALICE/disable", nil, nil)
+	if ev := e.audited("user.disabled"); ev.User != "+8613800000001" || ev.ByUser != "owner" {
+		t.Errorf("phone comes first, then the admin's username: %+v", ev)
+	}
+	e.call("POST", owner, "/signing-keys/rotate", nil, nil)
+	if ev := e.audited("keys.rotated"); ev.User != "" || ev.ByUser != "owner" {
+		t.Errorf("no User: %+v", ev)
+	}
+	e.call("DELETE", owner, "/users/ALICE", nil, nil)
+	if ev := e.audited("user.deleted"); ev.User != "" || ev.Sub != "ALICE" {
+		t.Errorf("deleted User: %+v", ev)
+	}
 }
 
 func TestAdminDisablesAndRestoresAUser(t *testing.T) {

@@ -359,7 +359,12 @@ func (q *Queries) ListApplications(ctx context.Context, clientID string) ([]List
 }
 
 const listAudit = `-- name: ListAudit :many
-SELECT id, at, event, COALESCE(sub, '')::text AS sub, detail FROM audit_log
+SELECT id, at, event, COALESCE(sub, '')::text AS sub, detail,
+       COALESCE((SELECT i.value FROM identifiers i WHERE i.user_id = audit_log.sub
+                 ORDER BY array_position(ARRAY['phone', 'email', 'username'], i.kind) LIMIT 1), '')::text AS user_identifier,
+       COALESCE((SELECT i.value FROM identifiers i WHERE i.user_id = audit_log.detail ->> 'by'
+                 ORDER BY array_position(ARRAY['phone', 'email', 'username'], i.kind) LIMIT 1), '')::text AS by_identifier
+FROM audit_log
 WHERE ($1::text = '' OR event = $1)
   AND ($2::text = '' OR sub = $2 OR detail ->> 'by' = $2)
   AND ($3::timestamptz IS NULL OR at >= $3)
@@ -379,15 +384,19 @@ type ListAuditParams struct {
 }
 
 type ListAuditRow struct {
-	ID     int64
-	At     pgtype.Timestamptz
-	Event  string
-	Sub    string
-	Detail []byte
+	ID             int64
+	At             pgtype.Timestamptz
+	Event          string
+	Sub            string
+	Detail         []byte
+	UserIdentifier string
+	ByIdentifier   string
 }
 
 // Newest first. sub matches the User an event is about or the admin who
-// did it; before pages by id; empty filters match all.
+// did it; before pages by id; empty filters match all. user_identifier and
+// by_identifier are their primary Identifiers (phone, email, username),
+// empty once the User is gone.
 func (q *Queries) ListAudit(ctx context.Context, arg ListAuditParams) ([]ListAuditRow, error) {
 	rows, err := q.db.Query(ctx, listAudit,
 		arg.Event,
@@ -410,6 +419,8 @@ func (q *Queries) ListAudit(ctx context.Context, arg ListAuditParams) ([]ListAud
 			&i.Event,
 			&i.Sub,
 			&i.Detail,
+			&i.UserIdentifier,
+			&i.ByIdentifier,
 		); err != nil {
 			return nil, err
 		}

@@ -228,8 +228,15 @@ SELECT 'identifier.replaced', put.user_id, jsonb_build_object('kind', @kind::tex
 
 -- name: ListAudit :many
 -- Newest first. sub matches the User an event is about or the admin who
--- did it; before pages by id; empty filters match all.
-SELECT id, at, event, COALESCE(sub, '')::text AS sub, detail FROM audit_log
+-- did it; before pages by id; empty filters match all. user_identifier and
+-- by_identifier are their primary Identifiers (phone, email, username),
+-- empty once the User is gone.
+SELECT id, at, event, COALESCE(sub, '')::text AS sub, detail,
+       COALESCE((SELECT i.value FROM identifiers i WHERE i.user_id = audit_log.sub
+                 ORDER BY array_position(ARRAY['phone', 'email', 'username'], i.kind) LIMIT 1), '')::text AS user_identifier,
+       COALESCE((SELECT i.value FROM identifiers i WHERE i.user_id = audit_log.detail ->> 'by'
+                 ORDER BY array_position(ARRAY['phone', 'email', 'username'], i.kind) LIMIT 1), '')::text AS by_identifier
+FROM audit_log
 WHERE (@event::text = '' OR event = @event)
   AND (@sub::text = '' OR sub = @sub OR detail ->> 'by' = @sub)
   AND (sqlc.narg(since)::timestamptz IS NULL OR at >= sqlc.narg(since))

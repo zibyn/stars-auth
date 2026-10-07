@@ -53,6 +53,8 @@ type AuditEvent struct {
 	At     time.Time      `json:"at"`
 	Event  string         `json:"event"`
 	Sub    string         `json:"sub,omitempty" doc:"The User it is about"`
+	User   string         `json:"user,omitempty" doc:"sub's primary Identifier; absent once the User is deleted"`
+	ByUser string         `json:"byUser,omitempty" doc:"detail.by's primary Identifier; absent once that User is deleted"`
 	Detail map[string]any `json:"detail" doc:"by is the admin who did it"`
 }
 
@@ -82,7 +84,7 @@ func (s *Service) listAudit(ctx context.Context, in *listAuditInput) (*listAudit
 	out := &listAuditOutput{}
 	out.Body.Events = []AuditEvent{}
 	for _, r := range rows {
-		ev := AuditEvent{ID: r.ID, At: r.At.Time, Event: r.Event, Sub: r.Sub}
+		ev := AuditEvent{ID: r.ID, At: r.At.Time, Event: r.Event, Sub: r.Sub, User: r.UserIdentifier, ByUser: r.ByIdentifier}
 		if err := json.Unmarshal(r.Detail, &ev.Detail); err != nil {
 			return nil, err
 		}
