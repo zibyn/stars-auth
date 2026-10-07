@@ -2,7 +2,6 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { Link, type LinkProps } from "@tanstack/react-router";
 import type { ReactElement, ReactNode } from "react";
 import { Button } from "#/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card";
 import {
 	Dialog,
 	DialogContent,
@@ -67,7 +66,8 @@ export function ConfirmDialog({
 	);
 }
 
-// InlineWarning is one sentence, optionally with a link to fix it.
+// InlineWarning is one sentence, optionally with a link to fix it: an
+// accent block, tinted and borderless.
 export function InlineWarning({
 	children,
 	link,
@@ -76,7 +76,7 @@ export function InlineWarning({
 	link?: { label: string } & Pick<LinkProps, "to" | "search">;
 }) {
 	return (
-		<p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-amber-900 text-sm dark:text-amber-200">
+		<p className="rounded-xl bg-amber-500/10 px-4 py-3 text-amber-900 text-sm dark:text-amber-200">
 			{children}
 			{link && (
 				<>
@@ -100,8 +100,8 @@ export function DangerZone({
 	children: ReactNode;
 }) {
 	return (
-		<section className="space-y-3 rounded-lg border border-destructive/50 p-4">
-			<h3 className="font-medium text-destructive">{title}</h3>
+		<section className="space-y-3 rounded-xl border border-destructive/50 p-6">
+			<h2 className="font-semibold text-[15px] text-destructive">{title}</h2>
 			{children}
 		</section>
 	);
@@ -120,9 +120,9 @@ export function EmptyState({
 	action?: ReactNode;
 }) {
 	return (
-		<div className="space-y-2 rounded-lg border border-dashed p-4">
-			<h4 className="font-medium text-sm">{title}</h4>
-			<p className="text-muted-foreground text-sm">{children}</p>
+		<div className="space-y-2 rounded-xl border border-dashed p-6">
+			<h3 className="font-medium text-sm">{title}</h3>
+			<p className="text-[13px] text-muted-foreground">{children}</p>
 			{action && (
 				<div className="flex items-center gap-3 text-sm">{action}</div>
 			)}
@@ -130,8 +130,9 @@ export function EmptyState({
 	);
 }
 
-// Section is one form: children are what an editor may change, extra
-// stays usable for readers (copying client_id).
+// Section is one form under a section title, no card around it: children
+// are what an editor may change, extra stays usable for readers (copying
+// client_id). Put sections in a space-y-10 parent for the 40px between.
 export function Section({
 	title,
 	intro,
@@ -150,39 +151,44 @@ export function Section({
 	children: ReactNode;
 }) {
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>{title}</CardTitle>
-				{intro && <p className="text-muted-foreground text-sm">{intro}</p>}
-			</CardHeader>
-			<CardContent>
-				<form
-					className="space-y-5"
-					onSubmit={(e) => {
-						e.preventDefault();
-						onSubmit(new FormData(e.currentTarget), e.currentTarget);
-					}}
-				>
-					<fieldset disabled={!editable} className="space-y-5">
-						{children}
-					</fieldset>
-					{extra}
-					{footer}
-				</form>
-			</CardContent>
-		</Card>
+		<section>
+			<h2 className="font-semibold text-[15px]">{title}</h2>
+			{intro && (
+				<p className="mt-1 text-[13px] text-muted-foreground">{intro}</p>
+			)}
+			<form
+				className="mt-4 space-y-6"
+				onSubmit={(e) => {
+					e.preventDefault();
+					onSubmit(new FormData(e.currentTarget), e.currentTarget);
+				}}
+			>
+				<fieldset disabled={!editable} className="space-y-6">
+					{children}
+				</fieldset>
+				{extra}
+				{footer}
+			</form>
+		</section>
 	);
 }
 
 // SaveBar is a section's save button and how the last save went.
 export function SaveBar({
 	save,
+	outline,
 }: {
 	save: { isPending: boolean; isSuccess: boolean; error: Error | null };
+	// one solid button per screen: the other sections' saves are outlined
+	outline?: boolean;
 }) {
 	return (
 		<div className="flex items-center gap-3">
-			<Button type="submit" disabled={save.isPending}>
+			<Button
+				type="submit"
+				variant={outline ? "outline" : "default"}
+				disabled={save.isPending}
+			>
 				保存
 			</Button>
 			{save.isSuccess && <span className="text-green-700 text-sm">已保存</span>}
@@ -206,7 +212,7 @@ export function Field({
 }) {
 	return (
 		<div className="grid gap-1.5">
-			<span className="font-medium text-sm">
+			<span className="font-medium text-[13px]">
 				{label}
 				{en && (
 					<span className="ml-1 font-normal text-muted-foreground text-xs">
@@ -215,7 +221,7 @@ export function Field({
 				)}
 			</span>
 			{children}
-			{help && <p className="text-muted-foreground text-xs">{help}</p>}
+			{help && <p className="text-[13px] text-muted-foreground">{help}</p>}
 		</div>
 	);
 }

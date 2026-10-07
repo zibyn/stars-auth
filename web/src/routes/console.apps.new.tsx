@@ -3,7 +3,6 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 import { Field } from "#/components/console";
 import { Button } from "#/components/ui/button";
-import { Card, CardContent } from "#/components/ui/card";
 import { Input } from "#/components/ui/input";
 import { Textarea } from "#/components/ui/textarea";
 import { typeName } from "#/lib/apps";
@@ -48,8 +47,8 @@ function CreateApplication() {
 			) : (
 				<>
 					<div className="space-y-1">
-						<h1 className="font-semibold text-2xl">创建应用</h1>
-						<p className="text-muted-foreground text-sm">
+						<h1 className="font-semibold text-2xl tracking-tight">创建应用</h1>
+						<p className="text-muted-foreground">
 							你的用户在哪里登录？选一个最接近的，认证服务会按它准备好设置。
 						</p>
 					</div>
@@ -59,13 +58,11 @@ function CreateApplication() {
 								key={k}
 								from={Route.fullPath}
 								search={{ platform: k }}
-								className="space-y-1 rounded-xl border p-5 hover:border-foreground"
+								className="space-y-1 rounded-xl border p-6 hover:border-primary"
 							>
-								<p className="font-medium">{platforms[k].name}</p>
-								<p className="text-muted-foreground text-sm">
-									{platforms[k].desc}
-								</p>
-								<p className="pt-2 text-muted-foreground text-xs">
+								<p className="font-semibold text-[15px]">{platforms[k].name}</p>
+								<p className="text-muted-foreground">{platforms[k].desc}</p>
+								<p className="pt-2 text-[13px] text-faint">
 									{typeName[platforms[k].type]}
 								</p>
 							</Link>
@@ -119,46 +116,42 @@ function CreateForm({ platform }: { platform: Platform }) {
 				>
 					← 换个平台
 				</Link>
-				<h1 className="font-semibold text-2xl">创建{p.name}</h1>
-				<p className="text-muted-foreground text-sm">
+				<h1 className="font-semibold text-2xl tracking-tight">创建{p.name}</h1>
+				<p className="text-muted-foreground">
 					{typeName[p.type]}。类型创建后不能更改。
 				</p>
 			</div>
-			<Card>
-				<CardContent>
-					<form
-						className="space-y-5"
-						onSubmit={(e) => {
-							e.preventDefault();
-							save.mutate(new FormData(e.currentTarget));
-						}}
+			<form
+				className="space-y-6"
+				onSubmit={(e) => {
+					e.preventDefault();
+					save.mutate(new FormData(e.currentTarget));
+				}}
+			>
+				<Field label="名称">
+					<Input name="name" required placeholder="如：星选商城" />
+				</Field>
+				{p.redirect && (
+					<Field
+						label="回调地址"
+						en="redirect URI"
+						help="登录完成后跳回应用的地址。只接受这里登记过的地址。"
 					>
-						<Field label="名称">
-							<Input name="name" required placeholder="如：星选商城" />
-						</Field>
-						{p.redirect && (
-							<Field
-								label="回调地址"
-								en="redirect URI"
-								help="登录完成后跳回应用的地址。只接受这里登记过的地址。"
-							>
-								<Textarea
-									name="redirectUris"
-									required
-									className="font-mono"
-									placeholder={`每行一个，如 https://shop.example.com/${platform === "spa" ? "callback" : "auth/callback"}`}
-								/>
-							</Field>
-						)}
-						{save.error && (
-							<p className="text-destructive text-sm">{save.error.message}</p>
-						)}
-						<Button type="submit" disabled={save.isPending}>
-							创建应用
-						</Button>
-					</form>
-				</CardContent>
-			</Card>
+						<Textarea
+							name="redirectUris"
+							required
+							className="font-mono"
+							placeholder={`每行一个，如 https://shop.example.com/${platform === "spa" ? "callback" : "auth/callback"}`}
+						/>
+					</Field>
+				)}
+				{save.error && (
+					<p className="text-destructive text-sm">{save.error.message}</p>
+				)}
+				<Button type="submit" disabled={save.isPending}>
+					创建应用
+				</Button>
+			</form>
 		</>
 	);
 }

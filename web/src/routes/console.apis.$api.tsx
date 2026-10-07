@@ -10,7 +10,6 @@ import {
 } from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
-import { Card, CardContent } from "#/components/ui/card";
 import { Input } from "#/components/ui/input";
 import { defaultFor, rolesWith } from "#/lib/apis";
 import {
@@ -81,14 +80,14 @@ function APIPage() {
 					API 资源 ›
 				</Link>
 				<div className="flex items-center gap-3">
-					<h1 className="font-semibold text-2xl">{def.name}</h1>
+					<h1 className="font-semibold text-2xl tracking-tight">{def.name}</h1>
 					{def.builtin && <Badge variant="secondary">内置</Badge>}
 				</div>
 				<dl className="grid gap-1 text-sm sm:grid-cols-[10rem_1fr]">
 					<dt className="text-muted-foreground">API 资源标识符</dt>
 					<dd>
 						<span className="font-mono">{def.identifier}</span>
-						<p className="text-muted-foreground text-xs">
+						<p className="text-[13px] text-muted-foreground">
 							你的后端校验令牌时认的名字，即 access token 的 aud。
 						</p>
 					</dd>
@@ -107,18 +106,20 @@ function APIPage() {
 							key={key}
 							from={Route.fullPath}
 							search={{ tab: key }}
-							className={`px-3 py-2 text-sm ${tab === key ? "border-foreground border-b-2 font-medium" : "text-muted-foreground"}`}
+							className={`px-3 py-2 text-sm ${tab === key ? "-mb-px border-primary border-b-2 font-medium" : "text-muted-foreground hover:text-foreground"}`}
 						>
 							{label}
 						</Link>
 					))}
 				</nav>
 			</div>
-			{tab === "permissions" && <Permissions def={def} />}
-			{tab === "roles" && (
-				<Roles def={def} noDefaultApps={defaulting.length === 0} />
-			)}
-			<DeleteAPI def={def} defaulting={defaulting} />
+			<div className="space-y-10">
+				{tab === "permissions" && <Permissions def={def} />}
+				{tab === "roles" && (
+					<Roles def={def} noDefaultApps={defaulting.length === 0} />
+				)}
+				<DeleteAPI def={def} defaulting={defaulting} />
+			</div>
 		</>
 	);
 }
@@ -162,25 +163,22 @@ function Permissions({ def }: { def: APIDef }) {
 		<CannotCreate />
 	);
 	return (
-		<Card>
-			<CardContent className="space-y-3">
-				{def.permissions.length === 0 && def.builtin && (
-					<p className="text-muted-foreground text-sm">
-						内置 API 资源的权限由认证服务定义，不能添加。
-					</p>
-				)}
-				{def.permissions.length === 0 && !def.builtin && !adding && (
-					<EmptyState title="还没有权限" action={add}>
-						权限是你的后端检查的最小单位，比如“导出订单”。先定义权限，再把它们组合成角色。
-					</EmptyState>
-				)}
+		<div className="space-y-3">
+			{def.permissions.length === 0 && def.builtin && (
+				<p className="text-muted-foreground text-sm">
+					内置 API 资源的权限由认证服务定义，不能添加。
+				</p>
+			)}
+			{def.permissions.length === 0 && !def.builtin && !adding && (
+				<EmptyState title="还没有权限" action={add}>
+					权限是你的后端检查的最小单位，比如“导出订单”。先定义权限，再把它们组合成角色。
+				</EmptyState>
+			)}
+			<div className="divide-y divide-border">
 				{def.permissions.map((p) => {
 					const n = rolesWith(def.roles, p.key);
 					return (
-						<div
-							key={p.key}
-							className="flex items-center gap-2 border-b py-2 text-sm last:border-0"
-						>
+						<div key={p.key} className="flex items-center gap-2 py-3 text-sm">
 							<span className="font-medium">{p.name}</span>
 							<span className="font-mono text-muted-foreground text-xs">
 								{p.key}
@@ -209,35 +207,35 @@ function Permissions({ def }: { def: APIDef }) {
 						</div>
 					);
 				})}
-				{adding ? (
-					<KeyNameForm
-						keyLabel="权限 key"
-						keyPlaceholder="如：orders:export"
-						namePlaceholder="如：导出订单"
-						submit="添加权限"
-						onCancel={() => setAdding(false)}
-						onSubmit={(v, done) =>
-							put.mutate(v, {
-								onSuccess: () => {
-									done();
-									setAdding(false);
-								},
-							})
-						}
-					/>
-				) : (
-					def.permissions.length > 0 && editable && add
-				)}
-				{[put, remove].map(
-					(m) =>
-						m.error && (
-							<p key={m.error.message} className="text-destructive text-sm">
-								{m.error.message}
-							</p>
-						),
-				)}
-			</CardContent>
-		</Card>
+			</div>
+			{adding ? (
+				<KeyNameForm
+					keyLabel="权限 key"
+					keyPlaceholder="如：orders:export"
+					namePlaceholder="如：导出订单"
+					submit="添加权限"
+					onCancel={() => setAdding(false)}
+					onSubmit={(v, done) =>
+						put.mutate(v, {
+							onSuccess: () => {
+								done();
+								setAdding(false);
+							},
+						})
+					}
+				/>
+			) : (
+				def.permissions.length > 0 && editable && add
+			)}
+			{[put, remove].map(
+				(m) =>
+					m.error && (
+						<p key={m.error.message} className="text-destructive text-sm">
+							{m.error.message}
+						</p>
+					),
+			)}
+		</div>
 	);
 }
 
@@ -312,29 +310,28 @@ function Roles({
 		<CannotCreate />
 	);
 	return (
-		<Card>
-			<CardContent className="space-y-3">
-				{noDefaultApps && (
-					<InlineWarning link={{ label: "去「应用」", to: "/console/apps" }}>
-						还没有应用以它为默认 API
-						资源，给用户分配的角色不会出现在任何令牌里。
-					</InlineWarning>
-				)}
-				{def.roles.length === 0 && !adding && (
-					<EmptyState title="还没有角色" action={add}>
-						角色是一组权限，分给用户后，他们登录拿到的令牌里就带着这些权限。
-					</EmptyState>
-				)}
+		<div className="space-y-3">
+			{noDefaultApps && (
+				<InlineWarning link={{ label: "去「应用」", to: "/console/apps" }}>
+					还没有应用以它为默认 API 资源，给用户分配的角色不会出现在任何令牌里。
+				</InlineWarning>
+			)}
+			{def.roles.length === 0 && !adding && (
+				<EmptyState title="还没有角色" action={add}>
+					角色是一组权限，分给用户后，他们登录拿到的令牌里就带着这些权限。
+				</EmptyState>
+			)}
+			<div className="divide-y divide-border">
 				{def.roles.map((r) => (
 					<RoleRow key={r.key} def={def} role={r} editable={editable} />
 				))}
-				{adding ? (
-					<RoleForm def={def} onDone={() => setAdding(false)} />
-				) : (
-					def.roles.length > 0 && editable && add
-				)}
-			</CardContent>
-		</Card>
+			</div>
+			{adding ? (
+				<RoleForm def={def} onDone={() => setAdding(false)} />
+			) : (
+				def.roles.length > 0 && editable && add
+			)}
+		</div>
 	);
 }
 
@@ -360,7 +357,7 @@ function RoleRow({
 		return <RoleForm def={def} role={role} onDone={() => setEditing(false)} />;
 	}
 	return (
-		<div className="flex flex-wrap items-center gap-2 border-b py-2 text-sm last:border-0">
+		<div className="flex flex-wrap items-center gap-2 py-3 text-sm">
 			<span className="font-medium">{role.name}</span>
 			<span className="font-mono text-muted-foreground text-xs">
 				{role.key}
@@ -423,7 +420,7 @@ function RoleForm({
 	);
 	return (
 		<form
-			className="space-y-2 rounded-lg border p-3"
+			className="space-y-3 py-3"
 			onSubmit={(e) => {
 				e.preventDefault();
 				const f = new FormData(e.currentTarget);

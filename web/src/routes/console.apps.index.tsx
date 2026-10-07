@@ -3,7 +3,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { EmptyState } from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { buttonVariants } from "#/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card";
 import {
 	Table,
 	TableBody,
@@ -38,64 +37,62 @@ function Applications() {
 			创建应用
 		</Link>
 	);
+	// When empty, the empty state carries the one create button.
+	const empty = apps.data && onlyBuiltin(apps.data.applications);
 	return (
-		<Card>
-			<CardHeader className="flex flex-row items-center justify-between">
-				<CardTitle>应用</CardTitle>
-				{create}
-			</CardHeader>
-			<CardContent className="space-y-4">
-				{apps.data && onlyBuiltin(apps.data.applications) && (
-					<EmptyState
-						title="还没有接入你的应用"
-						action={
-							create || (
-								<span className="text-muted-foreground">
-									需要「管理员」角色才能创建。
-								</span>
-							)
-						}
-					>
-						你的 App、网站或小程序要先在这里创建，才能让用户用认证服务登录。
-					</EmptyState>
-				)}
-				<div className="overflow-hidden rounded-lg border">
-					<Table>
-						<TableHeader>
-							<TableRow>
-								<TableHead>名称</TableHead>
-								<TableHead>client_id</TableHead>
-								<TableHead>类型</TableHead>
-								<TableHead>默认 API 资源</TableHead>
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-							{apps.data?.applications.map((a) => (
-								<TableRow key={a.clientId}>
-									<TableCell>
-										<Link
-											to="/console/apps/$clientId"
-											params={{ clientId: a.clientId }}
-											className="hover:underline"
-										>
-											{a.name}
-										</Link>{" "}
-										{a.builtin && <Badge variant="secondary">内置</Badge>}
-									</TableCell>
-									<TableCell className="font-mono text-xs">
-										{a.clientId}
-									</TableCell>
-									<TableCell>{typeName[a.type]}</TableCell>
-									<TableCell>{apiName(a.defaultApi) || "—"}</TableCell>
-								</TableRow>
-							))}
-						</TableBody>
-					</Table>
-				</div>
-				{apps.error && (
-					<p className="text-destructive text-sm">{apps.error.message}</p>
-				)}
-			</CardContent>
-		</Card>
+		<div className="space-y-6">
+			<div className="flex items-center justify-between">
+				<h1 className="font-semibold text-2xl tracking-tight">应用</h1>
+				{!empty && create}
+			</div>
+			{empty && (
+				<EmptyState
+					title="还没有接入你的应用"
+					action={
+						create || (
+							<span className="text-muted-foreground">
+								需要「管理员」角色才能创建。
+							</span>
+						)
+					}
+				>
+					你的 App、网站或小程序要先在这里创建，才能让用户用认证服务登录。
+				</EmptyState>
+			)}
+			<Table>
+				<TableHeader>
+					<TableRow>
+						<TableHead>名称</TableHead>
+						<TableHead>client_id</TableHead>
+						<TableHead>类型</TableHead>
+						<TableHead>默认 API 资源</TableHead>
+					</TableRow>
+				</TableHeader>
+				<TableBody>
+					{apps.data?.applications.map((a) => (
+						<TableRow key={a.clientId}>
+							<TableCell>
+								<Link
+									to="/console/apps/$clientId"
+									params={{ clientId: a.clientId }}
+									className="font-medium hover:underline"
+								>
+									{a.name}
+								</Link>{" "}
+								{a.builtin && <Badge variant="secondary">内置</Badge>}
+							</TableCell>
+							<TableCell className="font-mono text-muted-foreground text-xs">
+								{a.clientId}
+							</TableCell>
+							<TableCell>{typeName[a.type]}</TableCell>
+							<TableCell>{apiName(a.defaultApi) || "—"}</TableCell>
+						</TableRow>
+					))}
+				</TableBody>
+			</Table>
+			{apps.error && (
+				<p className="text-destructive text-sm">{apps.error.message}</p>
+			)}
+		</div>
 	);
 }

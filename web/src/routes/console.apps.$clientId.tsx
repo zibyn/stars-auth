@@ -5,6 +5,7 @@ import {
 	useBlocker,
 	useNavigate,
 } from "@tanstack/react-router";
+import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import {
@@ -126,7 +127,7 @@ function ApplicationPage() {
 					应用 ›
 				</Link>
 				<div className="flex items-center gap-3">
-					<h1 className="font-semibold text-2xl">{app.name}</h1>
+					<h1 className="font-semibold text-2xl tracking-tight">{app.name}</h1>
 					<Badge variant="secondary">{typeName[app.type]}</Badge>
 					{app.builtin && <Badge variant="outline">内置</Badge>}
 				</div>
@@ -144,7 +145,7 @@ function ApplicationPage() {
 							key={key}
 							from={Route.fullPath}
 							search={{ tab: key }}
-							className={`px-3 py-2 text-sm ${tab === key ? "border-foreground border-b-2 font-medium" : "text-muted-foreground"}`}
+							className={`px-3 py-2 text-sm ${tab === key ? "-mb-px border-primary border-b-2 font-medium" : "text-muted-foreground hover:text-foreground"}`}
 						>
 							{label}
 						</Link>
@@ -188,7 +189,7 @@ function BasicTab({ app, editable }: TabProps) {
 	const registered = apis.data?.apis.filter((a) => !a.builtin) ?? [];
 	const [defaultApi, setDefaultApi] = useState(app.defaultApi ?? "");
 	return (
-		<>
+		<div className="space-y-10">
 			<Section
 				title="基本信息"
 				editable={editable}
@@ -227,7 +228,10 @@ function BasicTab({ app, editable }: TabProps) {
 				title="访问令牌"
 				editable={editable}
 				onSubmit={() => saveApi.mutate({ defaultApi })}
-				footer={editable && registered.length > 0 && <SaveBar save={saveApi} />}
+				footer={
+					editable &&
+					registered.length > 0 && <SaveBar save={saveApi} outline />
+				}
 			>
 				<Field
 					label="默认 API 资源"
@@ -279,7 +283,7 @@ function BasicTab({ app, editable }: TabProps) {
 				</Field>
 			</Section>
 			{editable && <DeleteApplication app={app} />}
-		</>
+		</div>
 	);
 }
 
@@ -296,7 +300,7 @@ function ClientSecret({ app, editable }: TabProps) {
 			help="你的后端换取令牌时用的密码。只在生成时显示一次，请立即保存到服务器配置里。"
 		>
 			{rotate.data ? (
-				<p className="rounded-lg border border-amber-500 p-3 text-sm">
+				<p className="rounded-xl bg-amber-500/10 p-4 text-sm">
 					新的 client secret 只显示这一次：
 					<span className="block break-all font-mono">
 						{rotate.data.secret}
@@ -402,9 +406,11 @@ function LoginTab({ app, editable }: TabProps) {
 					placeholder="每行一个，如 https://shop.example.com/callback"
 				/>
 			</Field>
-			<details className="space-y-5">
-				<summary className="cursor-pointer font-medium text-sm">高级</summary>
-				<div className="mt-5 space-y-5">
+			<details className="space-y-6">
+				<summary className="cursor-pointer font-medium text-[13px]">
+					高级
+				</summary>
+				<div className="mt-6 space-y-6">
 					<Field
 						label="退出后跳转地址"
 						en="post-logout redirect URI"
@@ -569,17 +575,18 @@ function Onboarding({
 			</div>
 		),
 		secret: secret ? (
-			<div className="space-y-2 rounded-lg border border-amber-500 p-3">
+			<div className="space-y-2 rounded-xl bg-amber-500/10 p-4">
 				<div className="flex items-center gap-2">
 					<span className="break-all font-mono text-sm">{secret}</span>
 					<CopyButton value={secret} />
 				</div>
-				<p className="text-muted-foreground text-xs">
+				<p className="text-[13px] text-muted-foreground">
 					它只显示这一次，请现在保存到你服务器的配置里。丢了只能在下面重新生成，旧的会立即失效。
 				</p>
 				<label className="flex items-center gap-2 text-sm">
 					<input
 						type="checkbox"
+						className="accent-primary"
 						checked={saved}
 						onChange={(e) => setSaved(e.target.checked)}
 					/>
@@ -587,13 +594,13 @@ function Onboarding({
 				</label>
 			</div>
 		) : (
-			<p className="text-muted-foreground text-xs">
+			<p className="text-[13px] text-muted-foreground">
 				client secret
 				只在创建时显示一次。没保存的话，在下面「基本信息」里重新生成。
 			</p>
 		),
 		api: (
-			<p className="text-muted-foreground text-xs">
+			<p className="text-[13px] text-muted-foreground">
 				选了以后，用户登录这个应用拿到的 access token 就能调用这个 API
 				资源，并带上用户在其中的角色。不调用你自己的 API
 				可以不选。在下面「访问令牌」里选择。
@@ -601,8 +608,8 @@ function Onboarding({
 		),
 		code: (
 			<div className="space-y-2">
-				<p className="text-muted-foreground text-xs">{code.help}</p>
-				<pre className="overflow-x-auto rounded-lg bg-muted p-3 text-xs">
+				<p className="text-[13px] text-muted-foreground">{code.help}</p>
+				<pre className="overflow-x-auto rounded-lg bg-card p-4 text-xs">
 					{code.code}
 				</pre>
 				<div className="flex items-center gap-2 text-sm">
@@ -614,10 +621,10 @@ function Onboarding({
 		),
 	};
 	return (
-		<details open className="space-y-4 rounded-lg border p-4">
-			<summary className="cursor-pointer font-medium">
+		<details open className="rounded-xl bg-primary-soft p-6">
+			<summary className="cursor-pointer font-semibold text-[15px]">
 				接入清单{" "}
-				<span className="font-normal text-muted-foreground text-sm">
+				<span className="font-normal text-faint text-xs tabular-nums">
 					{tracked.filter((i) => i.done).length} / {tracked.length}
 				</span>
 			</summary>
@@ -625,9 +632,9 @@ function Onboarding({
 				{items.map((item, n) => (
 					<li key={item.key} className="flex gap-3">
 						<span
-							className={`grid size-5 shrink-0 place-items-center rounded-full text-xs ${item.done ? "bg-foreground text-background" : "border"}`}
+							className={`grid size-5 shrink-0 place-items-center rounded-full text-xs ${item.done ? "bg-primary text-primary-foreground" : "bg-card text-primary-ink ring-1 ring-border"}`}
 						>
-							{item.done ? "✓" : n + 1}
+							{item.done ? <Check className="size-3" /> : n + 1}
 						</span>
 						<div className="flex-1 space-y-1">
 							<p className="font-medium text-sm">{steps[item.key]}</p>
