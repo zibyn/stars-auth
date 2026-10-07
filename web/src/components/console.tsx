@@ -30,10 +30,11 @@ export function ConfirmDialog({
 	onOpenChange?: (open: boolean) => void;
 	title: string;
 	children: ReactNode;
-	action?: string;
-	onConfirm?: () => void;
 	destructive?: boolean;
-}) {
+} & (
+	| { action: string; onConfirm: () => void }
+	| { action?: never; onConfirm?: never }
+)) {
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			{trigger && (

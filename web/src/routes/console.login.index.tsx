@@ -18,7 +18,7 @@ import {
 	SelectValue,
 } from "#/components/ui/select";
 import { Switch } from "#/components/ui/switch";
-import type { Policy } from "#/lib/console-api";
+import type { ChannelSettings, Policy } from "#/lib/console-api";
 import {
 	asksRequirePhone,
 	asksTermsVersion,
@@ -68,11 +68,7 @@ function LoginMethods() {
 
 type SectionProps = { current: Policy; editable: boolean };
 
-function CodeLogin({
-	channels,
-}: {
-	channels: Parameters<typeof hasChannel>[0];
-}) {
+function CodeLogin({ channels }: { channels: ChannelSettings[] }) {
 	return (
 		<Card>
 			<CardHeader>
@@ -169,9 +165,7 @@ function RequirePhone({
 					onCheckedChange={setOn}
 				/>
 				{!sms && (
-					<InlineWarning
-						link={{ label: "去启用短信通道", to: "/console/login/channels" }}
-					>
+					<InlineWarning link={{ ...toChannels, label: "去启用短信通道" }}>
 						先启用短信通道。没有短信通道，用户收不到绑定手机号的验证码。
 					</InlineWarning>
 				)}

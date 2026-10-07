@@ -147,6 +147,11 @@ function Channel({
 			}),
 	});
 
+	const stopButton = (
+		<Button type="button" variant="outline" disabled={remove.isPending}>
+			停用
+		</Button>
+	);
 	return (
 		<section className="space-y-4 rounded-lg border p-4">
 			<div className="flex items-center gap-3">
@@ -232,37 +237,27 @@ function Channel({
 							<Button type="submit" disabled={save.isPending}>
 								{current && !stored ? "切换并保存" : "保存"}
 							</Button>
-							{current && (
-								<ConfirmDialog
-									trigger={
-										<Button
-											type="button"
-											variant="outline"
-											disabled={remove.isPending}
-										>
-											停用
-										</Button>
-									}
-									title={`停用${label}通道？`}
-									{...(needed
-										? {}
-										: {
-												action: `停用${label}通道`,
-												onConfirm: () => remove.mutate(),
-											})}
-								>
-									{needed ? (
-										<>
-											先在登录方式里关闭必须绑定手机号。开着它时停用短信，没有手机号的用户收不到绑定验证码，就登录不进来。{" "}
-											<Link to="/console/login" className="underline">
-												去登录方式
-											</Link>
-										</>
-									) : (
-										`停用后，${lose}`
-									)}
-								</ConfirmDialog>
-							)}
+							{current &&
+								(needed ? (
+									<ConfirmDialog
+										trigger={stopButton}
+										title={`停用${label}通道？`}
+									>
+										先在登录方式里关闭必须绑定手机号。开着它时停用短信，没有手机号的用户收不到绑定验证码，就登录不进来。{" "}
+										<Link to="/console/login" className="underline">
+											去登录方式
+										</Link>
+									</ConfirmDialog>
+								) : (
+									<ConfirmDialog
+										trigger={stopButton}
+										title={`停用${label}通道？`}
+										action={`停用${label}通道`}
+										onConfirm={() => remove.mutate()}
+									>
+										停用后，{lose}
+									</ConfirmDialog>
+								))}
 						</div>
 					)}
 				</form>

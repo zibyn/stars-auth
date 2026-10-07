@@ -64,7 +64,7 @@ export const sendsNothing = (dailySendLimit: number) => dailySendLimit === 0;
 
 // rotatedRecently: rotating again this soon retires the key before last,
 // and tokens it signed stop working at once.
-// ponytail: 1 day is a placeholder; tie it to the longest token lifetime.
+// consoles.md marks 1 day as a placeholder (占位值).
 export const rotatedRecently = (lastRotatedAt: string, now = new Date()) =>
 	now.getTime() - new Date(lastRotatedAt).getTime() < 86_400_000;
 

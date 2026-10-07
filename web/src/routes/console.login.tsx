@@ -83,16 +83,7 @@ export function useSavePolicy() {
 // PolicyNumber edits one numeric setting in its own section. warning shows
 // under the field as it is typed; confirm, when it applies to the change,
 // asks before saving.
-export function PolicyNumber({
-	title,
-	field,
-	label,
-	suffix,
-	help,
-	min,
-	warning,
-	confirm,
-}: {
+type PolicyNumberProps = {
 	title: string;
 	field: "dailySendLimit" | "auditRetentionDays";
 	label: string;
@@ -106,7 +97,9 @@ export function PolicyNumber({
 		action: string;
 		body: ReactNode;
 	};
-}) {
+};
+
+export function PolicyNumber(props: PolicyNumberProps) {
 	const { policy, editable } = usePolicy();
 	if (policy.error) {
 		return <p className="text-destructive text-sm">{policy.error.message}</p>;
@@ -114,9 +107,12 @@ export function PolicyNumber({
 	if (!policy.data) {
 		return null;
 	}
-	const props = { title, field, label, suffix, help, min, warning, confirm };
 	return (
-		<NumberForm {...props} current={policy.data[field]} editable={editable} />
+		<NumberForm
+			{...props}
+			current={policy.data[props.field]}
+			editable={editable}
+		/>
 	);
 }
 
@@ -131,7 +127,7 @@ function NumberForm({
 	min,
 	warning,
 	confirm,
-}: Parameters<typeof PolicyNumber>[0] & {
+}: PolicyNumberProps & {
 	current: number;
 	editable: boolean;
 }) {
