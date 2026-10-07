@@ -1,6 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import {
+	createFileRoute,
+	Link,
+	useBlocker,
+	useNavigate,
+} from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { z } from "zod";
 import {
 	ConfirmDialog,
@@ -28,6 +33,14 @@ import {
 	type ApplicationSettings,
 	api,
 } from "#/lib/console-api";
+import {
+	checklist,
+	lines,
+	newSecrets,
+	type Platform,
+	platformKeys,
+	snippet,
+} from "#/lib/onboarding";
 import { useCan } from "./console";
 import { apisQuery } from "./console.apis.index";
 import { applicationsQuery } from "./console.apps.index";
@@ -41,6 +54,8 @@ const tabs = [
 
 const search = z.object({
 	tab: z.enum(["basic", "login", "webhook"]).optional().catch(undefined),
+	// set once, by the create page: show the 接入清单 for this platform
+	onboarding: z.enum(platformKeys).optional().catch(undefined),
 });
 
 export const Route = createFileRoute("/console/apps/$clientId")({
@@ -49,12 +64,6 @@ export const Route = createFileRoute("/console/apps/$clientId")({
 });
 
 const day = 86400;
-
-const lines = (v: FormDataEntryValue | null) =>
-	`${v ?? ""}`
-		.split("\n")
-		.map((l) => l.trim())
-		.filter(Boolean);
 
 // settings is what PUT takes back: every value as it was, the webhook key
 // left out so the stored one stays. iOS / Android links are off the page
@@ -73,7 +82,20 @@ const currentSettings = (a: Application): ApplicationSettings => ({
 
 function ApplicationPage() {
 	const { clientId } = Route.useParams();
-	const { tab = "basic" } = Route.useSearch();
+	const search = Route.useSearch();
+	const { tab = "basic" } = search;
+	// The 接入清单 shows once: kept for this visit, gone from the URL so a
+	// reload or a copied link doesn't bring it back.
+	const [onboarding] = useState(search.onboarding);
+	const navigate = useNavigate({ from: Route.fullPath });
+	useEffect(() => {
+		if (search.onboarding) {
+			navigate({
+				search: (s) => ({ ...s, onboarding: undefined }),
+				replace: true,
+			});
+		}
+	}, [search.onboarding, navigate]);
 	const apps = useQuery(applicationsQuery);
 	const can = useCan();
 	if (apps.error) {
@@ -115,6 +137,7 @@ function ApplicationPage() {
 							: "需要「管理员」角色才能修改。"}
 					</p>
 				)}
+				{onboarding && <Onboarding app={app} platform={onboarding} />}
 				<nav className="flex gap-1 border-b">
 					{tabs.map(([key, label]) => (
 						<Link
@@ -178,13 +201,7 @@ function BasicTab({ app, editable }: TabProps) {
 						>
 							<div className="flex gap-2">
 								<Input readOnly value={app.clientId} className="font-mono" />
-								<Button
-									type="button"
-									variant="outline"
-									onClick={() => navigator.clipboard.writeText(app.clientId)}
-								>
-									复制
-								</Button>
+								<CopyButton value={app.clientId} />
 							</div>
 						</Field>
 						{app.type === "confidential" && (
@@ -490,5 +507,163 @@ function WebhookTab({ app, editable }: TabProps) {
 			</Field>
 			{error && <p className="text-destructive text-sm">{error}</p>}
 		</Section>
+	);
+}
+
+function CopyButton({ value }: { value: string }) {
+	return (
+		<Button
+			type="button"
+			variant="outline"
+			size="sm"
+			onClick={() => navigator.clipboard.writeText(value)}
+		>
+			复制
+		</Button>
+	);
+}
+
+const steps = {
+	clientId: "记下 client_id",
+	secret: "保存 client secret",
+	api: "选择默认 API 资源（可以跳过）",
+	code: "接入代码",
+};
+
+// Onboarding is the 接入清单 shown once, right after the create page sent
+// us here; each step ticks itself from the Application. A new client
+// secret holds the reader on this page until they say it's saved.
+function Onboarding({
+	app,
+	platform,
+}: {
+	app: Application;
+	platform: Platform;
+}) {
+	const [secret] = useState(() => newSecrets.get(app.clientId));
+	useEffect(() => {
+		newSecrets.delete(app.clientId);
+	}, [app.clientId]);
+	const [saved, setSaved] = useState(false);
+	const holding = !!secret && !saved;
+	const blocker = useBlocker({
+		shouldBlockFn: ({ current, next }) =>
+			holding && current.pathname !== next.pathname,
+		enableBeforeUnload: () => holding,
+		withResolver: true,
+	});
+	const issuer = location.origin;
+	const code = snippet(platform, {
+		issuer,
+		clientId: app.clientId,
+		redirectUri: app.redirectUris[0],
+	});
+	// After a reload the secret is gone: nothing left to save here.
+	const items = checklist(app, saved || !secret);
+	const tracked = items.filter((i) => i.done !== undefined);
+	const body = {
+		clientId: (
+			<div className="flex items-center gap-2">
+				<span className="font-mono text-sm">{app.clientId}</span>
+				<CopyButton value={app.clientId} />
+			</div>
+		),
+		secret: secret ? (
+			<div className="space-y-2 rounded-lg border border-amber-500 p-3">
+				<div className="flex items-center gap-2">
+					<span className="break-all font-mono text-sm">{secret}</span>
+					<CopyButton value={secret} />
+				</div>
+				<p className="text-muted-foreground text-xs">
+					它只显示这一次，请现在保存到你服务器的配置里。丢了只能在下面重新生成，旧的会立即失效。
+				</p>
+				<label className="flex items-center gap-2 text-sm">
+					<input
+						type="checkbox"
+						checked={saved}
+						onChange={(e) => setSaved(e.target.checked)}
+					/>
+					我已保存 client secret
+				</label>
+			</div>
+		) : (
+			<p className="text-muted-foreground text-xs">
+				client secret
+				只在创建时显示一次。没保存的话，在下面「基本信息」里重新生成。
+			</p>
+		),
+		api: (
+			<p className="text-muted-foreground text-xs">
+				选了以后，用户登录这个应用拿到的 access token 就能调用这个 API
+				资源，并带上用户在其中的角色。不调用你自己的 API
+				可以不选。在下面「访问令牌」里选择。
+			</p>
+		),
+		code: (
+			<div className="space-y-2">
+				<p className="text-muted-foreground text-xs">{code.help}</p>
+				<pre className="overflow-x-auto rounded-lg bg-muted p-3 text-xs">
+					{code.code}
+				</pre>
+				<div className="flex items-center gap-2 text-sm">
+					<span className="text-muted-foreground">认证服务地址</span>
+					<span className="font-mono">{issuer}</span>
+					<CopyButton value={issuer} />
+				</div>
+			</div>
+		),
+	};
+	return (
+		<details open className="space-y-4 rounded-lg border p-4">
+			<summary className="cursor-pointer font-medium">
+				接入清单{" "}
+				<span className="font-normal text-muted-foreground text-sm">
+					{tracked.filter((i) => i.done).length} / {tracked.length}
+				</span>
+			</summary>
+			<ol className="mt-4 space-y-4">
+				{items.map((item, n) => (
+					<li key={item.key} className="flex gap-3">
+						<span
+							className={`grid size-5 shrink-0 place-items-center rounded-full text-xs ${item.done ? "bg-foreground text-background" : "border"}`}
+						>
+							{item.done ? "✓" : n + 1}
+						</span>
+						<div className="flex-1 space-y-1">
+							<p className="font-medium text-sm">{steps[item.key]}</p>
+							{body[item.key]}
+						</div>
+					</li>
+				))}
+			</ol>
+			<div className="mt-4 space-y-1 text-muted-foreground text-sm">
+				<p>
+					用户能用哪些方式登录，去
+					<Link to="/console/login" className="underline">
+						「登录方式」
+					</Link>
+					检查。
+				</p>
+				<p>
+					需要在用户注销时清理数据，就配置
+					<Link
+						from={Route.fullPath}
+						search={{ tab: "webhook" }}
+						className="underline"
+					>
+						「用户删除通知」
+					</Link>
+					。
+				</p>
+			</div>
+			<ConfirmDialog
+				open={blocker.status === "blocked"}
+				onOpenChange={(open) => !open && blocker.reset?.()}
+				title="离开前保存 client secret？"
+			>
+				client secret
+				只显示这一次，离开后就再也看不到了。请先保存到服务器配置里，勾选「我已保存」后再离开。
+			</ConfirmDialog>
+		</details>
 	);
 }
