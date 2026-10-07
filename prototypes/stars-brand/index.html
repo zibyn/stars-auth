@@ -1,0 +1,180 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway. 第二轮:结构定为 console-style 的 B(整块柔和面板),克制程度取 A
+  (面板里不再套框、不用 emoji 和渐变)。这一轮只问「Stars 品牌怎么表达」,三版结构相同、只换品牌:
+    A 星夜:深靛夜空 + 一点星光金,登录页左侧是星空
+    B 星光:沿用 B 的紫,收敛饱和度,登录页左侧是淡紫星点
+    C 墨星:黑白为底,唯一的颜色是那颗金色的星,登录页单栏居中
+  每版上半是管理端概览,下半是终端用户看到的登录页(所有 Stars 产品都经过它)。
+  用 ?variant= 切换(底部控制条或 ← → 键)。数据全是假的,双击打开即可。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Stars 品牌(原型)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  body{margin:0;font-family:Inter,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;-webkit-font-smoothing:antialiased;background:var(--canvas);color:var(--ink)}
+  .tnum{font-variant-numeric:tabular-nums}
+  /* 品牌 token:三版只有这里不同 */
+  body[data-v=A]{--brand:#2b2a6b;--brand-hover:#232259;--brand-soft:#f1f1f8;--brand-ink:#2b2a6b;--star:#f2b33d;--canvas:#f4f4f7;--ink:#17172b;--muted:#6b6b80;--faint:#a3a3b5;--line:#ececf2;--hero:#14133a;--hero-ink:#fff;--hero-dot:#ffffff;--mark:var(--star)}
+  body[data-v=B]{--brand:#6847f5;--brand-hover:#5835e6;--brand-soft:#f4f1ff;--brand-ink:#5a3be0;--star:#6847f5;--canvas:#f5f4f9;--ink:#1f1d29;--muted:#6c6a7c;--faint:#a5a3b5;--line:#eeedf3;--hero:#efebff;--hero-ink:#2a2150;--hero-dot:#6847f5;--mark:#fff}
+  body[data-v=C]{--brand:#111111;--brand-hover:#000;--brand-soft:#f5f5f4;--brand-ink:#111;--star:#e5a524;--canvas:#f6f6f5;--ink:#111;--muted:#6b6b6b;--faint:#a3a3a3;--line:#ededec;--hero:transparent;--hero-ink:#111;--hero-dot:transparent;--mark:var(--star)}
+  body[data-v=C] .hero{display:none}
+  body[data-v=C] .login-wrap{grid-template-columns:1fr}
+</style>
+</head>
+<body data-v="A">
+
+<!-- 四角星标志:品牌的唯一图形 -->
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="star" viewBox="0 0 24 24"><path d="M12 1.5c.7 6.2 4.3 9.8 10.5 10.5-6.2.7-9.8 4.3-10.5 10.5-.7-6.2-4.3-9.8-10.5-10.5C7.7 11.3 11.3 7.7 12 1.5Z"/></symbol>
+</defs></svg>
+
+<div class="px-2 pt-2 pb-1 text-xs text-[var(--faint)]">管理端 · 概览</div>
+<!-- ============ 管理端 ============ -->
+<div class="flex min-h-[860px] px-2 pb-2">
+  <aside class="w-60 shrink-0 px-4 py-4 text-[14px]">
+    <button class="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 hover:bg-white/60">
+      <span class="size-8 rounded-lg bg-[var(--brand)] grid place-items-center"><svg class="size-4 fill-[var(--mark)]"><use href="#star"/></svg></span>
+      <span class="text-left leading-tight flex-1"><span class="block font-semibold">Stars</span><span class="block text-[12px] text-[var(--muted)]">Auth</span></span>
+      <span class="text-[var(--faint)] text-xs">⌄</span>
+    </button>
+    <nav class="mt-6 space-y-0.5">
+      <a class="flex items-center rounded-lg px-3 py-2 bg-white font-medium shadow-[0_1px_2px_rgba(0,0,0,.05),0_0_0_1px_var(--line)]">概览</a>
+      <a class="flex items-center rounded-lg px-3 py-2 text-[var(--muted)] hover:text-[var(--ink)]">用户</a>
+      <a class="flex items-center rounded-lg px-3 py-2 text-[var(--muted)] hover:text-[var(--ink)]">应用</a>
+      <a class="flex items-center rounded-lg px-3 py-2 text-[var(--muted)] hover:text-[var(--ink)]">API 资源</a>
+      <div class="pt-5 pb-1 px-3 text-[11px] text-[var(--faint)]">配置</div>
+      <a class="flex items-center rounded-lg px-3 py-2 text-[var(--muted)] hover:text-[var(--ink)]">登录</a>
+      <a class="flex items-center rounded-lg px-3 py-2 text-[var(--muted)] hover:text-[var(--ink)]">审计</a>
+      <a class="flex items-center rounded-lg px-3 py-2 text-[var(--muted)] hover:text-[var(--ink)]">设置</a>
+    </nav>
+    <div class="mt-10 flex items-center gap-2.5 px-3">
+      <span class="size-6 rounded-full bg-[var(--brand-soft)] text-[var(--brand-ink)] grid place-items-center text-[11px] font-medium">A</span>
+      <span class="text-[13px] text-[var(--muted)]">admin@stars.dev</span>
+    </div>
+  </aside>
+
+  <main class="flex-1 rounded-2xl bg-white shadow-[0_1px_3px_rgba(0,0,0,.04),0_0_0_1px_var(--line)] px-14 py-11">
+    <div class="max-w-4xl">
+      <h1 class="text-[24px] font-semibold tracking-tight">下午好,admin</h1>
+      <p class="mt-1.5 flex items-center gap-2 text-[14px] text-[var(--muted)]"><span class="size-1.5 rounded-full bg-emerald-500"></span>认证服务运行正常</p>
+
+      <section class="mt-9 flex items-center gap-5 rounded-xl bg-[var(--brand-soft)] px-6 py-5">
+        <div class="relative size-12 shrink-0">
+          <svg viewBox="0 0 36 36" class="size-12 -rotate-90"><circle cx="18" cy="18" r="15" fill="none" stroke="var(--line)" stroke-width="3"/><circle cx="18" cy="18" r="15" fill="none" stroke="var(--brand)" stroke-width="3" stroke-linecap="round" stroke-dasharray="63 95"/></svg>
+          <span class="absolute inset-0 grid place-items-center text-[12px] font-semibold text-[var(--brand-ink)] tnum">2/3</span>
+        </div>
+        <div class="flex-1">
+          <div class="font-medium text-[15px]">还差一步就配置好了</div>
+          <div class="text-[13px] text-[var(--muted)] mt-0.5">下一步:添加 API 资源,让应用拿到访问你后端的令牌。</div>
+        </div>
+        <button class="rounded-lg bg-[var(--brand)] hover:bg-[var(--brand-hover)] px-4 py-2 text-[14px] font-medium text-white">添加 API 资源</button>
+        <button class="text-[var(--faint)] hover:text-[var(--ink)] text-lg leading-none" aria-label="关闭上手清单">×</button>
+      </section>
+
+      <section class="mt-10 grid grid-cols-4 divide-x divide-[var(--line)]">
+        <div class="pr-6"><div class="text-[13px] text-[var(--muted)]">用户</div><div class="mt-2 text-[30px] font-semibold tracking-tight tnum">1,284</div><div class="text-[12px] text-emerald-600 mt-0.5">本周 +46</div></div>
+        <div class="px-6"><div class="text-[13px] text-[var(--muted)]">今日新登录</div><div class="mt-2 text-[30px] font-semibold tracking-tight tnum">37</div><div class="text-[12px] text-[var(--faint)] mt-0.5">今天新建的会话</div></div>
+        <div class="px-6"><div class="text-[13px] text-[var(--muted)]">活跃会话</div><div class="mt-2 text-[30px] font-semibold tracking-tight tnum">212</div><div class="text-[12px] text-[var(--faint)] mt-0.5">当前在线</div></div>
+        <div class="pl-6"><div class="text-[13px] text-[var(--muted)]">应用</div><div class="mt-2 text-[30px] font-semibold tracking-tight tnum">3</div><div class="text-[12px] text-[var(--faint)] mt-0.5">不含内置应用</div></div>
+      </section>
+
+      <section class="mt-12">
+        <div class="flex items-baseline justify-between">
+          <h2 class="text-[15px] font-semibold">最近事件</h2>
+          <a class="text-[13px] font-medium text-[var(--brand-ink)]">查看全部 →</a>
+        </div>
+        <ul class="mt-3 text-[14px]">
+          <li class="flex items-center gap-3 border-b border-[var(--line)] py-3"><span class="size-6 rounded-full bg-red-50 text-red-600 grid place-items-center text-[11px]">!</span><span class="flex-1">138****0021 密码输错次数过多,已暂时锁定</span><span class="text-[12px] text-[var(--faint)]">刚刚</span></li>
+          <li class="flex items-center gap-3 border-b border-[var(--line)] py-3"><span class="size-6 rounded-full bg-[var(--brand-soft)] text-[var(--brand-ink)] grid place-items-center text-[11px] font-medium">A</span><span class="flex-1"><b class="font-medium">admin@stars.dev</b> 创建了应用「星图 iOS」</span><span class="text-[12px] text-[var(--faint)]">3 分钟前</span></li>
+          <li class="flex items-center gap-3 border-b border-[var(--line)] py-3"><span class="size-6 rounded-full bg-[var(--brand-soft)] text-[var(--brand-ink)] grid place-items-center text-[11px] font-medium">A</span><span class="flex-1"><b class="font-medium">admin@stars.dev</b> 配置了验证码通道「阿里云短信」</span><span class="text-[12px] text-[var(--faint)]">12 分钟前</span></li>
+          <li class="flex items-center gap-3 border-b border-[var(--line)] py-3"><span class="size-6 rounded-full bg-[var(--canvas)] grid place-items-center"><svg class="size-3 fill-[var(--faint)]"><use href="#star"/></svg></span><span class="flex-1">系统轮换了令牌签名密钥</span><span class="text-[12px] text-[var(--faint)]">1 小时前</span></li>
+          <li class="flex items-center gap-3 border-b border-[var(--line)] py-3"><span class="size-6 rounded-full bg-[var(--brand-soft)] text-[var(--brand-ink)] grid place-items-center text-[11px] font-medium">O</span><span class="flex-1"><b class="font-medium">ops@stars.dev</b> 禁用了用户 159****8812</span><span class="text-[12px] text-[var(--faint)]">2 小时前</span></li>
+          <li class="flex items-center gap-3 py-3"><span class="size-6 rounded-full bg-[var(--brand-soft)] text-[var(--brand-ink)] grid place-items-center text-[11px] font-medium">O</span><span class="flex-1"><b class="font-medium">ops@stars.dev</b> 下线了用户 186****3307 的会话</span><span class="text-[12px] text-[var(--faint)]">昨天</span></li>
+        </ul>
+      </section>
+    </div>
+  </main>
+</div>
+
+<div class="px-2 pt-6 pb-1 text-xs text-[var(--faint)]">登录页 · 终端用户从任何 Stars 产品点「登录」都会来到这里</div>
+<!-- ============ 登录页 ============ -->
+<div class="px-2 pb-24">
+  <div class="login-wrap grid grid-cols-[1fr_1fr] min-h-[720px] rounded-2xl overflow-hidden bg-white shadow-[0_1px_3px_rgba(0,0,0,.04),0_0_0_1px_var(--line)]">
+    <div class="hero relative overflow-hidden bg-[var(--hero)] text-[var(--hero-ink)] p-12 flex flex-col">
+      <svg id="field" class="absolute inset-0 size-full"></svg>
+      <div class="relative flex items-center gap-2.5">
+        <svg class="size-6 fill-[var(--star)]"><use href="#star"/></svg>
+        <span class="font-semibold text-[17px]">Stars</span>
+      </div>
+      <div class="relative mt-auto">
+        <div class="text-[30px] font-semibold leading-snug tracking-tight">一个账号,<br>点亮所有 Stars 产品。</div>
+        <div class="mt-3 text-[14px] opacity-70">星图、星记、星伴……登录一次,处处可用。</div>
+      </div>
+    </div>
+
+    <div class="grid place-items-center px-8 py-16">
+      <div class="w-full max-w-[340px]">
+        <svg class="size-8 fill-[var(--star)]"><use href="#star"/></svg>
+        <h1 class="mt-6 text-[24px] font-semibold tracking-tight">登录</h1>
+        <p class="mt-1.5 text-[14px] text-[var(--muted)]">继续前往 <span class="text-[var(--ink)] font-medium">星图</span></p>
+
+        <label class="mt-8 block text-[13px] font-medium">手机号</label>
+        <div class="mt-1.5 flex rounded-lg ring-1 ring-[var(--line)] focus-within:ring-2 focus-within:ring-[var(--brand)]">
+          <span class="px-3 py-2.5 text-[14px] text-[var(--muted)] border-r border-[var(--line)]">+86</span>
+          <input class="flex-1 rounded-r-lg px-3 py-2.5 text-[14px] outline-none" placeholder="请输入手机号" value="138 0013 8000">
+        </div>
+        <label class="mt-4 flex items-start gap-2 text-[12px] text-[var(--muted)]"><input type="checkbox" checked class="mt-0.5 accent-[var(--brand)]">我已阅读并同意《用户协议》和《隐私政策》</label>
+        <button class="mt-5 w-full rounded-lg bg-[var(--brand)] hover:bg-[var(--brand-hover)] py-2.5 text-[14px] font-medium text-white">获取验证码</button>
+
+        <div class="my-6 flex items-center gap-3 text-[12px] text-[var(--faint)]"><span class="h-px flex-1 bg-[var(--line)]"></span>或<span class="h-px flex-1 bg-[var(--line)]"></span></div>
+        <button class="w-full rounded-lg ring-1 ring-[var(--line)] py-2.5 text-[14px] hover:bg-[var(--canvas)]">使用密码登录</button>
+
+        <p class="mt-10 text-center text-[12px] text-[var(--faint)]">由 Stars 提供安全登录</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 切换条(不属于被评估的设计) ============ -->
+<div style="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:4px;background:#111;color:#fff;border-radius:999px;padding:6px;box-shadow:0 8px 30px rgba(0,0,0,.35);font:13px system-ui,'PingFang SC',sans-serif">
+  <button id="prev" style="width:32px;height:32px;border-radius:999px;background:#222;color:#fff;border:0;cursor:pointer">←</button>
+  <span id="label" style="min-width:200px;text-align:center"></span>
+  <button id="next" style="width:32px;height:32px;border-radius:999px;background:#222;color:#fff;border:0;cursor:pointer">→</button>
+</div>
+<script>
+  // 星点:固定种子,三版用同一片星空,只换颜色
+  let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const field = document.getElementById("field");
+  for (let i = 0; i < 90; i++) {
+    const r = rnd() < 0.08 ? 1.6 : rnd() * 0.9 + 0.3;
+    field.insertAdjacentHTML("beforeend", `<circle cx="${(rnd() * 100).toFixed(1)}%" cy="${(rnd() * 70).toFixed(1)}%" r="${r.toFixed(2)}" fill="var(--hero-dot)" opacity="${(rnd() * 0.6 + 0.2).toFixed(2)}"/>`);
+  }
+
+  const names = { A: "星夜 · 深靛 + 星光金", B: "星光 · 收敛的紫", C: "墨星 · 黑白 + 一颗金星" };
+  const keys = Object.keys(names);
+  let current;
+  const show = (k) => {
+    if (!names[k]) k = "A";
+    current = k;
+    document.body.dataset.v = k;
+    document.getElementById("label").textContent = `${k}  ${names[k]}`;
+    const u = new URL(location); u.searchParams.set("variant", k); history.replaceState(null, "", u);
+  };
+  const step = (d) => show(keys[(keys.indexOf(current) + d + keys.length) % keys.length]);
+  document.getElementById("prev").onclick = () => step(-1);
+  document.getElementById("next").onclick = () => step(1);
+  addEventListener("keydown", (e) => {
+    if (e.target.closest("input,textarea,[contenteditable]")) return;
+    if (e.key === "ArrowLeft") step(-1);
+    if (e.key === "ArrowRight") step(1);
+  });
+  show(new URLSearchParams(location.search).get("variant"));
+</script>
+</body>
+</html>

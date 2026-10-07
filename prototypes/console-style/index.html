@@ -1,0 +1,261 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway. 答「管理端怎样才不像积木拼出来的」:同一个概览页,三种整体视觉方向。
+  用 ?variant= 切换(底部控制条或 ← → 键):
+    A WorkOS 风:留白分层,几乎没有卡片边框,一个靛蓝强调色
+    B Clerk 风:整个内容区是一块柔和的面板,紫色品牌色,圆润、有温度
+    C Vercel 风:顶部导航 + 下划线标签,黑白高对比,共用边线的网格,数字等宽
+  内容和真实概览一致(上手清单、统计、最近事件),数据全是假的。双击打开即可,无后端。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>管理端风格(原型)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body{margin:0;-webkit-font-smoothing:antialiased}
+  [data-variant]{display:none}
+  [data-variant].on{display:block}
+  .cn{font-family:Inter,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  .geist{font-family:Geist,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  .gmono{font-family:"Geist Mono",ui-monospace,Menlo,monospace}
+  .tnum{font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+
+<!-- ============ A  WorkOS 风:留白分层,无卡片 ============ -->
+<div data-variant="A" class="cn min-h-screen bg-white text-[#1c2024]">
+  <div class="flex min-h-screen">
+    <aside class="w-56 shrink-0 bg-[#f9f9fb] px-3 py-5 text-[14px]">
+      <div class="flex items-center gap-2 px-2 mb-6">
+        <div class="size-6 rounded-md bg-[#5b5bd6] text-white grid place-items-center text-xs">✦</div>
+        <span class="font-semibold">Stars Auth</span>
+      </div>
+      <nav class="space-y-0.5">
+        <a class="block rounded-md px-2 py-1.5 bg-white font-medium text-[#1c2024] shadow-[0_0_0_1px_#e8e8ec]">概览</a>
+        <a class="block rounded-md px-2 py-1.5 text-[#60646c] hover:text-[#1c2024]">用户</a>
+        <a class="block rounded-md px-2 py-1.5 text-[#60646c] hover:text-[#1c2024]">应用</a>
+        <a class="block rounded-md px-2 py-1.5 text-[#60646c] hover:text-[#1c2024]">API 资源</a>
+        <a class="block rounded-md px-2 py-1.5 text-[#60646c] hover:text-[#1c2024]">登录</a>
+        <a class="block rounded-md px-2 py-1.5 text-[#60646c] hover:text-[#1c2024]">审计</a>
+        <a class="block rounded-md px-2 py-1.5 text-[#60646c] hover:text-[#1c2024]">设置</a>
+      </nav>
+      <div class="mt-10 px-2 text-xs text-[#8b8d98]">admin@stars.dev</div>
+    </aside>
+
+    <main class="flex-1 px-14 py-12 max-w-5xl">
+      <h1 class="text-[28px] font-semibold tracking-tight">概览</h1>
+      <p class="mt-1 text-[#60646c] text-[15px]">认证服务运行正常。</p>
+
+      <section class="mt-12">
+        <div class="flex items-baseline justify-between">
+          <h2 class="text-[15px] font-medium">上手清单</h2>
+          <button class="text-sm text-[#8b8d98] hover:text-[#1c2024]">关闭</button>
+        </div>
+        <div class="mt-4 h-1 rounded-full bg-[#eff0f3]"><div class="h-1 w-2/3 rounded-full bg-[#5b5bd6]"></div></div>
+        <ol class="mt-5 grid grid-cols-3 gap-8 text-[14px]">
+          <li><div class="text-[#8b8d98] line-through decoration-[#c4c5cc]">配置通道</div><div class="text-xs text-[#8b8d98] mt-1">已完成</div></li>
+          <li><div class="text-[#8b8d98] line-through decoration-[#c4c5cc]">创建应用</div><div class="text-xs text-[#8b8d98] mt-1">已完成</div></li>
+          <li><a class="font-medium text-[#5b5bd6]">添加 API 资源 →</a><div class="text-xs text-[#60646c] mt-1">让应用拿到访问你后端的令牌</div></li>
+        </ol>
+      </section>
+
+      <section class="mt-14 grid grid-cols-4 divide-x divide-[#eff0f3]">
+        <div class="pr-6"><div class="text-[13px] text-[#60646c]">用户</div><div class="mt-2 text-[32px] font-semibold tracking-tight tnum">1,284</div></div>
+        <div class="px-6"><div class="text-[13px] text-[#60646c] underline decoration-dotted underline-offset-4" title="今天新建的会话数">今日新登录</div><div class="mt-2 text-[32px] font-semibold tracking-tight tnum">37</div></div>
+        <div class="px-6"><div class="text-[13px] text-[#60646c]">活跃会话</div><div class="mt-2 text-[32px] font-semibold tracking-tight tnum">212</div></div>
+        <div class="pl-6"><div class="text-[13px] text-[#60646c]">应用</div><div class="mt-2 text-[32px] font-semibold tracking-tight tnum">3</div></div>
+      </section>
+
+      <section class="mt-14">
+        <div class="flex items-baseline justify-between">
+          <h2 class="text-[15px] font-medium">最近事件</h2>
+          <a class="text-sm text-[#5b5bd6]">查看全部</a>
+        </div>
+        <ul class="mt-3 divide-y divide-[#eff0f3] text-[14px]">
+          <li class="flex justify-between py-3.5"><span><span class="text-[#ce2c31]">●</span> 138****0021 密码输错次数过多,已暂时锁定</span><span class="text-[#8b8d98] text-[13px]">刚刚</span></li>
+          <li class="flex justify-between py-3.5"><span>admin@stars.dev 创建了应用 <span class="font-medium">星图 iOS</span></span><span class="text-[#8b8d98] text-[13px]">3 分钟前</span></li>
+          <li class="flex justify-between py-3.5"><span>admin@stars.dev 配置了验证码通道 <span class="font-medium">阿里云短信</span></span><span class="text-[#8b8d98] text-[13px]">12 分钟前</span></li>
+          <li class="flex justify-between py-3.5"><span>系统轮换了令牌签名密钥</span><span class="text-[#8b8d98] text-[13px]">1 小时前</span></li>
+          <li class="flex justify-between py-3.5"><span>ops@stars.dev 禁用了用户 159****8812</span><span class="text-[#8b8d98] text-[13px]">2 小时前</span></li>
+          <li class="flex justify-between py-3.5"><span>ops@stars.dev 下线了用户 186****3307 的会话</span><span class="text-[#8b8d98] text-[13px]">昨天</span></li>
+        </ul>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- ============ B  Clerk 风:内容区是一整块柔和面板 ============ -->
+<div data-variant="B" class="cn min-h-screen bg-[#f4f3f8] text-[#212126]">
+  <div class="flex min-h-screen p-2">
+    <aside class="w-60 shrink-0 px-4 py-5 text-[14px]">
+      <div class="flex items-center gap-2.5 px-2 mb-7">
+        <div class="size-7 rounded-lg bg-gradient-to-br from-[#7c5cff] to-[#5a3ff0] text-white grid place-items-center text-sm shadow-sm">✦</div>
+        <div class="leading-tight"><div class="font-semibold">Stars Auth</div><div class="text-[11px] text-[#747686]">生产环境</div></div>
+      </div>
+      <nav class="space-y-1">
+        <a class="flex items-center gap-2.5 rounded-lg px-3 py-2 bg-white text-[#212126] font-medium shadow-[0_1px_2px_rgba(0,0,0,.06),0_0_0_1px_rgba(0,0,0,.04)]"><span class="text-[#6c47ff]">◆</span>概览</a>
+        <a class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[#5e5f6e] hover:bg-white/60"><span class="text-[#b4b4c2]">◇</span>用户</a>
+        <a class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[#5e5f6e] hover:bg-white/60"><span class="text-[#b4b4c2]">◇</span>应用</a>
+        <a class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[#5e5f6e] hover:bg-white/60"><span class="text-[#b4b4c2]">◇</span>API 资源</a>
+        <div class="pt-4 pb-1 px-3 text-[11px] text-[#9a9aab]">配置</div>
+        <a class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[#5e5f6e] hover:bg-white/60"><span class="text-[#b4b4c2]">◇</span>登录</a>
+        <a class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[#5e5f6e] hover:bg-white/60"><span class="text-[#b4b4c2]">◇</span>审计</a>
+        <a class="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[#5e5f6e] hover:bg-white/60"><span class="text-[#b4b4c2]">◇</span>设置</a>
+      </nav>
+      <div class="mt-10 flex items-center gap-2.5 px-2">
+        <div class="size-7 rounded-full bg-[#ece8ff] text-[#6c47ff] grid place-items-center text-xs font-medium">A</div>
+        <span class="text-[13px] text-[#5e5f6e]">admin@stars.dev</span>
+      </div>
+    </aside>
+
+    <main class="flex-1 rounded-2xl bg-white shadow-[0_1px_3px_rgba(0,0,0,.06),0_0_0_1px_rgba(0,0,0,.04)] px-12 py-10">
+      <div class="max-w-4xl">
+        <h1 class="text-[24px] font-semibold">下午好 👋</h1>
+        <p class="mt-1 text-[#747686]">这是你的认证服务今天的情况。</p>
+
+        <section class="mt-8 rounded-xl bg-gradient-to-br from-[#f7f5ff] to-[#fbfaff] p-6 ring-1 ring-[#ece8ff]">
+          <div class="flex items-center gap-5">
+            <div class="relative size-14 shrink-0">
+              <svg viewBox="0 0 36 36" class="size-14 -rotate-90"><circle cx="18" cy="18" r="15" fill="none" stroke="#e6e0ff" stroke-width="3.5"/><circle cx="18" cy="18" r="15" fill="none" stroke="#6c47ff" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="63 95"/></svg>
+              <span class="absolute inset-0 grid place-items-center text-[13px] font-semibold text-[#6c47ff]">2/3</span>
+            </div>
+            <div class="flex-1">
+              <div class="font-medium">还差一步就配置好了</div>
+              <div class="text-sm text-[#747686] mt-0.5">已配置通道、创建应用。下一步:添加 API 资源,让应用拿到访问你后端的令牌。</div>
+            </div>
+            <button class="rounded-lg bg-[#6c47ff] px-4 py-2 text-sm font-medium text-white shadow-[0_1px_2px_rgba(108,71,255,.4)] hover:bg-[#5b38f0]">添加 API 资源</button>
+            <button class="text-[#9a9aab] hover:text-[#212126] text-lg leading-none" aria-label="关闭上手清单">×</button>
+          </div>
+        </section>
+
+        <section class="mt-6 grid grid-cols-4 gap-4">
+          <div class="rounded-xl bg-[#fafafb] p-5"><div class="text-[13px] text-[#747686]">用户</div><div class="mt-1.5 text-[26px] font-semibold tnum">1,284</div><div class="mt-1 text-xs text-[#1f9d55]">↑ 本周 +46</div></div>
+          <div class="rounded-xl bg-[#fafafb] p-5"><div class="text-[13px] text-[#747686]" title="今天新建的会话数">今日新登录</div><div class="mt-1.5 text-[26px] font-semibold tnum">37</div><div class="mt-1 text-xs text-[#9a9aab]">今天新建的会话</div></div>
+          <div class="rounded-xl bg-[#fafafb] p-5"><div class="text-[13px] text-[#747686]">活跃会话</div><div class="mt-1.5 text-[26px] font-semibold tnum">212</div><div class="mt-1 text-xs text-[#9a9aab]">当前在线</div></div>
+          <div class="rounded-xl bg-[#fafafb] p-5"><div class="text-[13px] text-[#747686]">应用</div><div class="mt-1.5 text-[26px] font-semibold tnum">3</div><div class="mt-1 text-xs text-[#9a9aab]">不含内置应用</div></div>
+        </section>
+
+        <section class="mt-10">
+          <div class="flex items-center justify-between">
+            <h2 class="font-semibold">最近事件</h2>
+            <a class="text-sm font-medium text-[#6c47ff]">查看全部 →</a>
+          </div>
+          <ul class="mt-3 space-y-1 text-[14px]">
+            <li class="flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-[#fafafb]"><span class="size-8 rounded-full bg-[#fdecec] text-[#d93036] grid place-items-center text-xs">!</span><span class="flex-1">138****0021 密码输错次数过多,已暂时锁定</span><span class="text-xs text-[#9a9aab]">刚刚</span></li>
+            <li class="flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-[#fafafb]"><span class="size-8 rounded-full bg-[#ece8ff] text-[#6c47ff] grid place-items-center text-xs font-medium">A</span><span class="flex-1"><b class="font-medium">admin@stars.dev</b> 创建了应用「星图 iOS」</span><span class="text-xs text-[#9a9aab]">3 分钟前</span></li>
+            <li class="flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-[#fafafb]"><span class="size-8 rounded-full bg-[#ece8ff] text-[#6c47ff] grid place-items-center text-xs font-medium">A</span><span class="flex-1"><b class="font-medium">admin@stars.dev</b> 配置了验证码通道「阿里云短信」</span><span class="text-xs text-[#9a9aab]">12 分钟前</span></li>
+            <li class="flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-[#fafafb]"><span class="size-8 rounded-full bg-[#f1f1f4] text-[#747686] grid place-items-center text-xs">⚙</span><span class="flex-1">系统轮换了令牌签名密钥</span><span class="text-xs text-[#9a9aab]">1 小时前</span></li>
+            <li class="flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-[#fafafb]"><span class="size-8 rounded-full bg-[#e3f4ec] text-[#1f9d55] grid place-items-center text-xs font-medium">O</span><span class="flex-1"><b class="font-medium">ops@stars.dev</b> 禁用了用户 159****8812</span><span class="text-xs text-[#9a9aab]">2 小时前</span></li>
+            <li class="flex items-center gap-3 rounded-lg px-3 py-2.5 hover:bg-[#fafafb]"><span class="size-8 rounded-full bg-[#e3f4ec] text-[#1f9d55] grid place-items-center text-xs font-medium">O</span><span class="flex-1"><b class="font-medium">ops@stars.dev</b> 下线了用户 186****3307 的会话</span><span class="text-xs text-[#9a9aab]">昨天</span></li>
+          </ul>
+        </section>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ============ C  Vercel 风:顶部标签,黑白,共用边线 ============ -->
+<div data-variant="C" class="geist min-h-screen bg-[#fafafa] text-[#0a0a0a]">
+  <header class="bg-white border-b border-[#eaeaea]">
+    <div class="mx-auto max-w-6xl px-6">
+      <div class="flex h-14 items-center gap-3 text-[14px]">
+        <div class="size-6 rounded-md bg-black text-white grid place-items-center text-xs">✦</div>
+        <span class="text-[#d4d4d4] text-xl font-light">/</span>
+        <span class="font-medium">Stars Auth</span>
+        <span class="rounded-full border border-[#eaeaea] px-2 py-0.5 text-[11px] text-[#666]">production</span>
+        <span class="ml-auto gmono text-[12px] text-[#666]">admin@stars.dev</span>
+        <div class="size-7 rounded-full bg-gradient-to-br from-[#a1a1a1] to-[#3a3a3a]"></div>
+      </div>
+      <nav class="flex gap-1 text-[14px] -mb-px">
+        <a class="px-3 pb-3 pt-1 border-b-2 border-black">概览</a>
+        <a class="px-3 pb-3 pt-1 border-b-2 border-transparent text-[#666] hover:text-black">用户</a>
+        <a class="px-3 pb-3 pt-1 border-b-2 border-transparent text-[#666] hover:text-black">应用</a>
+        <a class="px-3 pb-3 pt-1 border-b-2 border-transparent text-[#666] hover:text-black">API 资源</a>
+        <a class="px-3 pb-3 pt-1 border-b-2 border-transparent text-[#666] hover:text-black">登录</a>
+        <a class="px-3 pb-3 pt-1 border-b-2 border-transparent text-[#666] hover:text-black">审计</a>
+        <a class="px-3 pb-3 pt-1 border-b-2 border-transparent text-[#666] hover:text-black">设置</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-6xl px-6 py-10">
+    <div class="flex items-end justify-between">
+      <h1 class="text-[32px] font-semibold tracking-[-0.04em]">概览</h1>
+      <div class="flex items-center gap-2 text-[13px] text-[#666]"><span class="size-2 rounded-full bg-[#0070f3]"></span>运行正常</div>
+    </div>
+
+    <section class="mt-8 grid grid-cols-4 rounded-md border border-[#eaeaea] bg-white divide-x divide-[#eaeaea]">
+      <div class="p-5"><div class="text-[13px] text-[#666]">用户</div><div class="mt-3 gmono text-[28px] tracking-tight tnum">1,284</div></div>
+      <div class="p-5"><div class="text-[13px] text-[#666] underline decoration-dotted underline-offset-4" title="今天新建的会话数">今日新登录</div><div class="mt-3 gmono text-[28px] tracking-tight tnum">37</div></div>
+      <div class="p-5"><div class="text-[13px] text-[#666]">活跃会话</div><div class="mt-3 gmono text-[28px] tracking-tight tnum">212</div></div>
+      <div class="p-5"><div class="text-[13px] text-[#666]">应用</div><div class="mt-3 gmono text-[28px] tracking-tight tnum">3</div></div>
+    </section>
+
+    <div class="mt-8 grid grid-cols-3 gap-6">
+      <section class="col-span-2 rounded-md border border-[#eaeaea] bg-white">
+        <div class="flex items-center justify-between border-b border-[#eaeaea] px-5 h-12">
+          <h2 class="text-[14px] font-medium">最近事件</h2>
+          <a class="rounded-md border border-[#eaeaea] px-2.5 py-1 text-[12px] hover:bg-[#fafafa]">查看全部</a>
+        </div>
+        <table class="w-full text-[13px]">
+          <tbody class="divide-y divide-[#eaeaea]">
+            <tr><td class="pl-5 py-3 w-24 gmono text-[12px] text-[#666]">17:42</td><td class="py-3"><span class="mr-2 inline-block rounded px-1.5 text-[11px] bg-[#fdecec] text-[#c00]">安全</span>138****0021 密码输错次数过多,已暂时锁定</td></tr>
+            <tr><td class="pl-5 py-3 gmono text-[12px] text-[#666]">17:39</td><td class="py-3">admin@stars.dev 创建了应用 <span class="font-medium">星图 iOS</span></td></tr>
+            <tr><td class="pl-5 py-3 gmono text-[12px] text-[#666]">17:30</td><td class="py-3">admin@stars.dev 配置了验证码通道 <span class="font-medium">阿里云短信</span></td></tr>
+            <tr><td class="pl-5 py-3 gmono text-[12px] text-[#666]">16:41</td><td class="py-3">系统轮换了令牌签名密钥</td></tr>
+            <tr><td class="pl-5 py-3 gmono text-[12px] text-[#666]">15:20</td><td class="py-3">ops@stars.dev 禁用了用户 <span class="gmono text-[12px]">159****8812</span></td></tr>
+            <tr><td class="pl-5 py-3 gmono text-[12px] text-[#666]">昨天</td><td class="py-3">ops@stars.dev 下线了用户 <span class="gmono text-[12px]">186****3307</span> 的会话</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="rounded-md border border-[#eaeaea] bg-white self-start">
+        <div class="flex items-center justify-between border-b border-[#eaeaea] px-5 h-12">
+          <h2 class="text-[14px] font-medium">上手清单</h2>
+          <span class="gmono text-[12px] text-[#666]">2 / 3</span>
+        </div>
+        <ol class="p-2 text-[14px]">
+          <li class="flex items-center gap-3 rounded px-3 py-2.5 text-[#666]"><span class="size-4 rounded-full bg-black text-white grid place-items-center text-[10px]">✓</span><span class="line-through">配置通道</span></li>
+          <li class="flex items-center gap-3 rounded px-3 py-2.5 text-[#666]"><span class="size-4 rounded-full bg-black text-white grid place-items-center text-[10px]">✓</span><span class="line-through">创建应用</span></li>
+          <li class="flex items-center gap-3 rounded px-3 py-2.5 hover:bg-[#fafafa]"><span class="size-4 rounded-full border border-dashed border-[#a1a1a1]"></span><span class="font-medium">添加 API 资源</span><span class="ml-auto text-[#666]">→</span></li>
+        </ol>
+        <div class="border-t border-[#eaeaea] px-5 py-3 text-[12px] text-[#666]">让应用拿到访问你后端的令牌。<button class="float-right hover:text-black">关闭</button></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<!-- ============ 切换条(不属于被评估的设计) ============ -->
+<div style="position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:4px;background:#111;color:#fff;border-radius:999px;padding:6px;box-shadow:0 8px 30px rgba(0,0,0,.35);font:13px system-ui,'PingFang SC',sans-serif">
+  <button id="prev" style="width:32px;height:32px;border-radius:999px;background:#222;color:#fff;border:0;cursor:pointer">←</button>
+  <span id="label" style="min-width:190px;text-align:center"></span>
+  <button id="next" style="width:32px;height:32px;border-radius:999px;background:#222;color:#fff;border:0;cursor:pointer">→</button>
+</div>
+<script>
+  const names = { A: "WorkOS 风 · 留白", B: "Clerk 风 · 柔和面板", C: "Vercel 风 · 黑白网格" };
+  const keys = Object.keys(names);
+  const show = (k) => {
+    if (!names[k]) k = "A";
+    document.querySelectorAll("[data-variant]").forEach((el) => el.classList.toggle("on", el.dataset.variant === k));
+    document.getElementById("label").textContent = `${k}  ${names[k]}`;
+    const u = new URL(location); u.searchParams.set("variant", k); history.replaceState(null, "", u);
+    current = k;
+  };
+  let current;
+  const step = (d) => show(keys[(keys.indexOf(current) + d + keys.length) % keys.length]);
+  document.getElementById("prev").onclick = () => step(-1);
+  document.getElementById("next").onclick = () => step(1);
+  addEventListener("keydown", (e) => {
+    if (e.target.closest("input,textarea,[contenteditable]")) return;
+    if (e.key === "ArrowLeft") step(-1);
+    if (e.key === "ArrowRight") step(1);
+  });
+  show(new URLSearchParams(location.search).get("variant"));
+</script>
+</body>
+</html>
