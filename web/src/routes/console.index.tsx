@@ -24,7 +24,7 @@ function Home() {
 			{o && o.sendsLastDay >= o.dailySendLimit && (
 				<p className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-destructive text-sm">
 					过去 24 小时已发送 {o.sendsLastDay} 条验证码,达到每日上限{" "}
-					{o.dailySendLimit},已停发。可在「安全」中调整上限。
+					{o.dailySendLimit},已停发。可在「通道」中调整上限。
 				</p>
 			)}
 			<div className="grid grid-cols-2 gap-4 md:grid-cols-4">

@@ -1,6 +1,7 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 import { APIError, api, type Me } from "#/lib/console-api";
+import { navGroups } from "#/lib/nav";
 
 export const Route = createFileRoute("/console")({ component: Console });
 
@@ -17,18 +18,8 @@ export function useCan() {
 	return (permission: string) => !!data?.permissions.includes(permission);
 }
 
-// Top-level groups.
-const groups = [
-	{ label: "概览", permission: "users:read", to: "/console" },
-	{ label: "身份", permission: "users:read", to: "/console/users" },
-	{ label: "接入", permission: "applications:read", to: "/console/apps" },
-	{ label: "安全", permission: "config:read", to: "/console/security" },
-	{ label: "审计", permission: "audit:read", to: "/console/audit" },
-] as const;
-
 function Console() {
 	const me = useQuery(meQuery);
-	const can = useCan();
 	if (me.error) {
 		return (
 			<main className="flex min-h-svh items-center justify-center">
@@ -48,22 +39,20 @@ function Console() {
 			<header className="flex h-14 items-center gap-4 border-b bg-background px-5">
 				<div className="font-semibold">✦ Stars Auth</div>
 				<nav className="flex gap-1">
-					{groups
-						.filter((g) => can(g.permission))
-						.map((g) => (
-							<Link
-								key={g.label}
-								to={g.to}
-								activeOptions={{ exact: g.to === "/console" }}
-								className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted"
-								activeProps={{
-									className:
-										"bg-primary text-primary-foreground hover:bg-primary",
-								}}
-							>
-								{g.label}
-							</Link>
-						))}
+					{navGroups(me.data.permissions).map((g) => (
+						<Link
+							key={g.label}
+							to={g.to}
+							activeOptions={{ exact: g.to === "/console" }}
+							className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted"
+							activeProps={{
+								className:
+									"bg-primary text-primary-foreground hover:bg-primary",
+							}}
+						>
+							{g.label}
+						</Link>
+					))}
 				</nav>
 				<div className="ml-auto font-mono text-muted-foreground text-xs">
 					{me.data.sub}

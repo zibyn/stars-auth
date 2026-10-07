@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
+import { ConfirmDialog } from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card";
@@ -266,6 +267,7 @@ function Detail({ sub }: { sub: string }) {
 		can("users:write") &&
 		(can("admin-roles:assign") ||
 			!u.roles.some((r) => r.api === managementAPI));
+	const name = u.identifiers[0]?.value ?? u.sub;
 	return (
 		<div className="space-y-4 px-4 pb-4">
 			<div>
@@ -332,29 +334,31 @@ function Detail({ sub }: { sub: string }) {
 							恢复
 						</Button>
 					) : (
-						<Button
-							variant="outline"
-							disabled={act.isPending}
-							onClick={() =>
-								confirm(
-									"禁用后该 User 无法登录,所有 Session 立即下线。确定吗?",
-								) && act.mutate({ method: "POST", path: "/disable" })
+						<ConfirmDialog
+							trigger={
+								<Button variant="outline" disabled={act.isPending}>
+									禁用
+								</Button>
 							}
+							title={`禁用用户 ${name}？`}
+							action="禁用用户"
+							onConfirm={() => act.mutate({ method: "POST", path: "/disable" })}
 						>
-							禁用
-						</Button>
+							禁用后该 User 无法登录，所有 Session 立即下线。
+						</ConfirmDialog>
 					)}
-					<Button
-						variant="destructive"
-						disabled={act.isPending}
-						onClick={() =>
-							confirm(
-								"删除等同注销:该 User 的全部数据都将删除,无法恢复。确定吗?",
-							) && act.mutate({ method: "DELETE", path: "" })
+					<ConfirmDialog
+						trigger={
+							<Button variant="destructive" disabled={act.isPending}>
+								删除
+							</Button>
 						}
+						title={`删除用户 ${name}？`}
+						action="删除用户"
+						onConfirm={() => act.mutate({ method: "DELETE", path: "" })}
 					>
-						删除
-					</Button>
+						删除等同注销：该 User 的全部数据都将删除，无法恢复。
+					</ConfirmDialog>
 				</div>
 			)}
 		</div>
