@@ -26,14 +26,18 @@ const tabs = [
 function Login() {
 	return (
 		<>
+			<h1 className="font-semibold text-2xl tracking-tight">登录</h1>
 			<nav className="flex gap-1 border-b">
 				{tabs.map((t) => (
 					<Link
 						key={t.to}
 						to={t.to}
 						activeOptions={{ exact: true }}
-						className="-mb-px border-transparent border-b-2 px-3 py-2 text-muted-foreground text-sm"
-						activeProps={{ className: "border-primary text-foreground" }}
+						className="-mb-px border-transparent border-b-2 px-3 py-2 text-sm"
+						inactiveProps={{
+							className: "text-muted-foreground hover:text-foreground",
+						}}
+						activeProps={{ className: "border-primary font-medium" }}
 					>
 						{t.label}
 					</Link>
@@ -90,6 +94,8 @@ type PolicyNumberProps = {
 	suffix: string;
 	help: string;
 	min: number;
+	// one solid button per screen: outline when another save leads
+	outline?: boolean;
 	warning?: (value: number) => ReactNode;
 	confirm?: {
 		when: (before: number, after: number) => boolean;
@@ -125,6 +131,7 @@ function NumberForm({
 	suffix,
 	help,
 	min,
+	outline,
 	warning,
 	confirm,
 }: PolicyNumberProps & {
@@ -146,7 +153,7 @@ function NumberForm({
 					save.mutate({ [field]: next });
 				}
 			}}
-			footer={editable && <SaveBar save={save} />}
+			footer={editable && <SaveBar save={save} outline={outline} />}
 		>
 			<Field label={label} help={help}>
 				<div className="flex items-center gap-2">

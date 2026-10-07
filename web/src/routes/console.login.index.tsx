@@ -8,7 +8,6 @@ import {
 	SaveBar,
 	Section,
 } from "#/components/console";
-import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card";
 import { Input } from "#/components/ui/input";
 import {
 	Select,
@@ -57,12 +56,12 @@ function LoginMethods() {
 	const p = policy.data;
 	const sms = hasChannel(channels.data.channels, "phone");
 	return (
-		<>
+		<div className="space-y-10">
 			<CodeLogin channels={channels.data.channels} />
 			<PasswordLogin current={p} editable={editable} />
 			<RequirePhone current={p} editable={editable} sms={sms} />
 			<Terms current={p} editable={editable} />
-		</>
+		</div>
 	);
 }
 
@@ -70,11 +69,9 @@ type SectionProps = { current: Policy; editable: boolean };
 
 function CodeLogin({ channels }: { channels: ChannelSettings[] }) {
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>验证码登录</CardTitle>
-			</CardHeader>
-			<CardContent className="space-y-3">
+		<section>
+			<h2 className="font-semibold text-[15px]">验证码登录</h2>
+			<div className="mt-4 space-y-3">
 				{codeKinds.map((k) =>
 					hasChannel(channels, k.kind) ? (
 						<p key={k.kind} className="text-sm">
@@ -86,8 +83,8 @@ function CodeLogin({ channels }: { channels: ChannelSettings[] }) {
 						</InlineWarning>
 					),
 				)}
-			</CardContent>
-		</Card>
+			</div>
+		</section>
 	);
 }
 
@@ -152,7 +149,7 @@ function RequirePhone({
 					? setAsking(true)
 					: save.mutate({ requirePhone: on })
 			}
-			footer={editable && <SaveBar save={save} />}
+			footer={editable && <SaveBar save={save} outline />}
 		>
 			<Field
 				label="必须绑定手机号"
@@ -214,7 +211,7 @@ function Terms({ current, editable }: SectionProps) {
 				editable && (
 					<>
 						{error && <p className="text-destructive text-sm">{error}</p>}
-						<SaveBar save={save} />
+						<SaveBar save={save} outline />
 					</>
 				)
 			}

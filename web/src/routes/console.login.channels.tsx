@@ -3,7 +3,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { ConfirmDialog, InlineWarning } from "#/components/console";
 import { Button } from "#/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import {
@@ -46,7 +45,7 @@ const date = (s: string) => new Date(s).toLocaleString("zh-CN");
 
 function ChannelsPage() {
 	return (
-		<>
+		<div className="space-y-10">
 			<Channels />
 			<PolicyNumber
 				title="每日发送上限"
@@ -55,6 +54,7 @@ function ChannelsPage() {
 				suffix="条"
 				help="认证服务每天最多发出这么多条验证码，防止短信被盗刷。达到上限后，当天不再发送。"
 				min={0}
+				outline
 				warning={(n) =>
 					sendsNothing(n) && (
 						<InlineWarning>
@@ -63,21 +63,19 @@ function ChannelsPage() {
 					)
 				}
 			/>
-		</>
+		</div>
 	);
 }
 
 function Channels() {
 	const channels = useQuery(channelsQuery);
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>验证码通道</CardTitle>
-				<p className="text-muted-foreground text-sm">
-					认证服务通过它们把验证码发到手机号或邮箱。短信和邮件各启用一个服务商。
-				</p>
-			</CardHeader>
-			<CardContent className="space-y-6">
+		<section>
+			<h2 className="font-semibold text-[15px]">验证码通道</h2>
+			<p className="mt-1 text-[13px] text-muted-foreground">
+				认证服务通过它们把验证码发到手机号或邮箱。短信和邮件各启用一个服务商。
+			</p>
+			<div className="mt-4 divide-y divide-border">
 				{channels.error && (
 					<p className="text-destructive text-sm">{channels.error.message}</p>
 				)}
@@ -92,8 +90,8 @@ function Channels() {
 							current={channels.data.channels.find((c) => c.kind === k.kind)}
 						/>
 					))}
-			</CardContent>
-		</Card>
+			</div>
+		</section>
 	);
 }
 
@@ -153,14 +151,14 @@ function Channel({
 		</Button>
 	);
 	return (
-		<section className="space-y-4 rounded-lg border p-4">
+		<div className="space-y-4 py-6 first:pt-0 last:pb-0">
 			<div className="flex items-center gap-3">
-				<h3 className="font-medium">{label}</h3>
+				<h3 className="font-medium text-sm">{label}</h3>
 				<span className="text-muted-foreground text-xs">
 					{current ? `已启用 · 更新于 ${date(current.updatedAt)}` : "未启用"}
 				</span>
 			</div>
-			<p className="text-muted-foreground text-sm">没开启时，{lose}</p>
+			<p className="text-[13px] text-muted-foreground">没开启时，{lose}</p>
 			<div>
 				<Select
 					value={pluginKey}
@@ -205,7 +203,7 @@ function Channel({
 						const setAt = stored?.secrets[f.key];
 						return (
 							<div key={f.key} className="grid gap-1.5">
-								<Label htmlFor={`${kind}-${f.key}`}>
+								<Label htmlFor={`${kind}-${f.key}`} className="text-[13px]">
 									{f.label}
 									{f.optional && (
 										<span className="text-muted-foreground text-xs">选填</span>
@@ -224,7 +222,7 @@ function Channel({
 									}
 								/>
 								{f.help && (
-									<p className="text-muted-foreground text-xs">{f.help}</p>
+									<p className="text-[13px] text-muted-foreground">{f.help}</p>
 								)}
 							</div>
 						);
@@ -234,7 +232,12 @@ function Channel({
 					)}
 					{editable && (
 						<div className="flex gap-2">
-							<Button type="submit" disabled={save.isPending}>
+							{/* one solid button per screen: SMS leads */}
+							<Button
+								type="submit"
+								variant={kind === "phone" ? "default" : "outline"}
+								disabled={save.isPending}
+							>
 								{current && !stored ? "切换并保存" : "保存"}
 							</Button>
 							{current &&
@@ -294,6 +297,6 @@ function Channel({
 					)}
 				</form>
 			)}
-		</section>
+		</div>
 	);
 }

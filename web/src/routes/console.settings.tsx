@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { ConfirmDialog } from "#/components/console";
 import { Button } from "#/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "#/components/ui/card";
 import { api, type SigningKey } from "#/lib/console-api";
 import {
 	asksShorterRetention,
@@ -21,21 +20,24 @@ const date = (s: string) => new Date(s).toLocaleString("zh-CN");
 function Settings() {
 	return (
 		<>
-			<SigningKeys />
-			<PolicyNumber
-				title="审计保留期"
-				field="auditRetentionDays"
-				label="保留多久"
-				suffix="天"
-				help="审计记录保存这么多天，超过的会自动删除。审计页和概览只能查到这段时间内的记录。"
-				min={1}
-				confirm={{
-					when: asksShorterRetention,
-					title: "缩短审计保留期？",
-					action: "缩短保留期",
-					body: "超过新期限的记录会在一小时内删除，不能恢复。",
-				}}
-			/>
+			<h1 className="font-semibold text-2xl tracking-tight">设置</h1>
+			<div className="space-y-10">
+				<SigningKeys />
+				<PolicyNumber
+					title="审计保留期"
+					field="auditRetentionDays"
+					label="保留多久"
+					suffix="天"
+					help="审计记录保存这么多天，超过的会自动删除。审计页和概览只能查到这段时间内的记录。"
+					min={1}
+					confirm={{
+						when: asksShorterRetention,
+						title: "缩短审计保留期？",
+						action: "缩短保留期",
+						body: "超过新期限的记录会在一小时内删除，不能恢复。",
+					}}
+				/>
+			</div>
 		</>
 	);
 }
@@ -56,14 +58,12 @@ function SigningKeys() {
 	const rotated = lastRotation(list);
 	const recent = !!rotated && rotatedRecently(rotated);
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>令牌签名密钥</CardTitle>
-				<p className="text-muted-foreground text-sm">
-					认证服务用当前密钥给令牌签名。轮换后，上一把密钥只用来验证它签过的令牌。
-				</p>
-			</CardHeader>
-			<CardContent className="space-y-4">
+		<section>
+			<h2 className="font-semibold text-[15px]">令牌签名密钥</h2>
+			<p className="mt-1 text-[13px] text-muted-foreground">
+				认证服务用当前密钥给令牌签名。轮换后，上一把密钥只用来验证它签过的令牌。
+			</p>
+			<div className="mt-4 space-y-4">
 				{keys.error && (
 					<p className="text-destructive text-sm">{keys.error.message}</p>
 				)}
@@ -74,11 +74,11 @@ function SigningKeys() {
 							: `还没有轮换过，当前密钥创建于 ${date(current.createdAt)}`}
 					</p>
 				)}
-				<ul className="space-y-2 text-sm">
+				<ul className="divide-y divide-border text-sm">
 					{list.map((k) => (
-						<li key={k.kid} className="flex items-center gap-3">
+						<li key={k.kid} className="flex items-center gap-3 py-3">
 							<span className="font-mono">{k.kid}</span>
-							<span className="text-muted-foreground text-xs">
+							<span className="text-faint text-xs">
 								{k.current ? "当前" : "上一把"} · 创建于 {date(k.createdAt)}
 							</span>
 						</li>
@@ -110,7 +110,7 @@ function SigningKeys() {
 						)}
 					</ConfirmDialog>
 				)}
-			</CardContent>
-		</Card>
+			</div>
+		</section>
 	);
 }
