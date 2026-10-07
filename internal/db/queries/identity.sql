@@ -40,3 +40,15 @@ SELECT kind, value FROM identifiers WHERE user_id = $1;
 -- The instance requires a phone number and the User has none.
 SELECT (s.require_phone AND NOT EXISTS (SELECT 1 FROM identifiers i WHERE i.user_id = $1 AND i.kind = 'phone'))::boolean
 FROM settings s;
+
+-- name: Terms :one
+SELECT terms_url, privacy_url, terms_version FROM settings;
+
+-- name: NeedsConsent :one
+-- The instance has terms and the User has not agreed to this version.
+SELECT (s.terms_version <> '' AND NOT EXISTS (
+    SELECT 1 FROM consents c WHERE c.user_id = $1 AND c.version = s.terms_version))::boolean
+FROM settings s;
+
+-- name: RecordConsent :exec
+INSERT INTO consents (user_id, version, client_id) VALUES ($1, $2, $3);

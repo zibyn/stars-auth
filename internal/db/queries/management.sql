@@ -160,3 +160,20 @@ UPDATE applications SET secret_hash = $2 WHERE client_id = $1 AND type = 'confid
 
 -- name: DeleteApplication :exec
 DELETE FROM applications WHERE client_id = $1 AND NOT builtin;
+
+-- name: GetSettings :one
+SELECT password_login, require_phone, daily_send_limit, terms_url, privacy_url, terms_version, audit_retention_days
+FROM settings;
+
+-- name: UpdateSettings :exec
+-- Changes the login policy; audited with who did it.
+WITH u AS (
+    UPDATE settings SET password_login = @password_login, require_phone = @require_phone,
+        daily_send_limit = @daily_send_limit, terms_url = @terms_url, privacy_url = @privacy_url,
+        terms_version = @terms_version, audit_retention_days = @audit_retention_days
+)
+INSERT INTO audit_log (event, sub, detail)
+VALUES ('settings.updated', NULL, jsonb_build_object('by', @by::text));
+
+-- name: ListSigningKeys :many
+SELECT kid, created_at FROM signing_keys ORDER BY created_at DESC, kid;

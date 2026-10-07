@@ -80,10 +80,18 @@ func (s *Service) challenge(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, error) {
 	ctx := r.Context()
-	// ponytail: any version passes and none is recorded until the terms
-	// consent lands (docs/spec/security-compliance.md#协议同意).
-	if r.PostFormValue("terms_version") == "" {
+	// Every request carries the version of the terms the User agreed to in
+	// the App; with no terms set up, any version will do.
+	version := r.PostFormValue("terms_version")
+	if version == "" {
 		return "", invalid("terms_version is required")
+	}
+	terms, err := s.q.Terms(ctx)
+	if err != nil {
+		return "", err
+	}
+	if terms.TermsVersion != "" && version != terms.TermsVersion {
+		return "", invalid("terms_version is not the current one: " + terms.TermsVersion)
 	}
 	// A new sign-in sets the parameters; later requests carry them in the
 	// auth_session.
@@ -145,6 +153,11 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 		if needs {
 			st.Pending, st.Identifier = &pendingLogin{Sub: sub, AuthTime: authTime.Unix(), AMR: amr}, ""
 			return next("a phone number must be bound: send a code to one")
+		}
+		if terms.TermsVersion != "" {
+			if err := s.q.RecordConsent(ctx, sqlc.RecordConsentParams{UserID: sub, Version: version, ClientID: c.ID}); err != nil {
+				return "", err
+			}
 		}
 		// Spent before the code exists: one auth_session, one code.
 		if token != "" {
@@ -224,6 +237,18 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 		return signedIn(sub, time.Now(), []string{string(goidc.AMRPassword)})
 	}
 	return "", invalid("send identifier, code, or username and password")
+}
+
+// terms tells Apps what their consent checkbox links to and which version
+// to send.
+func (s *Service) terms(w http.ResponseWriter, r *http.Request) {
+	t, err := s.q.Terms(r.Context())
+	if err != nil {
+		slog.Error("terms", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "server_error"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"terms_url": t.TermsUrl, "privacy_url": t.PrivacyUrl, "version": t.TermsVersion})
 }
 
 func invalid(description string) error {

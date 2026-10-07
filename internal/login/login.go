@@ -151,6 +151,7 @@ func (s *Service) Register(mux *http.ServeMux) {
 		http.ServeFileFS(w, r, pagesFS, "altcha/altcha.js")
 	})
 	mux.HandleFunc("POST "+ChallengePath, s.challenge)
+	mux.HandleFunc("GET /v1/auth/terms", s.terms)
 	mux.HandleFunc("GET /v1/auth/openapi.json", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFileFS(w, r, pagesFS, "challenge.openapi.json")
 	})
@@ -209,6 +210,11 @@ func (s *Service) authenticate(w http.ResponseWriter, r *http.Request, as *goidc
 			} else if needs {
 				return goidc.StatusFailure, goidc.NewError(goidc.ErrorCodeInteractionRequired, "a phone number must be bound first")
 			}
+			if needs, err := s.q.NeedsConsent(r.Context(), sess.UserID); err != nil {
+				return goidc.StatusFailure, err
+			} else if needs {
+				return goidc.StatusFailure, goidc.NewError(goidc.ErrorCodeInteractionRequired, "the terms must be agreed to first")
+			}
 		}
 		return s.complete(w, r, as, c, sess.ID, sess.UserID, sess.AuthTime.Time, sess.Amr)
 	}
@@ -245,6 +251,13 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 	}
 	pending, _ := as.Store[storeBindSub].(string)
 	pendingSession, _ := as.Store[oidcstore.SessionKey].(string)
+	pendingAuthTime, _ := as.Store[storeAuthTime].(int64)
+	terms, err := s.q.Terms(ctx)
+	if err != nil {
+		return goidc.StatusFailure, err
+	}
+	// Ticking the box posts the version shown; a stale page agrees to nothing.
+	agreed := terms.TermsVersion == "" || r.PostFormValue("agree") == terms.TermsVersion
 	// fail shows a mistake on the page, or ends the login on any other error.
 	fail := func(err error) (goidc.Status, error) {
 		var invalid identity.Invalid
@@ -260,6 +273,9 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		kind, value, err := identity.ParseIdentifier(form.Identifier)
 		if err == nil && pending != "" && kind != "phone" {
 			err = identity.ErrPhone
+		}
+		if err == nil && pending == "" && !agreed {
+			err = errAgree
 		}
 		if err == nil {
 			err = s.pow.Verify(ctx, r.PostFormValue("altcha"))
@@ -279,6 +295,9 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		if err != nil {
 			return fail(err)
 		}
+		if pending == "" && !agreed {
+			return fail(errAgree)
+		}
 		if err := s.codes.Check(ctx, value, r.PostFormValue("code")); err != nil {
 			return fail(err)
 		}
@@ -289,31 +308,54 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 			if err := s.ids.AddIdentifier(ctx, pending, kind, value); err != nil {
 				return fail(err)
 			}
-			authTime, _ := as.Store[storeAuthTime].(int64)
-			grant(as, pendingSession, pending, time.Unix(authTime, 0), storedAMR(as.Store[storeAMR]))
-			return goidc.StatusSuccess, nil
+			return s.complete(w, r, as, c, pendingSession, pending, time.Unix(pendingAuthTime, 0), storedAMR(as.Store[storeAMR]))
 		}
 		sub, err := s.ids.SignIn(ctx, kind, value)
 		if err != nil {
 			return goidc.StatusFailure, err
 		}
-		return s.login(w, r, as, c, sub, codeAMR(kind))
+		return s.login(w, r, as, c, sub, codeAMR(kind), terms.TermsVersion)
 
 	case "password":
 		if pending != "" {
 			break
 		}
+		if !agreed {
+			return fail(errAgree)
+		}
 		sub, err := s.ids.CheckPassword(ctx, form.Username, r.PostFormValue("password"))
 		if err != nil {
 			return fail(err)
 		}
-		return s.login(w, r, as, c, sub, goidc.AMRPassword)
+		return s.login(w, r, as, c, sub, goidc.AMRPassword, terms.TermsVersion)
+
+	case "consent":
+		if pending == "" {
+			break
+		}
+		if !agreed {
+			return fail(errAgree)
+		}
+		if terms.TermsVersion != "" {
+			if err := s.q.RecordConsent(ctx, sqlc.RecordConsentParams{UserID: pending, Version: terms.TermsVersion, ClientID: c.ID}); err != nil {
+				return goidc.StatusFailure, err
+			}
+		}
+		return s.complete(w, r, as, c, pendingSession, pending, time.Unix(pendingAuthTime, 0), storedAMR(as.Store[storeAMR]))
 	}
 	return s.render(w, r, as, c, loginPage{})
 }
 
-// login starts a browser Session for a User who just authenticated.
-func (s *Service) login(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession, c *goidc.Client, sub string, amr goidc.AMR) (goidc.Status, error) {
+var errAgree = identity.Invalid("请先阅读并同意用户协议和隐私政策")
+
+// login starts a browser Session for a User who just authenticated, having
+// agreed to the terms of version (if any).
+func (s *Service) login(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession, c *goidc.Client, sub string, amr goidc.AMR, version string) (goidc.Status, error) {
+	if version != "" {
+		if err := s.q.RecordConsent(r.Context(), sqlc.RecordConsentParams{UserID: sub, Version: version, ClientID: c.ID}); err != nil {
+			return goidc.StatusFailure, err
+		}
+	}
 	authTime, amrs := time.Now(), []string{string(amr)}
 	session, err := s.newSession(w, r, c.ID, sub, authTime, amrs)
 	if err != nil {
@@ -322,14 +364,19 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request, as *goidc.AuthnS
 	return s.complete(w, r, as, c, session, sub, authTime, amrs)
 }
 
-// complete grants sub, unless the instance requires a phone number sub has
-// not bound yet: then the bind page comes first.
+// complete grants sub, unless sub has yet to agree to the current terms or
+// to bind the phone number the instance requires: then those pages come
+// first.
 func (s *Service) complete(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession, c *goidc.Client, session, sub string, authTime time.Time, amr []string) (goidc.Status, error) {
-	needs, err := s.q.NeedsPhone(r.Context(), sub)
+	phone, err := s.q.NeedsPhone(r.Context(), sub)
 	if err != nil {
 		return goidc.StatusFailure, err
 	}
-	if needs {
+	consent, err := s.q.NeedsConsent(r.Context(), sub)
+	if err != nil {
+		return goidc.StatusFailure, err
+	}
+	if phone || consent {
 		as.Store = map[string]any{storeBindSub: sub, oidcstore.SessionKey: session, storeAuthTime: authTime.Unix(), storeAMR: amr}
 		return s.render(w, r, as, c, loginPage{})
 	}
@@ -497,8 +544,10 @@ func hash(token string) []byte {
 
 type loginPage struct {
 	Client, Action, Error string
-	// Bind: a signed-in User must bind a phone number before going on.
-	Bind bool
+	Terms                 sqlc.TermsRow
+	// Consent: a signed-in User must agree to new terms before going on;
+	// then Bind: they must bind a phone number.
+	Consent, Bind bool
 	// CodeKinds names what codes can go to ("手机号", "邮箱" or both); empty
 	// when no Channel is enabled.
 	CodeKinds  string
@@ -509,8 +558,26 @@ type loginPage struct {
 
 func (s *Service) render(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession, c *goidc.Client, p loginPage) (goidc.Status, error) {
 	p.Client, p.Action = c.Name, "/authorize/"+as.ID
-	p.Bind = as.Store[storeBindSub] != nil
-	kinds, err := s.q.ChannelKinds(r.Context())
+	ctx := r.Context()
+	if pending, ok := as.Store[storeBindSub].(string); ok {
+		consent, err := s.q.NeedsConsent(ctx, pending)
+		if err != nil {
+			return goidc.StatusFailure, err
+		}
+		phone, err := s.q.NeedsPhone(ctx, pending)
+		if err != nil {
+			return goidc.StatusFailure, err
+		}
+		// Neither left (the admin changed the policy meanwhile): the consent
+		// page, with no terms to tick, just lets the User go on.
+		p.Consent, p.Bind = consent || !phone, !consent && phone
+	}
+	terms, err := s.q.Terms(ctx)
+	if err != nil {
+		return goidc.StatusFailure, err
+	}
+	p.Terms = terms
+	kinds, err := s.q.ChannelKinds(ctx)
 	if err != nil {
 		return goidc.StatusFailure, err
 	}

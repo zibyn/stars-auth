@@ -129,6 +129,36 @@ func (q *Queries) DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, 
 	return result.RowsAffected(), nil
 }
 
+const getSettings = `-- name: GetSettings :one
+SELECT password_login, require_phone, daily_send_limit, terms_url, privacy_url, terms_version, audit_retention_days
+FROM settings
+`
+
+type GetSettingsRow struct {
+	PasswordLogin      string
+	RequirePhone       bool
+	DailySendLimit     int32
+	TermsUrl           string
+	PrivacyUrl         string
+	TermsVersion       string
+	AuditRetentionDays int32
+}
+
+func (q *Queries) GetSettings(ctx context.Context) (GetSettingsRow, error) {
+	row := q.db.QueryRow(ctx, getSettings)
+	var i GetSettingsRow
+	err := row.Scan(
+		&i.PasswordLogin,
+		&i.RequirePhone,
+		&i.DailySendLimit,
+		&i.TermsUrl,
+		&i.PrivacyUrl,
+		&i.TermsVersion,
+		&i.AuditRetentionDays,
+	)
+	return i, err
+}
+
 const getUser = `-- name: GetUser :one
 SELECT u.id, u.created_at,
        COALESCE((SELECT json_agg(json_build_object('kind', i.kind, 'value', i.value) ORDER BY i.kind)
@@ -321,6 +351,35 @@ func (q *Queries) ListRoles(ctx context.Context) ([]ListRolesRow, error) {
 			&i.Name,
 			&i.Builtin,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSigningKeys = `-- name: ListSigningKeys :many
+SELECT kid, created_at FROM signing_keys ORDER BY created_at DESC, kid
+`
+
+type ListSigningKeysRow struct {
+	Kid       string
+	CreatedAt pgtype.Timestamptz
+}
+
+func (q *Queries) ListSigningKeys(ctx context.Context) ([]ListSigningKeysRow, error) {
+	rows, err := q.db.Query(ctx, listSigningKeys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSigningKeysRow
+	for rows.Next() {
+		var i ListSigningKeysRow
+		if err := rows.Scan(&i.Kid, &i.CreatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -603,4 +662,40 @@ func (q *Queries) UpdateApplication(ctx context.Context, arg UpdateApplicationPa
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updateSettings = `-- name: UpdateSettings :exec
+WITH u AS (
+    UPDATE settings SET password_login = $2, require_phone = $3,
+        daily_send_limit = $4, terms_url = $5, privacy_url = $6,
+        terms_version = $7, audit_retention_days = $8
+)
+INSERT INTO audit_log (event, sub, detail)
+VALUES ('settings.updated', NULL, jsonb_build_object('by', $1::text))
+`
+
+type UpdateSettingsParams struct {
+	By                 string
+	PasswordLogin      string
+	RequirePhone       bool
+	DailySendLimit     int32
+	TermsUrl           string
+	PrivacyUrl         string
+	TermsVersion       string
+	AuditRetentionDays int32
+}
+
+// Changes the login policy; audited with who did it.
+func (q *Queries) UpdateSettings(ctx context.Context, arg UpdateSettingsParams) error {
+	_, err := q.db.Exec(ctx, updateSettings,
+		arg.By,
+		arg.PasswordLogin,
+		arg.RequirePhone,
+		arg.DailySendLimit,
+		arg.TermsUrl,
+		arg.PrivacyUrl,
+		arg.TermsVersion,
+		arg.AuditRetentionDays,
+	)
+	return err
 }

@@ -12,10 +12,13 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "#/components/ui/select";
+import { Switch } from "#/components/ui/switch";
 import {
 	api,
 	type ChannelPlugin,
 	type ChannelSettings,
+	type Policy,
+	type SigningKey,
 } from "#/lib/console-api";
 import { useCan } from "./console";
 
@@ -31,6 +34,270 @@ const kinds = [
 const date = (s: string) => new Date(s).toLocaleString("zh-CN");
 
 function Security() {
+	return (
+		<>
+			<LoginPolicy />
+			<Channels />
+			<SigningKeys />
+		</>
+	);
+}
+
+const passwordModes = { off: "关闭", admins: "仅管理员", all: "所有 User" };
+
+function LoginPolicy() {
+	const can = useCan();
+	const editable = can("config:write");
+	const client = useQueryClient();
+	const policy = useQuery({
+		queryKey: ["settings"],
+		queryFn: () => api<Policy>("/settings"),
+	});
+	const save = useMutation({
+		mutationFn: (body: Policy) => api("/settings", { method: "PUT", body }),
+		onSuccess: () => client.invalidateQueries({ queryKey: ["settings"] }),
+	});
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle>登录策略</CardTitle>
+			</CardHeader>
+			<CardContent>
+				{policy.error && (
+					<p className="text-destructive text-sm">{policy.error.message}</p>
+				)}
+				{policy.data && (
+					<PolicyForm
+						key={JSON.stringify(policy.data)}
+						current={policy.data}
+						editable={editable}
+						saving={save.isPending}
+						error={save.error?.message}
+						onSave={(p) => save.mutate(p)}
+					/>
+				)}
+			</CardContent>
+		</Card>
+	);
+}
+
+function PolicyForm({
+	current,
+	editable,
+	saving,
+	error,
+	onSave,
+}: {
+	current: Policy;
+	editable: boolean;
+	saving: boolean;
+	error?: string;
+	onSave: (p: Policy) => void;
+}) {
+	const [passwordLogin, setPasswordLogin] = useState(current.passwordLogin);
+	const [requirePhone, setRequirePhone] = useState(current.requirePhone);
+	return (
+		<form
+			className="grid gap-4 sm:grid-cols-2"
+			onSubmit={(e) => {
+				e.preventDefault();
+				const f = new FormData(e.currentTarget);
+				const text = (k: string) => `${f.get(k) ?? ""}`.trim();
+				const version = text("termsVersion");
+				if (
+					current.termsVersion &&
+					version !== current.termsVersion &&
+					!confirm("改动协议版本后,所有 User 下次登录时都须重新同意,确定吗?")
+				) {
+					return;
+				}
+				onSave({
+					passwordLogin,
+					requirePhone,
+					dailySendLimit: Number(text("dailySendLimit")),
+					termsUrl: text("termsUrl"),
+					privacyUrl: text("privacyUrl"),
+					termsVersion: version,
+					auditRetentionDays: Number(text("auditRetentionDays")),
+				});
+			}}
+		>
+			<div className="grid gap-1.5">
+				<Label>密码登录</Label>
+				<Select
+					value={passwordLogin}
+					disabled={!editable}
+					onValueChange={(v) => setPasswordLogin(v as Policy["passwordLogin"])}
+				>
+					<SelectTrigger aria-label="密码登录">
+						<SelectValue>
+							{(v: Policy["passwordLogin"]) => passwordModes[v]}
+						</SelectValue>
+					</SelectTrigger>
+					<SelectContent>
+						{Object.entries(passwordModes).map(([k, label]) => (
+							<SelectItem key={k} value={k}>
+								{label}
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
+				<p className="text-muted-foreground text-xs">
+					关闭期间,已设的密码保留但不能用
+				</p>
+			</div>
+			<div className="flex items-center gap-2 self-start pt-7">
+				<Switch
+					id="requirePhone"
+					checked={requirePhone}
+					disabled={!editable}
+					onCheckedChange={setRequirePhone}
+				/>
+				<Label htmlFor="requirePhone">必须绑定手机号</Label>
+			</div>
+			<PolicyField label="每日发送上限(条)" help="全实例每天最多发送的验证码">
+				<Input
+					id="dailySendLimit"
+					name="dailySendLimit"
+					type="number"
+					min={0}
+					required
+					disabled={!editable}
+					defaultValue={current.dailySendLimit}
+				/>
+			</PolicyField>
+			<PolicyField label="审计保留期(天)">
+				<Input
+					id="auditRetentionDays"
+					name="auditRetentionDays"
+					type="number"
+					min={1}
+					required
+					disabled={!editable}
+					defaultValue={current.auditRetentionDays}
+				/>
+			</PolicyField>
+			<PolicyField label="《用户协议》URL">
+				<Input
+					id="termsUrl"
+					name="termsUrl"
+					type="url"
+					disabled={!editable}
+					defaultValue={current.termsUrl}
+				/>
+			</PolicyField>
+			<PolicyField label="《隐私政策》URL">
+				<Input
+					id="privacyUrl"
+					name="privacyUrl"
+					type="url"
+					disabled={!editable}
+					defaultValue={current.privacyUrl}
+				/>
+			</PolicyField>
+			<PolicyField
+				label="协议版本"
+				help="登录时须勾选同意;改动后 User 下次登录须重新同意。留空则不要求同意"
+			>
+				<Input
+					id="termsVersion"
+					name="termsVersion"
+					maxLength={64}
+					disabled={!editable}
+					defaultValue={current.termsVersion}
+				/>
+			</PolicyField>
+			{error && (
+				<p className="text-destructive text-sm sm:col-span-2">{error}</p>
+			)}
+			{editable && (
+				<div className="sm:col-span-2">
+					<Button type="submit" disabled={saving}>
+						保存
+					</Button>
+				</div>
+			)}
+		</form>
+	);
+}
+
+function PolicyField({
+	label,
+	help,
+	children,
+}: {
+	label: string;
+	help?: string;
+	children: React.ReactElement<{ id: string }>;
+}) {
+	return (
+		<div className="grid gap-1.5">
+			<Label htmlFor={children.props.id}>{label}</Label>
+			{children}
+			{help && <p className="text-muted-foreground text-xs">{help}</p>}
+		</div>
+	);
+}
+
+function SigningKeys() {
+	const can = useCan();
+	const client = useQueryClient();
+	const keys = useQuery({
+		queryKey: ["signing-keys"],
+		queryFn: () => api<{ keys: SigningKey[] }>("/signing-keys"),
+	});
+	const rotate = useMutation({
+		mutationFn: () => api("/signing-keys/rotate", { method: "POST" }),
+		onSuccess: () => client.invalidateQueries({ queryKey: ["signing-keys"] }),
+	});
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle>签名密钥</CardTitle>
+				<p className="text-muted-foreground text-sm">
+					当前密钥签发令牌;轮换后,上一个密钥只用来验证它签过的令牌。
+				</p>
+			</CardHeader>
+			<CardContent className="space-y-4">
+				{keys.error && (
+					<p className="text-destructive text-sm">{keys.error.message}</p>
+				)}
+				<ul className="space-y-2 text-sm">
+					{keys.data?.keys.map((k) => (
+						<li key={k.kid} className="flex items-center gap-3">
+							<span className="font-mono">{k.kid}</span>
+							<span className="text-muted-foreground text-xs">
+								{k.current ? "当前" : "已退役"} · 创建于 {date(k.createdAt)}
+							</span>
+						</li>
+					))}
+				</ul>
+				{rotate.error && (
+					<p className="text-destructive text-sm">{rotate.error.message}</p>
+				)}
+				{can("keys:rotate") && (
+					<Button
+						variant="outline"
+						disabled={rotate.isPending}
+						onClick={() => {
+							if (
+								confirm(
+									"轮换后,更早的密钥将被删除,它签发且未过期的令牌随即失效。确定吗?",
+								)
+							) {
+								rotate.mutate();
+							}
+						}}
+					>
+						轮换
+					</Button>
+				)}
+			</CardContent>
+		</Card>
+	);
+}
+
+function Channels() {
 	const channels = useQuery({
 		queryKey: ["channels"],
 		queryFn: () =>

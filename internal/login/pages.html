@@ -16,6 +16,7 @@ button { cursor: pointer; background: CanvasText; color: Canvas; border: 0; }
 .error { color: #d33; font-size: .875rem; }
 details { margin-top: 1.5rem; }
 summary { cursor: pointer; font-size: .875rem; margin-bottom: .75rem; }
+label.agree { display: flex; align-items: baseline; gap: .375rem; }
 </style>
 </head>
 <body>
@@ -27,7 +28,21 @@ summary { cursor: pointer; font-size: .875rem; margin-bottom: .75rem; }
 </html>
 {{end}}
 
+{{define "agree"}}{{with .TermsVersion}}<label class="agree">
+    <input type="checkbox" name="agree" value="{{.}}" required>
+    <span>我已阅读并同意<a href="{{$.TermsUrl}}" target="_blank" rel="noopener">《用户协议》</a>和<a href="{{$.PrivacyUrl}}" target="_blank" rel="noopener">《隐私政策》</a></span>
+  </label>{{end}}{{end}}
+
 {{define "login"}}{{template "head" "登录"}}
+{{if .Consent}}<h1>{{if .Terms.TermsVersion}}协议已更新{{else}}继续登录{{end}}</h1>
+{{if .Terms.TermsVersion}}<p>继续之前,请阅读并同意新版协议。</p>{{end}}
+{{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+<form method="post" action="{{.Action}}">
+  <input type="hidden" name="op" value="consent">
+  {{template "agree" .Terms}}
+  <button>{{if .Terms.TermsVersion}}同意并{{end}}继续</button>
+</form>
+{{else}}
 {{if .Bind}}<h1>绑定手机号</h1>
 <p>继续之前,请先绑定一个手机号。</p>
 {{else}}<h1>登录</h1>
@@ -38,6 +53,7 @@ summary { cursor: pointer; font-size: .875rem; margin-bottom: .75rem; }
 <form method="post" action="{{.Action}}">
   <input type="hidden" name="op" value="verify">
   <input type="hidden" name="identifier" value="{{.Identifier}}">
+  {{if not .Bind}}{{with .Terms.TermsVersion}}<input type="hidden" name="agree" value="{{.}}">{{end}}{{end}}
   <p>验证码已发送至 {{.Identifier}},5 分钟内有效。</p>
   <label>验证码
     <input name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autofocus>
@@ -51,6 +67,7 @@ summary { cursor: pointer; font-size: .875rem; margin-bottom: .75rem; }
   <label>{{.CodeKinds}}
     <input name="identifier" {{if eq .CodeKinds "邮箱"}}type="email" autocomplete="email"{{else if eq .CodeKinds "手机号"}}type="tel" autocomplete="tel"{{else}}autocomplete="username"{{end}} autocapitalize="none" required autofocus value="{{.Identifier}}">
   </label>
+  {{if not .Bind}}{{template "agree" .Terms}}{{end}}
   <altcha-widget challenge="/altcha/challenge" name="altcha" auto="onsubmit" language="zh-cn"></altcha-widget>
   <button>获取验证码</button>
 </form>
@@ -67,9 +84,11 @@ summary { cursor: pointer; font-size: .875rem; margin-bottom: .75rem; }
   <label>密码
     <input name="password" type="password" autocomplete="current-password" required>
   </label>
+  {{template "agree" .Terms}}
   <button>登录</button>
 </form>
 </details>
+{{end}}
 {{end}}
 {{template "foot"}}{{end}}
 

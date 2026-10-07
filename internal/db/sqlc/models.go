@@ -63,6 +63,13 @@ type Code struct {
 	ExpiresAt  pgtype.Timestamptz
 }
 
+type Consent struct {
+	UserID   string
+	Version  string
+	ClientID string
+	At       pgtype.Timestamptz
+}
+
 type Identifier struct {
 	UserID string
 	Kind   string
@@ -155,13 +162,17 @@ type Session struct {
 }
 
 type Setting struct {
-	ID             bool
-	PasswordLogin  string
-	SetupToken     []byte
-	SetupDone      bool
-	DailySendLimit int32
-	RequirePhone   bool
-	PowSecret      string
+	ID                 bool
+	PasswordLogin      string
+	SetupToken         []byte
+	SetupDone          bool
+	DailySendLimit     int32
+	RequirePhone       bool
+	PowSecret          string
+	TermsUrl           string
+	PrivacyUrl         string
+	TermsVersion       string
+	AuditRetentionDays int32
 }
 
 type SigningKey struct {

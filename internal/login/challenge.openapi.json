@@ -25,7 +25,7 @@
                   "code_challenge": {"type": "string", "description": "PKCE; required for public Applications. Ignored once auth_session is sent."},
                   "code_challenge_method": {"type": "string", "enum": ["S256"]},
                   "auth_session": {"type": "string", "description": "From an earlier insufficient_authorization answer; continues that sign-in."},
-                  "terms_version": {"type": "string", "description": "The version of the terms the User agreed to. Required on every request."},
+                  "terms_version": {"type": "string", "description": "The version of the terms the User agreed to (see GET /v1/auth/terms). Required on every request; once the instance has terms, it must be the current version, and signing in records the User's consent to it."},
                   "altcha": {"type": "string", "description": "ALTCHA PoW solution (challenge from GET /altcha/challenge), base64. Required with identifier and with username."},
                   "identifier": {"type": "string", "description": "+86 phone number or email to send a code to."},
                   "code": {"type": "string", "description": "The code sent to the identifier of this auth_session."},
@@ -55,6 +55,26 @@
           "403": {
             "description": "`insufficient_authorization`: another step is needed (enter the code just sent, or bind a phone number); send it with the `auth_session` returned.",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+          }
+        }
+      }
+    },
+    "/v1/auth/terms": {
+      "get": {
+        "operationId": "get-terms",
+        "summary": "The current terms",
+        "description": "What the App's \"我已阅读并同意\" checkbox links to, and the version to send as terms_version once it is ticked. Stars Auth does not host the texts.",
+        "responses": {
+          "200": {
+            "description": "An empty version means the instance has no terms yet: any terms_version will do.",
+            "content": {"application/json": {"schema": {
+              "type": "object", "required": ["terms_url", "privacy_url", "version"],
+              "properties": {
+                "terms_url": {"type": "string", "description": "用户协议"},
+                "privacy_url": {"type": "string", "description": "隐私政策"},
+                "version": {"type": "string"}
+              }
+            }}}
           }
         }
       }

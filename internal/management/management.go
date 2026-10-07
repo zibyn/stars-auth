@@ -91,6 +91,10 @@ func (s *Service) Register(mux *http.ServeMux) {
 	get(api, "list-channels", "config:read", "/channels", "Channel plugins and the enabled Channel of each Identifier kind", s.listChannels)
 	op(api, http.MethodPut, "put-channel", "config:write", "/channels/{kind}", "Enable and configure the Channel of an Identifier kind", s.putChannel)
 	op(api, http.MethodDelete, "delete-channel", "config:write", "/channels/{kind}", "Turn off codes of an Identifier kind", s.deleteChannel)
+	get(api, "get-settings", "config:read", "/settings", "The login policy", s.getSettings)
+	op(api, http.MethodPut, "put-settings", "config:write", "/settings", "Change the login policy", s.putSettings)
+	get(api, "list-signing-keys", "config:read", "/signing-keys", "The token signing keys", s.listKeys)
+	op(api, http.MethodPost, "rotate-signing-keys", "keys:rotate", "/signing-keys/rotate", "Make a new signing key current; the oldest is retired", s.rotateKeys)
 	op(api, http.MethodPost, "test-channel", "config:write", "/channels/{kind}/test", "Send a test code through the enabled Channel", s.testChannel, http.StatusBadGateway)
 }
 

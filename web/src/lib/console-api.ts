@@ -166,6 +166,17 @@ export type ChannelSettings = {
 	updatedAt: string;
 };
 
+export type Policy = {
+	passwordLogin: "off" | "admins" | "all";
+	requirePhone: boolean;
+	dailySendLimit: number;
+	termsUrl: string;
+	privacyUrl: string;
+	termsVersion: string;
+	auditRetentionDays: number;
+};
+export type SigningKey = { kid: string; createdAt: string; current: boolean };
+
 export type AndroidApp = {
 	packageName: string;
 	sha256CertFingerprints: string[];

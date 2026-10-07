@@ -41,3 +41,12 @@ func (q *Queries) AuditedSince(ctx context.Context, arg AuditedSinceParams) (boo
 	err := row.Scan(&exists)
 	return exists, err
 }
+
+const deleteOldAudit = `-- name: DeleteOldAudit :exec
+DELETE FROM audit_log WHERE at < now() - make_interval(days => (SELECT audit_retention_days FROM settings))
+`
+
+func (q *Queries) DeleteOldAudit(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, deleteOldAudit)
+	return err
+}

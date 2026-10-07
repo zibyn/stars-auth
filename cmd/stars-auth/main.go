@@ -137,6 +137,7 @@ var cleanupTasks = []func(context.Context, *pgxpool.Pool) error{
 	login.DeleteOldSessions,
 	otp.DeleteExpired,
 	pow.DeleteExpired,
+	management.DeleteOldAudit,
 }
 
 // runCleanup runs cleanupTasks once an hour.

@@ -73,6 +73,20 @@ func (q *Queries) LockSetup(ctx context.Context) (LockSetupRow, error) {
 	return i, err
 }
 
+const needsConsent = `-- name: NeedsConsent :one
+SELECT (s.terms_version <> '' AND NOT EXISTS (
+    SELECT 1 FROM consents c WHERE c.user_id = $1 AND c.version = s.terms_version))::boolean
+FROM settings s
+`
+
+// The instance has terms and the User has not agreed to this version.
+func (q *Queries) NeedsConsent(ctx context.Context, userID string) (bool, error) {
+	row := q.db.QueryRow(ctx, needsConsent, userID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const needsPhone = `-- name: NeedsPhone :one
 SELECT (s.require_phone AND NOT EXISTS (SELECT 1 FROM identifiers i WHERE i.user_id = $1 AND i.kind = 'phone'))::boolean
 FROM settings s
@@ -118,6 +132,21 @@ func (q *Queries) PasswordLogin(ctx context.Context) (string, error) {
 	return password_login, err
 }
 
+const recordConsent = `-- name: RecordConsent :exec
+INSERT INTO consents (user_id, version, client_id) VALUES ($1, $2, $3)
+`
+
+type RecordConsentParams struct {
+	UserID   string
+	Version  string
+	ClientID string
+}
+
+func (q *Queries) RecordConsent(ctx context.Context, arg RecordConsentParams) error {
+	_, err := q.db.Exec(ctx, recordConsent, arg.UserID, arg.Version, arg.ClientID)
+	return err
+}
+
 const setPassword = `-- name: SetPassword :exec
 INSERT INTO passwords (user_id, hash) VALUES ($1, $2)
 ON CONFLICT (user_id) DO UPDATE SET hash = EXCLUDED.hash
@@ -140,6 +169,23 @@ UPDATE settings SET setup_token = $1
 func (q *Queries) SetSetupToken(ctx context.Context, setupToken []byte) error {
 	_, err := q.db.Exec(ctx, setSetupToken, setupToken)
 	return err
+}
+
+const terms = `-- name: Terms :one
+SELECT terms_url, privacy_url, terms_version FROM settings
+`
+
+type TermsRow struct {
+	TermsUrl     string
+	PrivacyUrl   string
+	TermsVersion string
+}
+
+func (q *Queries) Terms(ctx context.Context) (TermsRow, error) {
+	row := q.db.QueryRow(ctx, terms)
+	var i TermsRow
+	err := row.Scan(&i.TermsUrl, &i.PrivacyUrl, &i.TermsVersion)
+	return i, err
 }
 
 const userByIdentifier = `-- name: UserByIdentifier :one
