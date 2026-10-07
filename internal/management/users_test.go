@@ -43,17 +43,45 @@ func TestAuditShowsWhoByTheirPrimaryIdentifier(t *testing.T) {
 	e.user("ALICE", nil, "username:alice", "email:alice@example.com", "phone:+8613800000001")
 	owner := e.token(e.owner, nil)
 
-	e.call("POST", owner, "/users/ALICE/disable", nil, nil)
+	if code := e.call("POST", owner, "/users/ALICE/disable", nil, nil); code != 204 {
+		t.Fatalf("disable ALICE: %d", code)
+	}
 	if ev := e.audited("user.disabled"); ev.User != "+8613800000001" || ev.ByUser != "owner" {
 		t.Errorf("phone comes first, then the admin's username: %+v", ev)
 	}
-	e.call("POST", owner, "/signing-keys/rotate", nil, nil)
+	if code := e.call("POST", owner, "/signing-keys/rotate", nil, nil); code != 204 {
+		t.Fatalf("rotate keys: %d", code)
+	}
 	if ev := e.audited("keys.rotated"); ev.User != "" || ev.ByUser != "owner" {
 		t.Errorf("no User: %+v", ev)
 	}
-	e.call("DELETE", owner, "/users/ALICE", nil, nil)
+	if code := e.call("DELETE", owner, "/users/ALICE", nil, nil); code != 204 {
+		t.Fatalf("delete ALICE: %d", code)
+	}
 	if ev := e.audited("user.deleted"); ev.User != "" || ev.Sub != "ALICE" {
 		t.Errorf("deleted User: %+v", ev)
+	}
+
+	// An admin who is gone: byUser goes too.
+	e.user("ADMIN", []string{"admin"}, "email:admin@example.com")
+	e.user("BOB", nil, "username:bob")
+	if code := e.call("POST", e.token("ADMIN", nil), "/users/BOB/disable", nil, nil); code != 204 {
+		t.Fatalf("admin disables BOB: %d", code)
+	}
+	if code := e.call("DELETE", owner, "/users/ADMIN", nil, nil); code != 204 {
+		t.Fatalf("delete ADMIN: %d", code)
+	}
+	if ev := e.audited("user.disabled"); ev.User != "bob" || ev.ByUser != "" || ev.Detail["by"] != "ADMIN" {
+		t.Errorf("deleted admin: %+v", ev)
+	}
+
+	// Done by the system: no by, no byUser.
+	if _, err := e.pool.Exec(context.Background(),
+		`INSERT INTO audit_log (event, sub, detail) VALUES ('refresh_token.reused', 'BOB', '{"session": "S1"}')`); err != nil {
+		t.Fatal(err)
+	}
+	if ev := e.audited("refresh_token.reused"); ev.User != "bob" || ev.ByUser != "" {
+		t.Errorf("no by: %+v", ev)
 	}
 }
 
