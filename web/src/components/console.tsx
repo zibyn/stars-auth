@@ -101,3 +101,26 @@ export function DangerZone({
 		</section>
 	);
 }
+
+// EmptyState says what belongs here and why, then offers one way in:
+// action is the primary button, or the "需要「…」角色" note when the
+// reader can't act.
+export function EmptyState({
+	title,
+	children,
+	action,
+}: {
+	title: string;
+	children: ReactNode;
+	action?: ReactNode;
+}) {
+	return (
+		<div className="space-y-2 rounded-lg border border-dashed p-4">
+			<h4 className="font-medium text-sm">{title}</h4>
+			<p className="text-muted-foreground text-sm">{children}</p>
+			{action && (
+				<div className="flex items-center gap-3 text-sm">{action}</div>
+			)}
+		</div>
+	);
+}
