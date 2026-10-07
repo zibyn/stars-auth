@@ -1,0 +1,337 @@
+<!doctype html>
+<!--
+  PROTOTYPE, throwaway. 答 #46「创建 Application 的分类型引导流程」。
+  三种创建流程用 ?variant= 切换(底部控制条或 ← → 键):
+    A 平台卡片:先选平台(4 张卡) → 一页填写 → 完成页(接入信息 + 下一步)
+    B 问答向导:左侧步骤条,一步一问,由回答推出类型 → 确认 → 完成
+    C 最少输入:对话框只问名称和类型 → 落在应用详情页,顶部"接入清单"逐项打勾
+  后端只有两种类型:public(无后端应用)/ confidential(有后端应用);平台只是引导,映射到这两种。
+  App、小程序走直连认证 API,不经浏览器跳转,所以不需要回调地址。
+  用语按 #44、文案按 #45;依赖提示样式不在本题(#47)。双击打开即可,无后端,数据全是假的。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>创建应用(原型)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  main input[type=text],main textarea,main select{border:1px solid #e4e4e7;border-radius:.5rem;padding:.4rem .6rem;width:100%;font-size:.875rem;background:#fff}
+  textarea{min-height:4.5rem}
+  .btn{white-space:nowrap;border-radius:.5rem;padding:.4rem .9rem;font-size:.875rem;border:1px solid #e4e4e7;background:#fff}
+  .btn-primary{background:#18181b;color:#fff;border-color:#18181b}
+  .btn:disabled{opacity:.4}
+  .help{color:#71717a;font-size:.8rem;line-height:1.5}
+  .label{font-size:.875rem;font-weight:500}
+  .card{background:#fff;border:1px solid #e4e4e7;border-radius:.75rem}
+  pre{background:#18181b;color:#e4e4e7;border-radius:.5rem;padding:.75rem;font-size:.75rem;overflow-x:auto}
+</style>
+</head>
+<body class="bg-zinc-50 text-zinc-900">
+<div class="flex min-h-screen">
+  <aside class="w-44 shrink-0 border-r bg-white p-4 text-sm space-y-1">
+    <div class="font-semibold mb-3">Stars Auth</div>
+    <div class="text-zinc-500 px-2 py-1">概览</div>
+    <div class="text-zinc-500 px-2 py-1">用户</div>
+    <div class="bg-zinc-100 rounded px-2 py-1 font-medium">应用</div>
+    <div class="text-zinc-500 px-2 py-1">API 资源</div>
+    <div class="text-zinc-500 px-2 py-1">登录</div>
+    <div class="text-zinc-500 px-2 py-1">审计</div>
+    <div class="text-zinc-500 px-2 py-1">设置</div>
+  </aside>
+  <main class="flex-1 p-8 pb-40 max-w-4xl" id="page"></main>
+</div>
+<div id="modal"></div>
+
+<!-- 原型控制条:不属于被评审的设计 -->
+<div class="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-2xl bg-fuchsia-700 text-white px-4 py-2 shadow-xl text-sm z-50 space-y-1">
+  <div class="flex items-center gap-3 justify-center">
+    <button id="prev">◀</button>
+    <span id="label" class="min-w-56 text-center"></span>
+    <button id="next">▶</button>
+    <span class="opacity-60">|</span>
+    <button id="reset" class="underline">重新开始</button>
+  </div>
+  <div id="payload" class="mono text-xs opacity-80 text-center"></div>
+</div>
+
+<script>
+const VARIANTS = { A: "平台卡片", B: "问答向导", C: "最少输入 + 接入清单" };
+const keys = Object.keys(VARIANTS);
+const qs = new URLSearchParams(location.search);
+let variant = keys.includes(qs.get("variant")) ? qs.get("variant") : "A";
+
+const ISSUER = "https://auth.example.com";
+const APIS = [{ id: "https://api.shop.example.com", name: "商城 API" }];
+const TYPE = { public: "无后端应用", confidential: "有后端应用" };
+
+// 平台 → 类型。web 平台走浏览器跳转,需要回调地址;App、小程序走直连认证 API,不需要。
+const PLATFORMS = {
+  app:  { name: "手机 App",     desc: "iOS、Android 原生或跨平台 App,在 App 自己的界面里登录。", type: "public", web: false },
+  mini: { name: "小程序",       desc: "微信等小程序,在小程序页面里登录。", type: "public", web: false },
+  spa:  { name: "纯前端网页",   desc: "React、Vue 等单页应用,没有自己的服务器。用户跳到登录页登录后回来。", type: "public", web: true },
+  web:  { name: "有后端的网站", desc: "由服务器渲染或带后端的网站。登录由你的服务器完成。", type: "confidential", web: true },
+};
+
+let s;
+function reset() {
+  s = { step: 0, platform: "", name: "", redirect: "", api: "",
+        q1: "", q2: "", created: false, secretSaved: false, dismissed: false, dialog: false };
+}
+reset();
+const P = () => PLATFORMS[s.platform];
+const type = () => s.platform ? P().type : "";
+
+function create() {
+  s.created = true;
+  s.clientId = "app_" + Math.random().toString(36).slice(2, 10);
+  s.secret = type() === "confidential" ? "cs_" + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) : "";
+}
+
+// ---------- 共用片段(内容,不是布局) ----------
+const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const field = (label, help, control) => `
+  <div class="space-y-1.5"><div class="label">${label}</div>${control}${help ? `<p class="help">${help}</p>` : ""}</div>`;
+const nameInput = () => `<input type="text" data-k="name" value="${esc(s.name)}" placeholder="例如:星选商城">`;
+const redirectInput = () => `<textarea data-k="redirect" class="mono" placeholder="${s.platform === "spa" ? "https://shop.example.com/callback" : "https://shop.example.com/auth/callback"}">${esc(s.redirect)}</textarea>`;
+const redirectHelp = "用户登录后,认证服务只会把他送回这里列出的地址,防止登录结果被送到别人的网站。每行一个。";
+const apiSelect = () => `<select data-k="api"><option value="">暂不选择</option>${APIS.map((a) => `<option value="${a.id}" ${s.api === a.id ? "selected" : ""}>${a.name}</option>`).join("")}</select>`;
+const apiHelp = "选了以后,用户登录这个应用拿到的 access token 就能调用这个 API 资源,并带上用户在它上面的角色。只做登录、不调你自己的 API 可以不选。";
+const copy = (v) => `<button class="text-xs text-zinc-500 underline ml-2" onclick="navigator.clipboard.writeText('${v}')">复制</button>`;
+
+function accessInfo() {
+  return `
+  <dl class="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
+    <dt class="text-zinc-500">client_id</dt><dd class="mono">${s.clientId}${copy(s.clientId)}</dd>
+    <dt class="text-zinc-500">认证服务地址</dt><dd class="mono">${ISSUER}${copy(ISSUER)}</dd>
+    ${P().web ? `<dt class="text-zinc-500">回调地址</dt><dd class="mono whitespace-pre">${esc(s.redirect) || "—"}</dd>` : ""}
+  </dl>
+  ${secretBlock()}`;
+}
+
+function secretBlock() {
+  return `${s.secret ? `
+  <div class="mt-4 rounded-lg border border-amber-400 bg-amber-50 p-3 space-y-2">
+    <div class="label">client secret</div>
+    <div class="mono text-sm break-all">${s.secret}${copy(s.secret)}</div>
+    <p class="help">它只显示这一次,请现在保存到你服务器的配置里。丢了只能在应用详情里重新生成,旧的会立即失效。</p>
+    <label class="flex items-center gap-2 text-sm"><input type="checkbox" data-k="secretSaved" ${s.secretSaved ? "checked" : ""}> 我已保存 client secret</label>
+  </div>` : ""}`;
+}
+
+function snippet() {
+  switch (s.platform) {
+    case "app": return `<p class="help">在 App 里接入 KMP SDK,登录界面由你的 App 自己实现,SDK 负责发验证码、校验和换取令牌。</p>
+<pre>StarsAuth(
+  issuer = "${ISSUER}",
+  clientId = "${s.clientId}",
+)</pre>`;
+    case "mini": return `<p class="help">小程序 SDK 还在开发中。现在可以按「直连认证 API」文档直接调用,登录界面由小程序自己实现。</p>
+<pre>POST ${ISSUER}/challenge
+client_id=${s.clientId}&amp;identifier=手机号</pre>`;
+    case "spa": return `<p class="help">推荐用 oidc-client-ts。用户点登录时跳到认证服务的登录页,登录后回到你的回调地址。</p>
+<pre>new UserManager({
+  authority: "${ISSUER}",
+  client_id: "${s.clientId}",
+  redirect_uri: "${esc(s.redirect.split("\n")[0] || "https://…/callback")}",
+})</pre>`;
+    case "web": return `<p class="help">用你后端语言的 OIDC 客户端库,填入下面三项。client secret 只放在服务器上,不要写进前端代码。</p>
+<pre>issuer        = ${ISSUER}
+client_id     = ${s.clientId}
+client_secret = (刚才保存的那个)</pre>`;
+  }
+}
+
+const nextSteps = () => [
+  ...(s.api ? [] : [["要调用你自己的后端 API?", "先在「API 资源」里登记它,再回到应用详情选为默认 API 资源。"]]),
+  ["检查登录方式", "用户能用哪些方式登录由「登录」页决定。手机号、邮箱验证码要先配好对应的验证码通道。"],
+  ["需要在用户注销时清理数据?", "在应用详情的「用户删除通知」里填写通知地址。"],
+];
+
+// ---------- A 平台卡片 ----------
+function VariantA() {
+  if (s.created) return `
+    <h1 class="text-xl font-semibold mb-1">已创建「${esc(s.name)}」</h1>
+    <p class="help mb-6">${P().name} · ${TYPE[type()]}</p>
+    <section class="card p-5 mb-4"><h2 class="font-medium mb-3">接入信息</h2>${accessInfo()}</section>
+    <section class="card p-5 mb-4 space-y-2"><h2 class="font-medium">接入代码</h2>${snippet()}</section>
+    <section class="card p-5 mb-6"><h2 class="font-medium mb-3">接下来</h2>
+      <ul class="space-y-3">${nextSteps().map(([t, d]) => `<li><div class="label">${t}</div><p class="help">${d}</p></li>`).join("")}</ul></section>
+    <button class="btn btn-primary" ${s.secret && !s.secretSaved ? "disabled" : ""}>前往应用详情</button>`;
+  if (!s.platform) return `
+    <h1 class="text-xl font-semibold mb-1">创建应用</h1>
+    <p class="help mb-6">你的用户在哪里登录?选一个最接近的,我们会按它准备好设置。</p>
+    <div class="grid grid-cols-2 gap-4">${Object.entries(PLATFORMS).map(([k, p]) => `
+      <button class="card p-5 text-left hover:border-zinc-900" data-act="platform" data-v="${k}">
+        <div class="font-medium mb-1">${p.name}</div><p class="help">${p.desc}</p>
+        <p class="text-xs text-zinc-400 mt-3">${TYPE[p.type]}</p></button>`).join("")}</div>`;
+  return `
+    <button class="help mb-4" data-act="back">← 换个平台</button>
+    <h1 class="text-xl font-semibold mb-1">创建${P().name}</h1>
+    <p class="help mb-6">${TYPE[type()]}。类型创建后不能更改。</p>
+    <div class="card p-5 space-y-5 max-w-xl">
+      ${field("名称", "", nameInput())}
+      ${P().web ? field("回调地址 <span class='help'>redirect URI</span>", redirectHelp, redirectInput()) : ""}
+      <button class="btn btn-primary" data-act="create" ${!s.name || (P().web && !s.redirect) ? "disabled" : ""}>创建应用</button>
+    </div>`;
+}
+
+// ---------- B 问答向导 ----------
+function VariantB() {
+  const web = s.q1 === "redirect";
+  const steps = [
+    ["登录界面", !!s.q1],
+    ...(web ? [["服务器", !!s.q2]] : []),
+    ["名称", !!s.name],
+    ...(web ? [["回调地址", !!s.redirect]] : []),
+    ["API 资源", true],
+    ["确认", s.created],
+  ];
+  const cur = Math.min(s.step, steps.length - 1);
+  const name = steps[cur][0];
+  const radio = (k, v, t, d) => `
+    <label class="card p-4 flex gap-3 cursor-pointer ${s[k] === v ? "border-zinc-900" : ""}">
+      <input type="radio" name="${k}" data-k="${k}" value="${v}" ${s[k] === v ? "checked" : ""}>
+      <div><div class="label">${t}</div><p class="help">${d}</p></div></label>`;
+  let body;
+  if (s.created) body = `
+    <h2 class="text-lg font-semibold mb-4">已创建「${esc(s.name)}」</h2>
+    ${accessInfo()}<div class="mt-5 space-y-2">${snippet()}</div>
+    <p class="help mt-5">${nextSteps().map(([t]) => t).join(" · ")}——都在应用详情里。</p>
+    <button class="btn btn-primary mt-4" ${s.secret && !s.secretSaved ? "disabled" : ""}>前往应用详情</button>`;
+  else if (name === "登录界面") body = `
+    <h2 class="text-lg font-semibold mb-1">用户在哪里输入手机号或密码?</h2><p class="help mb-4">这决定应用怎样和认证服务对接。</p>
+    <div class="space-y-3">${radio("q1", "native", "在我自己的 App 或小程序界面里", "界面你自己做,应用直接调用认证服务的接口。")}
+    ${radio("q1", "redirect", "跳到认证服务提供的登录页", "适合网页。登录页由认证服务托管,登录后跳回你的网站。")}</div>`;
+  else if (name === "服务器") body = `
+    <h2 class="text-lg font-semibold mb-1">你的网站有自己的后端服务器吗?</h2><p class="help mb-4">有服务器就能安全保管密钥,登录由服务器完成。</p>
+    <div class="space-y-3">${radio("q2", "yes", "有,登录由服务器处理", "例如 Next.js、Django、Spring 等服务器渲染或带后端的网站。")}
+    ${radio("q2", "no", "没有,纯前端", "例如部署在 CDN 上的 React、Vue 单页应用。")}</div>`;
+  else if (name === "名称") body = `<h2 class="text-lg font-semibold mb-4">给应用起个名字</h2>${field("名称", "用户在登录页和授权记录里会看到它。", nameInput())}`;
+  else if (name === "回调地址") body = `<h2 class="text-lg font-semibold mb-4">登录后回到哪里?</h2>${field("回调地址 <span class='help'>redirect URI</span>", redirectHelp, redirectInput())}`;
+  else if (name === "API 资源") body = `<h2 class="text-lg font-semibold mb-4">应用要调用你的哪个 API?</h2>${field("默认 API 资源", apiHelp, apiSelect())}`;
+  else body = `
+    <h2 class="text-lg font-semibold mb-4">确认</h2>
+    <dl class="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
+      <dt class="text-zinc-500">类型</dt><dd>${TYPE[type()]} <span class="help">· 创建后不能更改</span></dd>
+      <dt class="text-zinc-500">名称</dt><dd>${esc(s.name)}</dd>
+      ${web ? `<dt class="text-zinc-500">回调地址</dt><dd class="mono whitespace-pre">${esc(s.redirect)}</dd>` : ""}
+      <dt class="text-zinc-500">默认 API 资源</dt><dd>${APIS.find((a) => a.id === s.api)?.name ?? "暂不选择"}</dd></dl>
+    <p class="help mt-4">会话时长、用户删除通知等可以创建后在应用详情里改。</p>`;
+  const canNext = steps[cur][1];
+  return `
+    <h1 class="text-xl font-semibold mb-6">创建应用</h1>
+    <div class="flex gap-8">
+      <ol class="w-36 shrink-0 space-y-2 text-sm">${steps.map(([t, ok], i) => `
+        <li class="flex items-center gap-2 ${i === cur ? "font-medium" : "text-zinc-400"}">
+          <span class="grid place-items-center w-5 h-5 rounded-full text-xs ${i < cur || s.created ? "bg-zinc-900 text-white" : "border"}">${i < cur || s.created ? "✓" : i + 1}</span>${t}</li>`).join("")}</ol>
+      <div class="card p-6 flex-1">${body}
+        ${s.created ? "" : `<div class="flex gap-2 mt-6">
+          ${cur > 0 ? `<button class="btn" data-act="prevstep">上一步</button>` : ""}
+          ${name === "确认" ? `<button class="btn btn-primary" data-act="create">创建应用</button>`
+            : `<button class="btn btn-primary" data-act="nextstep" ${canNext ? "" : "disabled"}>下一步</button>`}</div>`}
+      </div></div>`;
+}
+
+// ---------- C 最少输入 + 接入清单 ----------
+function VariantC() {
+  if (!s.created) {
+    const list = `
+      <div class="flex items-center justify-between mb-4"><h1 class="text-xl font-semibold">应用</h1>
+        <button class="btn btn-primary" data-act="dialog">创建应用</button></div>
+      <div class="card text-sm"><div class="p-3 border-b flex"><span class="flex-1">星选商城 Web</span><span class="text-zinc-500">有后端应用</span></div>
+        <div class="p-3 flex"><span class="flex-1">管理端 <span class="text-xs bg-zinc-100 rounded px-1">内置</span></span><span class="text-zinc-500">无后端应用</span></div></div>`;
+    const cTypes = { public: ["app", "无后端应用", "App、小程序、纯前端网页。没有可以保管密钥的服务器。"],
+                     confidential: ["web", "有后端应用", "有自己服务器的网站,登录由服务器完成。"] };
+    const dialog = s.dialog ? `
+      <div class="fixed inset-0 bg-black/40 grid place-items-center z-40">
+        <div class="bg-white rounded-xl p-6 w-[28rem] space-y-5">
+          <h2 class="text-lg font-semibold">创建应用</h2>
+          ${field("名称", "", nameInput())}
+          <div class="space-y-2"><div class="label">类型</div>${Object.entries(cTypes).map(([t, [p, n, d]]) => `
+            <label class="card p-3 flex gap-3 cursor-pointer ${type() === t ? "border-zinc-900" : ""}">
+              <input type="radio" name="ctype" data-k="platform" value="${p}" ${type() === t ? "checked" : ""}>
+              <div><div class="label">${n}</div><p class="help">${d}</p></div></label>`).join("")}
+            <p class="help">类型创建后不能更改。</p></div>
+          <div class="flex justify-end gap-2"><button class="btn" data-act="dialog">取消</button>
+            <button class="btn btn-primary" data-act="create" ${s.name && s.platform ? "" : "disabled"}>创建应用</button></div>
+        </div></div>` : "";
+    return list + dialog;
+  }
+  // C 只问了有/无后端,纯前端网页和 App/小程序分不开,所以回调地址留在清单里让用户自己判断。
+  const items = [
+    ["记下 client_id", true, `<span class="mono">${s.clientId}</span>${copy(s.clientId)}`],
+    ...(s.secret ? [["保存 client secret", s.secretSaved, secretBlock()]] : []),
+    ["填写回调地址", !!s.redirect, `<p class="help mb-2">网页用户登录后会跳回这里。App 和小程序不需要,可以跳过。</p>${redirectInput()}`],
+    ["选择默认 API 资源", !!s.api, `<p class="help mb-2">${apiHelp}</p>${apiSelect()}`],
+    ["接入代码", false, `<p class="help">文档:App 用 KMP SDK;小程序按直连认证 API;网页用 oidc-client-ts 或你后端语言的 OIDC 库。认证服务地址 <span class="mono">${ISSUER}</span></p>`],
+  ];
+  const done = items.filter((i) => i[1]).length;
+  return `
+    <p class="help mb-1">应用 /</p>
+    <h1 class="text-xl font-semibold mb-1">${esc(s.name)}</h1>
+    <p class="help mb-6">${TYPE[type()]}</p>
+    ${s.dismissed ? "" : `<section class="card p-5 mb-6 border-zinc-900">
+      <div class="flex items-center mb-4"><h2 class="font-medium flex-1">接入清单 <span class="help">${done} / ${items.length}</span></h2>
+        <button class="help underline" data-act="dismiss">收起</button></div>
+      <ol class="space-y-4">${items.map(([t, ok, d]) => `
+        <li class="flex gap-3"><span class="grid place-items-center w-5 h-5 shrink-0 rounded-full text-xs ${ok ? "bg-zinc-900 text-white" : "border"}">${ok ? "✓" : ""}</span>
+          <div class="flex-1 space-y-1"><div class="label">${t}</div>${d}</div></li>`).join("")}</ol></section>`}
+    <div class="flex gap-6 border-b text-sm mb-4"><span class="pb-2 border-b-2 border-zinc-900 font-medium">基本</span><span class="pb-2 text-zinc-500">登录</span><span class="pb-2 text-zinc-500">Webhook</span></div>
+    <p class="help">(应用详情的其余内容见 #45 样页)</p>`;
+}
+
+// ---------- 渲染与事件 ----------
+const page = document.getElementById("page");
+function render() {
+  page.innerHTML = { A: VariantA, B: VariantB, C: VariantC }[variant]();
+  document.getElementById("label").textContent = `${variant}(${VARIANTS[variant]})`;
+  document.getElementById("payload").textContent = type()
+    ? `POST /applications ${JSON.stringify({ type: type(), settings: { name: s.name, redirectUris: s.redirect.split("\n").filter(Boolean), defaultApi: s.api } })}`
+    : "POST /applications —(未选类型)";
+}
+page.addEventListener("input", (e) => {
+  const k = e.target.dataset.k; if (!k) return;
+  s[k] = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+  if (k === "q1" || k === "q2") s.platform = s.q1 === "native" ? "app" : s.q2 === "yes" ? "web" : s.q2 === "no" ? "spa" : "";
+  if (k === "q1" && s.q1 === "native") s.q2 = "";
+  // 文本输入不重绘(保焦点),只在离开时重绘;选择类控件立即重绘
+  if (e.target.tagName === "TEXTAREA" || e.target.type === "text") { document.getElementById("payload").textContent = ""; return; }
+  render();
+});
+page.addEventListener("change", (e) => { if (e.target.tagName === "TEXTAREA" || e.target.type === "text") render(); });
+page.addEventListener("keyup", (e) => {
+  // 让依赖输入的按钮及时可用
+  if (e.target.dataset.k === "name" || e.target.dataset.k === "redirect")
+    page.querySelectorAll('[data-act="create"],[data-act="nextstep"]').forEach((b) => b.disabled = false);
+});
+page.addEventListener("click", (e) => {
+  const act = e.target.closest("[data-act]")?.dataset.act; if (!act) return;
+  if (act === "platform") s.platform = e.target.closest("[data-act]").dataset.v;
+  if (act === "back") { s.platform = ""; s.redirect = ""; }
+  if (act === "create") { create(); s.dialog = false; }
+  if (act === "nextstep") s.step++;
+  if (act === "prevstep") s.step--;
+  if (act === "dialog") s.dialog = !s.dialog;
+  if (act === "dismiss") s.dismissed = true;
+  render();
+});
+function go(d) {
+  variant = keys[(keys.indexOf(variant) + d + keys.length) % keys.length];
+  const u = new URL(location); u.searchParams.set("variant", variant); history.replaceState(null, "", u);
+  reset(); render();
+}
+document.getElementById("prev").onclick = () => go(-1);
+document.getElementById("next").onclick = () => go(1);
+document.getElementById("reset").onclick = () => { reset(); render(); };
+addEventListener("keydown", (e) => {
+  if (e.target.closest("input,textarea,select,[contenteditable]")) return;
+  if (e.key === "ArrowLeft") go(-1);
+  if (e.key === "ArrowRight") go(1);
+});
+render();
+</script>
+</body>
+</html>
