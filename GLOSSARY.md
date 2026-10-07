@@ -9,7 +9,7 @@
 _Avoid_: 认证库, 认证框架, SSO 平台
 
 **管理员**(Admin):
-在管理端 API 上持有任一 Role 的 User,负责配置登录方式、通道与 Application;部署实例的人即首个所有者。旧称 Operator。
+在 Management API 上持有任一 Role 的 User,负责配置登录方式、通道与 Application;部署实例的人即首个所有者。旧称 Operator。
 _Avoid_: Operator, 站长, 租户
 
 **User**:
@@ -25,8 +25,16 @@ _Avoid_: Client, 租户, 项目
 _Avoid_: 内部应用, 自有客户端
 
 **API**:
-管理员登记的一个受保护业务后端,以一个标识字符串区分;Stars Auth 签发给 Application 的 access token 指明它供哪个 API 使用,多个 Application 可共用同一个 API。
+管理员登记的一个受保护业务后端,以 API 标识符区分;Stars Auth 签发给 Application 的 access token 指明它供哪个 API 使用,多个 Application 可共用同一个 API。
 _Avoid_: Resource Server, 资源, 后端服务
+
+**API 标识符**:
+区分 API 的字符串(如 `https://api.example.com`),即 access token 的 `aud` 值,创建后不可改。
+_Avoid_: 标识, Identifier, audience
+
+**默认 API**:
+每个 Application 各自设定的一个 API,它拿到的 access token 都以其 API 标识符为 `aud`;对应 RFC 9068 §3 的 default resource indicator。一期不支持 RFC 8707 `resource` 参数,所以它也是该 Application 唯一的 API。不同于 Logto、Auth0 的同名设置,它不是整个实例共用一个。
+_Avoid_: Default Audience, 目标 API, 资源
 
 **Session**:
 一个 User 在一台设备或一个浏览器上的一次登录;App 中由 refresh token 承载,浏览器中由 cookie 承载,终止它即让该设备下线。

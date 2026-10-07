@@ -36,7 +36,7 @@ Web / RP ──(OIDC: /authorize + 托管登录页)──┘
 
 | 令牌 | 形态 | 寿命 | 要点 |
 |---|---|---|---|
-| access token | JWT,RFC 9068(`typ: at+jwt`),RS256 | 10 分钟 | `aud` 为 API 标识;带 `client_id`、`roles`、`entitlements`(只限当前 API) |
+| access token | JWT,RFC 9068(`typ: at+jwt`),RS256 | 10 分钟 | `aud` 为 API 标识符;带 `client_id`、`roles`、`entitlements`(只限当前 API) |
 | ID token | JWT,RS256 | — | `sub`、`amr`;scope 为 `phone` / `email` 时带对应 claim;不带角色 |
 | refresh token | 不透明 | 跟随 Session | 每次刷新都轮换;一旦重用,终止整个 Session |
 

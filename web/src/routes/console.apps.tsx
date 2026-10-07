@@ -488,7 +488,7 @@ function APIs() {
 						<Input
 							name="identifier"
 							required
-							placeholder="标识(aud),如 https://api.example.com"
+							placeholder="API 标识符(aud),如 https://api.example.com"
 							className="w-72"
 						/>
 						<Input name="name" required placeholder="名称" className="w-40" />
