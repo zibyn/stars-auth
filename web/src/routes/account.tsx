@@ -6,15 +6,9 @@ import {
 } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { Star } from "#/components/star";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from "#/components/ui/card";
 import {
 	Dialog,
 	DialogContent,
@@ -62,7 +56,7 @@ function Account() {
 
 	if (deleted) {
 		return (
-			<main className="flex min-h-svh flex-col items-center justify-center gap-2 px-4 text-center">
+			<main className="flex min-h-svh flex-col items-center justify-center gap-2 bg-canvas px-4 text-center">
 				<h1 className="font-semibold text-2xl">账号已注销</h1>
 				<p className="text-muted-foreground text-sm">
 					你的数据已全部删除。同一个手机号或邮箱再次登录,将是一个新账号。
@@ -72,7 +66,7 @@ function Account() {
 	}
 	if (me.error) {
 		return (
-			<main className="flex min-h-svh items-center justify-center">
+			<main className="flex min-h-svh items-center justify-center bg-canvas">
 				<p>账号中心加载失败:{me.error.message}</p>
 			</main>
 		);
@@ -93,34 +87,38 @@ function Account() {
 		.find(Boolean);
 
 	return (
-		<div className="min-h-svh bg-muted/40">
-			<main className="mx-auto max-w-2xl space-y-6 px-4 py-10">
+		<div className="min-h-svh bg-canvas p-2 text-sm sm:p-6">
+			<main className="mx-auto max-w-2xl space-y-10 rounded-2xl bg-card px-6 py-8 shadow-xs ring-1 ring-border sm:px-14 sm:py-11">
+				<div className="flex items-center gap-2 font-semibold">
+					<Star className="size-5 text-star" />
+					Stars
+				</div>
 				<header className="flex items-center gap-4">
-					<div className="flex size-14 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground text-xl">
-						{main?.value.replace(/^\+86/, "").charAt(0).toUpperCase() ?? "✦"}
+					<div className="flex size-14 shrink-0 items-center justify-center rounded-full bg-primary-soft font-semibold text-primary-ink text-xl">
+						{main?.value.replace(/^\+86/, "").charAt(0).toUpperCase() ?? (
+							<Star className="size-6" />
+						)}
 					</div>
 					<div className="min-w-0">
-						<h1 className="truncate font-semibold text-xl">
+						<h1 className="truncate font-semibold text-2xl tracking-tight">
 							{main?.value ?? user.sub}
 						</h1>
-						<p className="text-muted-foreground text-sm">
-							Stars Auth 账号 · 注册于 {date(user.createdAt)}
+						<p className="text-[13px] text-muted-foreground">
+							注册于 {date(user.createdAt)}
 						</p>
 					</div>
 				</header>
 				<LoginMethods me={user} guard={guard} />
 				{user.passwordAllowed && <Security me={user} guard={guard} />}
 				<Sessions />
-				<Card>
-					<CardHeader>
-						<CardTitle>数据与隐私</CardTitle>
+				<section>
+					<header className="space-y-1">
+						<h2 className="font-semibold text-[15px]">数据与隐私</h2>
 						{exportError && (
-							<CardDescription className="text-destructive">
-								{exportError}
-							</CardDescription>
+							<p className="text-[13px] text-destructive">{exportError}</p>
 						)}
-					</CardHeader>
-					<CardContent>
+					</header>
+					<div className="mt-2">
 						<Row
 							label="导出我的数据"
 							hint="登录方式、设备与会话、同意记录和与你相关的安全事件,JSON 格式"
@@ -140,16 +138,16 @@ function Account() {
 								导出
 							</Button>
 						</Row>
-					</CardContent>
-				</Card>
-				<Card className="ring-destructive/30">
-					<CardHeader>
-						<CardTitle>危险操作</CardTitle>
-					</CardHeader>
-					<CardContent>
+					</div>
+				</section>
+				<section className="rounded-xl px-6 py-5 ring-1 ring-destructive/30">
+					<header className="space-y-1">
+						<h2 className="font-semibold text-[15px]">危险操作</h2>
+					</header>
+					<div className="mt-2">
 						<DeleteAccount guard={guard} onDeleted={() => setDeleted(true)} />
-					</CardContent>
-				</Card>
+					</div>
+				</section>
 			</main>
 			<Reauth
 				me={user}
@@ -187,16 +185,16 @@ function LoginMethods({ me, guard }: { me: Me; guard: Guard }) {
 	});
 	const username = me.identifiers.find((i) => i.kind === "username");
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>登录方式</CardTitle>
+		<section>
+			<header className="space-y-1">
+				<h2 className="font-semibold text-[15px]">登录方式</h2>
 				{unbind.error && (
-					<CardDescription className="text-destructive">
+					<p className="text-[13px] text-destructive">
 						{message(unbind.error)}
-					</CardDescription>
+					</p>
 				)}
-			</CardHeader>
-			<CardContent>
+			</header>
+			<div className="mt-2">
 				{(["phone", "email"] as const).map((kind) => {
 					const id = me.identifiers.find((i) => i.kind === kind);
 					return (
@@ -236,11 +234,11 @@ function LoginMethods({ me, guard }: { me: Me; guard: Guard }) {
 						{null}
 					</Row>
 				)}
-			</CardContent>
+			</div>
 			{editing && (
 				<BindIdentifier kind={editing} onClose={() => setEditing(null)} />
 			)}
-		</Card>
+		</section>
 	);
 }
 
@@ -336,16 +334,16 @@ function Security({ me, guard }: { me: Me; guard: Guard }) {
 		onSuccess: () => queryClient.invalidateQueries(meQuery),
 	});
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>安全</CardTitle>
+		<section>
+			<header className="space-y-1">
+				<h2 className="font-semibold text-[15px]">安全</h2>
 				{remove.error && (
-					<CardDescription className="text-destructive">
+					<p className="text-[13px] text-destructive">
 						{message(remove.error)}
-					</CardDescription>
+					</p>
 				)}
-			</CardHeader>
-			<CardContent>
+			</header>
+			<div className="mt-2">
 				<Row
 					label="密码"
 					hint={
@@ -372,9 +370,9 @@ function Security({ me, guard }: { me: Me; guard: Guard }) {
 						{me.hasPassword ? "修改" : "设置"}
 					</Button>
 				</Row>
-			</CardContent>
+			</div>
 			{editing && <SetPassword onClose={() => setEditing(false)} />}
-		</Card>
+		</section>
 	);
 }
 
@@ -430,14 +428,14 @@ function Sessions() {
 		onSuccess: () => queryClient.invalidateQueries(sessionsQuery),
 	});
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>设备与会话</CardTitle>
-				<CardDescription>
+		<section>
+			<header className="space-y-1">
+				<h2 className="font-semibold text-[15px]">设备与会话</h2>
+				<p className="text-[13px] text-muted-foreground">
 					不限设备数,可逐个下线;已结束的保留 30 天
-				</CardDescription>
-			</CardHeader>
-			<CardContent>
+				</p>
+			</header>
+			<div className="mt-2">
 				{sessions.data?.sessions.map((s) => (
 					<Row
 						key={s.id}
@@ -462,8 +460,8 @@ function Sessions() {
 						)}
 					</Row>
 				))}
-			</CardContent>
-		</Card>
+			</div>
+		</section>
 	);
 }
 
@@ -679,7 +677,9 @@ function Row({
 			<div className="min-w-0">
 				<div>{label}</div>
 				{hint && (
-					<div className="truncate text-muted-foreground text-xs">{hint}</div>
+					<div className="truncate text-[13px] text-muted-foreground">
+						{hint}
+					</div>
 				)}
 			</div>
 			<div className="flex shrink-0 items-center gap-1">{children}</div>
