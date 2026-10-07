@@ -657,6 +657,17 @@ func WithFormPostResponseMode() AuthCodeGrantOption {
 	}
 }
 
+// WithAuthorizationChallengeEndpoint publishes the authorization challenge
+// endpoint of OAuth 2.0 for First-Party Applications in discovery. The
+// application serves it, with [Provider.ChallengeClient] and
+// [Provider.IssueAuthCode].
+func WithAuthorizationChallengeEndpoint(endpoint string) AuthCodeGrantOption {
+	return func(p *Provider) error {
+		p.config.AuthorizationChallengeEndpoint = endpoint
+		return nil
+	}
+}
+
 // WithIssuerResponseParameter enables the "iss" parameter to be sent in the
 // response of authorization requests.
 func WithIssuerResponseParameter() AuthCodeGrantOption {

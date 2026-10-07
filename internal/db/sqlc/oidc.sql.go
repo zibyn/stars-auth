@@ -45,6 +45,22 @@ func (q *Queries) AuthnSession(ctx context.Context, id string) ([]byte, error) {
 	return data, err
 }
 
+const challengeSession = `-- name: ChallengeSession :one
+SELECT client_id, data FROM oidc_challenge_sessions WHERE hash = $1 AND expires_at > now()
+`
+
+type ChallengeSessionRow struct {
+	ClientID string
+	Data     []byte
+}
+
+func (q *Queries) ChallengeSession(ctx context.Context, hash []byte) (ChallengeSessionRow, error) {
+	row := q.db.QueryRow(ctx, challengeSession, hash)
+	var i ChallengeSessionRow
+	err := row.Scan(&i.ClientID, &i.Data)
+	return i, err
+}
+
 const createApplication = `-- name: CreateApplication :exec
 INSERT INTO applications (client_id, name, type, secret_hash, redirect_uris, post_logout_redirect_uris, default_api)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -73,9 +89,19 @@ func (q *Queries) CreateApplication(ctx context.Context, arg CreateApplicationPa
 	return err
 }
 
+const deleteChallengeSession = `-- name: DeleteChallengeSession :exec
+DELETE FROM oidc_challenge_sessions WHERE hash = $1
+`
+
+func (q *Queries) DeleteChallengeSession(ctx context.Context, hash []byte) error {
+	_, err := q.db.Exec(ctx, deleteChallengeSession, hash)
+	return err
+}
+
 const deleteExpiredOIDC = `-- name: DeleteExpiredOIDC :exec
 WITH g AS (DELETE FROM oidc_grants WHERE oidc_grants.expires_at < now()),
-     a AS (DELETE FROM oidc_authn_sessions WHERE oidc_authn_sessions.expires_at < now())
+     a AS (DELETE FROM oidc_authn_sessions WHERE oidc_authn_sessions.expires_at < now()),
+     c AS (DELETE FROM oidc_challenge_sessions WHERE oidc_challenge_sessions.expires_at < now())
 DELETE FROM oidc_logout_sessions WHERE oidc_logout_sessions.expires_at < now()
 `
 
@@ -260,6 +286,23 @@ type SaveAuthnSessionParams struct {
 
 func (q *Queries) SaveAuthnSession(ctx context.Context, arg SaveAuthnSessionParams) error {
 	_, err := q.db.Exec(ctx, saveAuthnSession, arg.ID, arg.ExpiresAt, arg.Data)
+	return err
+}
+
+const saveChallengeSession = `-- name: SaveChallengeSession :exec
+INSERT INTO oidc_challenge_sessions (hash, client_id, expires_at, data)
+VALUES ($1, $2, now() + interval '10 minutes', $3)
+ON CONFLICT (hash) DO UPDATE SET expires_at = EXCLUDED.expires_at, data = EXCLUDED.data
+`
+
+type SaveChallengeSessionParams struct {
+	Hash     []byte
+	ClientID string
+	Data     []byte
+}
+
+func (q *Queries) SaveChallengeSession(ctx context.Context, arg SaveChallengeSessionParams) error {
+	_, err := q.db.Exec(ctx, saveChallengeSession, arg.Hash, arg.ClientID, arg.Data)
 	return err
 }
 

@@ -140,6 +140,11 @@ type Configuration struct {
 
 	ErrorURI string
 
+	// AuthorizationChallengeEndpoint, if set, is published in discovery; the
+	// endpoint itself is served outside the provider, which only lends it
+	// client authentication and code issuance.
+	AuthorizationChallengeEndpoint string
+
 	LogoutEnabled               bool
 	LogoutEndpoint              string
 	LogoutManager               goidc.LogoutManager

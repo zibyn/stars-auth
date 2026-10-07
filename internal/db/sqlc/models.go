@@ -74,6 +74,13 @@ type OidcAuthnSession struct {
 	Data      []byte
 }
 
+type OidcChallengeSession struct {
+	Hash      []byte
+	ClientID  string
+	ExpiresAt pgtype.Timestamptz
+	Data      []byte
+}
+
 type OidcGrant struct {
 	ID               string
 	AuthCodeHash     []byte

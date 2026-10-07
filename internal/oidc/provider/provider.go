@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
@@ -261,6 +262,54 @@ func (op *Provider) MakeToken(ctx context.Context, grant *goidc.Grant) (string, 
 
 	_, tokenValue, err := token.Issue(oidcCtx, grant, c, nil)
 	return tokenValue, err
+}
+
+// ChallengeClient authenticates the client of an authorization challenge
+// request as the token endpoint would, and checks the scopes and PKCE it
+// asks for, as the authorization endpoint would.
+func (op *Provider) ChallengeClient(w http.ResponseWriter, r *http.Request, params goidc.AuthorizationParameters) (*goidc.Client, error) {
+	ctx := oidc.NewHTTPContext(w, r, &op.config)
+	c, err := client.Authenticated(ctx, client.AuthnContextToken)
+	if err != nil {
+		return nil, err
+	}
+	if !slices.Contains(c.GrantTypes, goidc.GrantAuthorizationCode) {
+		return nil, goidc.NewError(goidc.ErrorCodeUnauthorizedClient, "the client may not use the authorization_code grant")
+	}
+	for s := range strings.FieldsSeq(params.Scopes) {
+		if scope, ok := ctx.Scope(s); !ok || !slices.Contains(strings.Fields(c.ScopeIDs), scope.ID) {
+			return nil, goidc.NewError(goidc.ErrorCodeInvalidScope, "scope "+s+" is not allowed")
+		}
+	}
+	if params.CodeChallenge == "" {
+		if c.IsPublic() {
+			return nil, goidc.NewError(goidc.ErrorCodeInvalidRequest, "code_challenge is required")
+		}
+	} else if !slices.Contains(op.config.PKCEChallengeMethods, params.CodeChallengeMethod) {
+		return nil, goidc.NewError(goidc.ErrorCodeInvalidRequest, "code_challenge_method is not supported")
+	}
+	return c, nil
+}
+
+// IssueAuthCode completes an authorization challenge for sub: it creates the
+// grant /authorize would after a login, and returns its authorization code,
+// redeemable at the token endpoint without a redirect_uri.
+func (op *Provider) IssueAuthCode(ctx context.Context, c *goidc.Client, sub string, params goidc.AuthorizationParameters, store map[string]any) (string, error) {
+	oidcCtx := oidc.NewContext(ctx, &op.config)
+	grant, err := token.NewGrant(oidcCtx, c, token.GrantOptions{
+		Type:              goidc.GrantAuthorizationCode,
+		Subject:           sub,
+		ClientID:          c.ID,
+		Scopes:            params.Scopes,
+		AuthCode:          oidcCtx.AuthCode(),
+		AuthCodeExpiresAt: timeutil.TimestampNow() + oidcCtx.AuthCodeLifetimeSecs,
+		AuthParams:        params,
+		Store:             store,
+	})
+	if err != nil {
+		return "", err
+	}
+	return grant.AuthCode, nil
 }
 
 func (op *Provider) RevokeToken(ctx context.Context, tkn string) error {

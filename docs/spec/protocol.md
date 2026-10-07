@@ -22,7 +22,7 @@ Web / RP ──(OIDC: /authorize + 托管登录页)──┘
 
 ## 直连认证 API
 
-- **路径与版本**:路径带 `/v1` 前缀,主版本内只做向后兼容的改动。
+- **路径与版本**:路径带 `/v1` 前缀,主版本内只做向后兼容的改动。challenge 端点为 `POST /v1/auth/challenge`,OpenAPI 在 `/v1/auth/openapi.json`。
 - **challenge 输入**:
   - 一期:手机号或邮箱(请求发码)、验证码、Identifier + 密码;
   - 二期起:WebAuthn 断言、TOTP、Provider 实例 ID + 客户端令牌。

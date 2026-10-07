@@ -73,6 +73,17 @@ ON CONFLICT (id) DO UPDATE SET expires_at = EXCLUDED.expires_at, data = EXCLUDED
 -- name: AuthnSession :one
 SELECT data FROM oidc_authn_sessions WHERE id = $1 AND expires_at > now();
 
+-- name: SaveChallengeSession :exec
+INSERT INTO oidc_challenge_sessions (hash, client_id, expires_at, data)
+VALUES ($1, $2, now() + interval '10 minutes', $3)
+ON CONFLICT (hash) DO UPDATE SET expires_at = EXCLUDED.expires_at, data = EXCLUDED.data;
+
+-- name: ChallengeSession :one
+SELECT client_id, data FROM oidc_challenge_sessions WHERE hash = $1 AND expires_at > now();
+
+-- name: DeleteChallengeSession :exec
+DELETE FROM oidc_challenge_sessions WHERE hash = $1;
+
 -- name: SaveLogoutSession :exec
 INSERT INTO oidc_logout_sessions (id, expires_at, data) VALUES ($1, $2, $3)
 ON CONFLICT (id) DO UPDATE SET expires_at = EXCLUDED.expires_at, data = EXCLUDED.data;
@@ -82,7 +93,8 @@ SELECT data FROM oidc_logout_sessions WHERE id = $1 AND expires_at > now();
 
 -- name: DeleteExpiredOIDC :exec
 WITH g AS (DELETE FROM oidc_grants WHERE oidc_grants.expires_at < now()),
-     a AS (DELETE FROM oidc_authn_sessions WHERE oidc_authn_sessions.expires_at < now())
+     a AS (DELETE FROM oidc_authn_sessions WHERE oidc_authn_sessions.expires_at < now()),
+     c AS (DELETE FROM oidc_challenge_sessions WHERE oidc_challenge_sessions.expires_at < now())
 DELETE FROM oidc_logout_sessions WHERE oidc_logout_sessions.expires_at < now();
 
 -- name: InsertSigningKey :exec

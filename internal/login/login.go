@@ -1,6 +1,6 @@
 // Package login serves the hosted pages a browser signs in through: the OIDC
 // provider with its login page, browser Sessions, and the first-start setup
-// page.
+// page; and the direct auth API Apps sign in through.
 package login
 
 import (
@@ -32,7 +32,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/pow"
 )
 
-//go:embed pages.html altcha
+//go:embed pages.html altcha challenge.openapi.json
 var pagesFS embed.FS
 
 var pages = template.Must(template.ParseFS(pagesFS, "pages.html"))
@@ -102,6 +102,7 @@ func New(ctx context.Context, pool *pgxpool.Pool, keyring *crypt.Keyring, issuer
 			provider.AuthCodeGrantConfig{Manager: store, ResponseTypes: []goidc.ResponseType{goidc.ResponseTypeCode}},
 			provider.WithPKCE([]goidc.CodeChallengeMethod{goidc.CodeChallengeMethodSHA256}),
 			provider.WithIssuerResponseParameter(),
+			provider.WithAuthorizationChallengeEndpoint(ChallengePath),
 			provider.WithAuthPolicies(goidc.NewPolicy("password",
 				func(*http.Request, *goidc.AuthnSession, *goidc.Client) bool { return true },
 				s.authenticate)),
@@ -140,13 +141,18 @@ func New(ctx context.Context, pool *pgxpool.Pool, keyring *crypt.Keyring, issuer
 	return s, nil
 }
 
-// Register adds the OIDC endpoints and the setup page to mux.
+// Register adds the OIDC endpoints, the direct auth API and the setup page
+// to mux.
 func (s *Service) Register(mux *http.ServeMux) {
 	s.op.RegisterRoutes(mux)
 	mux.HandleFunc("GET /altcha/challenge", s.pow.ServeChallenge)
 	mux.HandleFunc("GET /altcha/altcha.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		http.ServeFileFS(w, r, pagesFS, "altcha/altcha.js")
+	})
+	mux.HandleFunc("POST "+ChallengePath, s.challenge)
+	mux.HandleFunc("GET /v1/auth/openapi.json", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, pagesFS, "challenge.openapi.json")
 	})
 	mux.HandleFunc("GET /setup", s.setupPage)
 	mux.HandleFunc("POST /setup", s.setup)
@@ -281,11 +287,7 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		if err != nil {
 			return goidc.StatusFailure, err
 		}
-		amr := goidc.AMRSMS
-		if kind == "email" {
-			amr = goidc.AMROneTimePassword
-		}
-		return s.login(w, r, as, c, sub, amr)
+		return s.login(w, r, as, c, sub, codeAMR(kind))
 
 	case "password":
 		if pending != "" {
@@ -353,6 +355,14 @@ func (s *Service) logout(w http.ResponseWriter, r *http.Request, ls *goidc.Logou
 	}
 	setSessionCookie(w, "", -1)
 	return goidc.StatusSuccess, nil
+}
+
+// codeAMR is how a code to an Identifier of kind proves the User (RFC 8176).
+func codeAMR(kind string) goidc.AMR {
+	if kind == "email" {
+		return goidc.AMROneTimePassword
+	}
+	return goidc.AMRSMS
 }
 
 // storedAMR reads amr back from an AuthnSession store, where it was decoded

@@ -48,6 +48,7 @@ type Configuration struct {
 	DisplayValues                  []DisplayValue        `json:"display_values_supported,omitempty"`
 	CodeChallengeMethods           []CodeChallengeMethod `json:"code_challenge_methods_supported,omitempty"`
 	EndSessionEndpoint             string                `json:"end_session_endpoint,omitempty"`
+	AuthorizationChallengeEndpoint string                `json:"authorization_challenge_endpoint,omitempty"`
 	OrganizationName               string                `json:"organization_name,omitempty"`
 	JWKS                           *JSONWebKeySet        `json:"jwks,omitempty"`
 }

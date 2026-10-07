@@ -70,5 +70,9 @@ func NewConfiguration(ctx oidc.Context) goidc.Configuration {
 		config.EndSessionEndpoint = ctx.BaseURL() + ctx.LogoutEndpoint
 	}
 
+	if ctx.AuthorizationChallengeEndpoint != "" {
+		config.AuthorizationChallengeEndpoint = ctx.BaseURL() + ctx.AuthorizationChallengeEndpoint
+	}
+
 	return config
 }
