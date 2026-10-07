@@ -170,7 +170,7 @@ func (e *env) call(method, token, path string, body, out any) int {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	raw, _ := io.ReadAll(resp.Body)
 	if out != nil && resp.StatusCode < 300 && len(raw) > 0 {
 		if err := json.Unmarshal(raw, out); err != nil {
@@ -562,7 +562,7 @@ func TestDirectAPIDeletesTheAccount(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return resp
 	}
 	appToken := func(ago time.Duration) string {

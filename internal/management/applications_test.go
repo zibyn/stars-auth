@@ -58,7 +58,9 @@ func TestManageApplications(t *testing.T) {
 	path := "/applications/" + a.ClientID
 	secret := func() string {
 		var c struct{ Secret string }
-		e.pool.QueryRow(t.Context(), "SELECT encode(secret_hash, 'hex') FROM applications WHERE client_id = $1", a.ClientID).Scan(&c.Secret)
+		if err := e.pool.QueryRow(t.Context(), "SELECT encode(secret_hash, 'hex') FROM applications WHERE client_id = $1", a.ClientID).Scan(&c.Secret); err != nil {
+			t.Fatal(err)
+		}
 		return c.Secret
 	}
 	if err := oidcstore.VerifyClientSecret(t.Context(), secret(), created.Secret); err != nil {
