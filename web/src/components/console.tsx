@@ -8,6 +8,7 @@ import {
 	DialogDescription,
 	DialogTitle,
 } from "#/components/ui/dialog";
+import { cn } from "#/lib/utils";
 
 // ConfirmDialog asks before an action, in place of the native confirm():
 // title is a question naming the object, children spell out the
@@ -130,46 +131,87 @@ export function EmptyState({
 	);
 }
 
-// Section is one form under a section title, no card around it: children
-// are what an editor may change, extra stays usable for readers (copying
-// client_id). Put sections in a space-y-10 parent for the 40px between.
+// SectionHeading is a section's title and the line under it. Content
+// follows mt-4 below it.
+export function SectionHeading({
+	title,
+	intro,
+}: {
+	title: string;
+	intro?: ReactNode;
+}) {
+	return (
+		<>
+			<h2 className="font-semibold text-[15px]">{title}</h2>
+			{intro && (
+				<p className="mt-1 text-[13px] text-muted-foreground">{intro}</p>
+			)}
+		</>
+	);
+}
+
+// Section is a section title and its content, no card around it. With
+// onSubmit the content is a form: children are what an editor may change,
+// extra stays usable for readers (copying client_id). Without it the rows
+// act on their own. Put sections in a space-y-10 parent for the 40px between.
 export function Section({
 	title,
 	intro,
-	editable,
+	editable = true,
 	onSubmit,
 	extra,
 	footer,
 	children,
 }: {
 	title: string;
-	intro?: string;
-	editable: boolean;
-	onSubmit: (f: FormData, form: HTMLFormElement) => void;
+	intro?: ReactNode;
+	editable?: boolean;
+	onSubmit?: (f: FormData, form: HTMLFormElement) => void;
 	extra?: ReactNode;
-	footer: ReactNode;
+	footer?: ReactNode;
 	children: ReactNode;
 }) {
 	return (
 		<section>
-			<h2 className="font-semibold text-[15px]">{title}</h2>
-			{intro && (
-				<p className="mt-1 text-[13px] text-muted-foreground">{intro}</p>
+			<SectionHeading title={title} intro={intro} />
+			{onSubmit ? (
+				<form
+					className="mt-4 space-y-6"
+					onSubmit={(e) => {
+						e.preventDefault();
+						onSubmit(new FormData(e.currentTarget), e.currentTarget);
+					}}
+				>
+					<fieldset disabled={!editable} className="space-y-6">
+						{children}
+					</fieldset>
+					{extra}
+					{footer}
+				</form>
+			) : (
+				<div className="mt-4">{children}</div>
 			)}
-			<form
-				className="mt-4 space-y-6"
-				onSubmit={(e) => {
-					e.preventDefault();
-					onSubmit(new FormData(e.currentTarget), e.currentTarget);
-				}}
-			>
-				<fieldset disabled={!editable} className="space-y-6">
-					{children}
-				</fieldset>
-				{extra}
-				{footer}
-			</form>
 		</section>
+	);
+}
+
+// Panel is the raised card a page's content sits on.
+export function Panel({
+	className,
+	children,
+}: {
+	className?: string;
+	children: ReactNode;
+}) {
+	return (
+		<main
+			className={cn(
+				"rounded-2xl bg-card shadow-xs ring-1 ring-border",
+				className,
+			)}
+		>
+			{children}
+		</main>
 	);
 }
 
@@ -211,7 +253,7 @@ export function Field({
 	children: ReactNode;
 }) {
 	return (
-		<div className="grid gap-1.5">
+		<div className="grid gap-2">
 			<span className="font-medium text-[13px]">
 				{label}
 				{en && (

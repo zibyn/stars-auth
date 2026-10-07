@@ -8,9 +8,9 @@
 /* 「星云」palette, docs/spec/consoles.md「视觉规范」; same values as
    web/src/styles.css. Light only. */
 :root {
-  --primary: #7048e8; --primary-hover: #5f37d6; --primary-soft: #f5f0ff; --primary-ink: #6236d9;
+  --primary: #7048e8; --primary-hover: #5f37d6; --primary-soft: #f5f0ff; --primary-ink: #6236d9; --primary-foreground: #fff;
   --star: #f0609e; --canvas: #f7f4fa; --panel: #fff;
-  --ink: #211b2c; --muted: #6e677d; --faint: #a8a1b6; --line: #efebf4; --danger: #dc2626;
+  --ink: #211b2c; --muted: #6e677d; --faint: #a8a1b6; --line: #efebf4; --danger: #d33;
   font: 14px/1.5 Inter, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
   color: var(--ink); background: var(--panel); -webkit-font-smoothing: antialiased;
 }
@@ -33,7 +33,7 @@ label { display: grid; gap: 4px; font-size: 13px; font-weight: 500; }
 input, button { font: inherit; font-size: 14px; color: inherit; border-radius: 8px; }
 input:not([type=checkbox]) { padding: 9px 12px; border: 1px solid var(--line); outline: none; }
 input:not([type=checkbox]):focus { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
-button { cursor: pointer; padding: 10px 12px; font-weight: 500; border: 0; background: var(--primary); color: #fff; }
+button { cursor: pointer; padding: 10px 12px; font-weight: 500; border: 0; background: var(--primary); color: var(--primary-foreground); }
 button:hover { background: var(--primary-hover); }
 form ~ details button, summary { background: none; color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
 form ~ details button:hover, summary:hover { background: var(--canvas); }

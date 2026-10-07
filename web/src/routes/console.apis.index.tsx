@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { EmptyState } from "#/components/console";
+import { EmptyState, SectionHeading } from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
@@ -116,11 +116,10 @@ function CreateForm() {
 	});
 	return (
 		<section>
-			<h2 className="font-semibold text-[15px]">添加 API 资源</h2>
-			<p className="mt-1 text-[13px] text-muted-foreground">
-				API 资源标识符是你的后端校验令牌时认的名字，即 access token 的
-				aud。登记后不能更改。
-			</p>
+			<SectionHeading
+				title="添加 API 资源"
+				intro="API 资源标识符是你的后端校验令牌时认的名字，即 access token 的 aud。登记后不能更改。"
+			/>
 			<form
 				id="new-api"
 				className="mt-4 space-y-3"

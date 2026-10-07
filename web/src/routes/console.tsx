@@ -1,6 +1,7 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 import { UserRound } from "lucide-react";
+import { Panel } from "#/components/console";
 import { Star } from "#/components/star";
 import { APIError, api, type Me } from "#/lib/console-api";
 import { navGroups } from "#/lib/nav";
@@ -49,7 +50,7 @@ function Console() {
 						<span className="block text-muted-foreground text-xs">Auth</span>
 					</span>
 				</div>
-				<nav className="mt-6 space-y-0.5">
+				<nav className="mt-6 space-y-1">
 					{navGroups(me.data.permissions).map((g) => (
 						<Link
 							key={g.label}
@@ -79,11 +80,11 @@ function Console() {
 					</span>
 				</div>
 			</aside>
-			<main className="min-w-0 flex-1 rounded-2xl bg-card px-14 py-11 shadow-xs ring-1 ring-border">
+			<Panel className="min-w-0 flex-1 px-14 py-11">
 				<div className="max-w-4xl space-y-6">
 					<Outlet />
 				</div>
-			</main>
+			</Panel>
 		</div>
 	);
 }

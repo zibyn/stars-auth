@@ -1,7 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { ConfirmDialog, InlineWarning } from "#/components/console";
+import {
+	ConfirmDialog,
+	InlineWarning,
+	SectionHeading,
+} from "#/components/console";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
@@ -71,10 +75,10 @@ function Channels() {
 	const channels = useQuery(channelsQuery);
 	return (
 		<section>
-			<h2 className="font-semibold text-[15px]">验证码通道</h2>
-			<p className="mt-1 text-[13px] text-muted-foreground">
-				认证服务通过它们把验证码发到手机号或邮箱。短信和邮件各启用一个服务商。
-			</p>
+			<SectionHeading
+				title="验证码通道"
+				intro="认证服务通过它们把验证码发到手机号或邮箱。短信和邮件各启用一个服务商。"
+			/>
 			<div className="mt-4 divide-y divide-border">
 				{channels.error && (
 					<p className="text-destructive text-sm">{channels.error.message}</p>
@@ -88,6 +92,11 @@ function Channels() {
 								p.kinds.includes(k.kind),
 							)}
 							current={channels.data.channels.find((c) => c.kind === k.kind)}
+							// One solid save per screen: SMS once it is set up, email until then.
+							solid={
+								channels.data.channels.some((c) => c.kind === "phone") ===
+								(k.kind === "phone")
+							}
 						/>
 					))}
 			</div>
@@ -102,6 +111,7 @@ function Channel({
 	lose,
 	plugins,
 	current,
+	solid,
 }: {
 	kind: "phone" | "email";
 	label: string;
@@ -109,6 +119,7 @@ function Channel({
 	lose: string;
 	plugins: ChannelPlugin[];
 	current?: ChannelSettings;
+	solid: boolean; // whether this save is the screen's one solid button
 }) {
 	const can = useCan();
 	const editable = can("config:write");
@@ -202,7 +213,7 @@ function Channel({
 					{plugin.fields.map((f) => {
 						const setAt = stored?.secrets[f.key];
 						return (
-							<div key={f.key} className="grid gap-1.5">
+							<div key={f.key} className="grid gap-2">
 								<Label htmlFor={`${kind}-${f.key}`} className="text-[13px]">
 									{f.label}
 									{f.optional && (
@@ -232,10 +243,9 @@ function Channel({
 					)}
 					{editable && (
 						<div className="flex gap-2">
-							{/* one solid button per screen: SMS leads */}
 							<Button
 								type="submit"
-								variant={kind === "phone" ? "default" : "outline"}
+								variant={solid ? "default" : "outline"}
 								disabled={save.isPending}
 							>
 								{current && !stored ? "切换并保存" : "保存"}

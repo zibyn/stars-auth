@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { DangerZone, Panel, Section } from "#/components/console";
 import { Star } from "#/components/star";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
@@ -88,7 +89,7 @@ function Account() {
 
 	return (
 		<div className="min-h-svh bg-canvas p-2 text-sm sm:p-6">
-			<main className="mx-auto max-w-2xl space-y-10 rounded-2xl bg-card px-6 py-8 shadow-xs ring-1 ring-border sm:px-14 sm:py-11">
+			<Panel className="mx-auto max-w-2xl space-y-10 px-6 py-8 sm:px-14 sm:py-11">
 				<div className="flex items-center gap-2 font-semibold">
 					<Star className="size-5 text-star" />
 					Stars
@@ -111,44 +112,34 @@ function Account() {
 				<LoginMethods me={user} guard={guard} />
 				{user.passwordAllowed && <Security me={user} guard={guard} />}
 				<Sessions />
-				<section>
-					<header className="space-y-1">
-						<h2 className="font-semibold text-[15px]">数据与隐私</h2>
-						{exportError && (
-							<p className="text-[13px] text-destructive">{exportError}</p>
-						)}
-					</header>
-					<div className="mt-2">
-						<Row
-							label="导出我的数据"
-							hint="登录方式、设备与会话、同意记录和与你相关的安全事件,JSON 格式"
+				<Section title="数据与隐私">
+					{exportError && (
+						<p className="text-[13px] text-destructive">{exportError}</p>
+					)}
+					<Row
+						label="导出我的数据"
+						hint="登录方式、设备与会话、同意记录和与你相关的安全事件,JSON 格式"
+					>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() =>
+								guard(() =>
+									exportData(user.sub).then(
+										() => setExportError(""),
+										(e) => setExportError(message(e)),
+									),
+								)
+							}
 						>
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={() =>
-									guard(() =>
-										exportData(user.sub).then(
-											() => setExportError(""),
-											(e) => setExportError(message(e)),
-										),
-									)
-								}
-							>
-								导出
-							</Button>
-						</Row>
-					</div>
-				</section>
-				<section className="rounded-xl px-6 py-5 ring-1 ring-destructive/30">
-					<header className="space-y-1">
-						<h2 className="font-semibold text-[15px]">危险操作</h2>
-					</header>
-					<div className="mt-2">
-						<DeleteAccount guard={guard} onDeleted={() => setDeleted(true)} />
-					</div>
-				</section>
-			</main>
+							导出
+						</Button>
+					</Row>
+				</Section>
+				<DangerZone title="危险操作">
+					<DeleteAccount guard={guard} onDeleted={() => setDeleted(true)} />
+				</DangerZone>
+			</Panel>
 			<Reauth
 				me={user}
 				open={pending !== null}
@@ -185,60 +176,53 @@ function LoginMethods({ me, guard }: { me: Me; guard: Guard }) {
 	});
 	const username = me.identifiers.find((i) => i.kind === "username");
 	return (
-		<section>
-			<header className="space-y-1">
-				<h2 className="font-semibold text-[15px]">登录方式</h2>
-				{unbind.error && (
-					<p className="text-[13px] text-destructive">
-						{message(unbind.error)}
-					</p>
-				)}
-			</header>
-			<div className="mt-2">
-				{(["phone", "email"] as const).map((kind) => {
-					const id = me.identifiers.find((i) => i.kind === kind);
-					return (
-						<Row key={kind} label={kindName[kind]} hint={id?.value ?? "未绑定"}>
-							{id ? (
-								<>
-									<Button
-										variant="ghost"
-										size="sm"
-										onClick={() => guard(() => setEditing(kind))}
-									>
-										更换
-									</Button>
-									<Button
-										variant="ghost"
-										size="sm"
-										disabled={unbind.isPending}
-										onClick={() => guard(() => unbind.mutate(kind))}
-									>
-										解绑
-									</Button>
-								</>
-							) : (
+		<Section title="登录方式">
+			{unbind.error && (
+				<p className="text-[13px] text-destructive">{message(unbind.error)}</p>
+			)}
+			{(["phone", "email"] as const).map((kind) => {
+				const id = me.identifiers.find((i) => i.kind === kind);
+				return (
+					<Row key={kind} label={kindName[kind]} hint={id?.value ?? "未绑定"}>
+						{id ? (
+							<>
 								<Button
-									variant="outline"
+									variant="ghost"
 									size="sm"
 									onClick={() => guard(() => setEditing(kind))}
 								>
-									绑定
+									更换
 								</Button>
-							)}
-						</Row>
-					);
-				})}
-				{username && (
-					<Row label="用户名" hint={username.value}>
-						{null}
+								<Button
+									variant="ghost"
+									size="sm"
+									disabled={unbind.isPending}
+									onClick={() => guard(() => unbind.mutate(kind))}
+								>
+									解绑
+								</Button>
+							</>
+						) : (
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() => guard(() => setEditing(kind))}
+							>
+								绑定
+							</Button>
+						)}
 					</Row>
-				)}
-			</div>
+				);
+			})}
+			{username && (
+				<Row label="用户名" hint={username.value}>
+					{null}
+				</Row>
+			)}
 			{editing && (
 				<BindIdentifier kind={editing} onClose={() => setEditing(null)} />
 			)}
-		</section>
+		</Section>
 	);
 }
 
@@ -334,45 +318,38 @@ function Security({ me, guard }: { me: Me; guard: Guard }) {
 		onSuccess: () => queryClient.invalidateQueries(meQuery),
 	});
 	return (
-		<section>
-			<header className="space-y-1">
-				<h2 className="font-semibold text-[15px]">安全</h2>
-				{remove.error && (
-					<p className="text-[13px] text-destructive">
-						{message(remove.error)}
-					</p>
-				)}
-			</header>
-			<div className="mt-2">
-				<Row
-					label="密码"
-					hint={
-						me.hasPassword
-							? "已设置,可配合手机号、邮箱或用户名登录"
-							: "未设置;忘记密码时用验证码登录后在这里修改"
-					}
-				>
-					{me.hasPassword && (
-						<Button
-							variant="ghost"
-							size="sm"
-							disabled={remove.isPending}
-							onClick={() => guard(() => remove.mutate())}
-						>
-							删除
-						</Button>
-					)}
+		<Section title="安全">
+			{remove.error && (
+				<p className="text-[13px] text-destructive">{message(remove.error)}</p>
+			)}
+			<Row
+				label="密码"
+				hint={
+					me.hasPassword
+						? "已设置,可配合手机号、邮箱或用户名登录"
+						: "未设置;忘记密码时用验证码登录后在这里修改"
+				}
+			>
+				{me.hasPassword && (
 					<Button
-						variant="outline"
+						variant="ghost"
 						size="sm"
-						onClick={() => guard(() => setEditing(true))}
+						disabled={remove.isPending}
+						onClick={() => guard(() => remove.mutate())}
 					>
-						{me.hasPassword ? "修改" : "设置"}
+						删除
 					</Button>
-				</Row>
-			</div>
+				)}
+				<Button
+					variant="outline"
+					size="sm"
+					onClick={() => guard(() => setEditing(true))}
+				>
+					{me.hasPassword ? "修改" : "设置"}
+				</Button>
+			</Row>
 			{editing && <SetPassword onClose={() => setEditing(false)} />}
-		</section>
+		</Section>
 	);
 }
 
@@ -428,40 +405,35 @@ function Sessions() {
 		onSuccess: () => queryClient.invalidateQueries(sessionsQuery),
 	});
 	return (
-		<section>
-			<header className="space-y-1">
-				<h2 className="font-semibold text-[15px]">设备与会话</h2>
-				<p className="text-[13px] text-muted-foreground">
-					不限设备数,可逐个下线;已结束的保留 30 天
-				</p>
-			</header>
-			<div className="mt-2">
-				{sessions.data?.sessions.map((s) => (
-					<Row
-						key={s.id}
-						label={
-							<span className="flex items-center gap-2">
-								{s.kind === "app" ? "App" : "浏览器"} · {s.application}
-								{s.current && <Badge>本设备</Badge>}
-								{!s.active && <Badge variant="secondary">已结束</Badge>}
-							</span>
-						}
-						hint={`登录于 ${date(s.authTime)} · 最近活动 ${date(s.lastSeenAt)}`}
-					>
-						{s.active && !s.current && (
-							<Button
-								variant="ghost"
-								size="sm"
-								disabled={end.isPending}
-								onClick={() => end.mutate(s.id)}
-							>
-								下线
-							</Button>
-						)}
-					</Row>
-				))}
-			</div>
-		</section>
+		<Section
+			title="设备与会话"
+			intro="不限设备数,可逐个下线;已结束的保留 30 天"
+		>
+			{sessions.data?.sessions.map((s) => (
+				<Row
+					key={s.id}
+					label={
+						<span className="flex items-center gap-2">
+							{s.kind === "app" ? "App" : "浏览器"} · {s.application}
+							{s.current && <Badge>本设备</Badge>}
+							{!s.active && <Badge variant="secondary">已结束</Badge>}
+						</span>
+					}
+					hint={`登录于 ${date(s.authTime)} · 最近活动 ${date(s.lastSeenAt)}`}
+				>
+					{s.active && !s.current && (
+						<Button
+							variant="ghost"
+							size="sm"
+							disabled={end.isPending}
+							onClick={() => end.mutate(s.id)}
+						>
+							下线
+						</Button>
+					)}
+				</Row>
+			))}
+		</Section>
 	);
 }
 

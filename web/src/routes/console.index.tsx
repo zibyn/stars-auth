@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { EmptyState } from "#/components/console";
+import { EmptyState, SectionHeading } from "#/components/console";
 import { Button, buttonVariants } from "#/components/ui/button";
 import { ownCount } from "#/lib/apps";
 import { type AuditEvent, api, type Overview } from "#/lib/console-api";
@@ -156,10 +156,7 @@ function Checklist() {
 				</span>
 			</div>
 			<div className="flex-1">
-				<h2 className="font-semibold text-[15px]">{summary.title}</h2>
-				<p className="mt-1 text-[13px] text-muted-foreground">
-					{summary.next.hint}
-				</p>
+				<SectionHeading title={summary.title} intro={summary.next.hint} />
 			</div>
 			<Link to={summary.next.to} className={buttonVariants({ size: "lg" })}>
 				{summary.next.label}

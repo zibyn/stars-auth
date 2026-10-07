@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { ConfirmDialog } from "#/components/console";
+import { ConfirmDialog, SectionHeading } from "#/components/console";
 import { Button } from "#/components/ui/button";
 import { api, type SigningKey } from "#/lib/console-api";
 import {
@@ -59,10 +59,10 @@ function SigningKeys() {
 	const recent = !!rotated && rotatedRecently(rotated);
 	return (
 		<section>
-			<h2 className="font-semibold text-[15px]">令牌签名密钥</h2>
-			<p className="mt-1 text-[13px] text-muted-foreground">
-				认证服务用当前密钥给令牌签名。轮换后，上一把密钥只用来验证它签过的令牌。
-			</p>
+			<SectionHeading
+				title="令牌签名密钥"
+				intro="认证服务用当前密钥给令牌签名。轮换后，上一把密钥只用来验证它签过的令牌。"
+			/>
 			<div className="mt-4 space-y-4">
 				{keys.error && (
 					<p className="text-destructive text-sm">{keys.error.message}</p>

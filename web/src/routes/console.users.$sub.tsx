@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { ConfirmDialog, EmptyState } from "#/components/console";
+import { ConfirmDialog, EmptyState, Section } from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import {
@@ -403,23 +403,6 @@ function APIRoles({
 				</Button>
 			)}
 		</form>
-	);
-}
-
-// Section looks like the console Section but holds no form: its rows act
-// on their own (更换, 下线) and each API resource's Roles are a form.
-function Section({
-	title,
-	children,
-}: {
-	title: string;
-	children: React.ReactNode;
-}) {
-	return (
-		<section>
-			<h2 className="font-semibold text-[15px]">{title}</h2>
-			<div className="mt-2">{children}</div>
-		</section>
 	);
 }
 

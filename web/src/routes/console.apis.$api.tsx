@@ -470,7 +470,14 @@ function RoleForm({
 				<p className="text-destructive text-sm">{put.error.message}</p>
 			)}
 			<div className="flex gap-2">
-				<Button type="submit" size="sm" disabled={put.isPending}>
+				{/* one solid button per screen: several rows can be in edit at
+				    once, so only the new-Role form's save is solid */}
+				<Button
+					type="submit"
+					size="sm"
+					variant={role ? "outline" : "default"}
+					disabled={put.isPending}
+				>
 					保存
 				</Button>
 				<Button type="button" size="sm" variant="ghost" onClick={onDone}>
