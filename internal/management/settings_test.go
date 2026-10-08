@@ -2,18 +2,11 @@ package management_test
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha1"
-	"encoding/base32"
-	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/zibyn/stars-auth/internal/management"
-	"github.com/zibyn/stars-auth/internal/twofactor"
 )
 
 type settings struct {
@@ -25,25 +18,6 @@ type settings struct {
 	TermsVersion        string `json:"termsVersion"`
 	AuditRetentionDays  int    `json:"auditRetentionDays"`
 	AdminsNeedTwoFactor bool   `json:"adminsNeedTwoFactor"`
-}
-
-// twoFactorOn turns 两步验证 on for sub, as the account center does.
-func (e *env) twoFactorOn(sub string) {
-	e.t.Helper()
-	ctx := context.Background()
-	s := twofactor.New(e.pool, e.keyring)
-	secret, err := s.Begin(ctx, sub)
-	if err != nil {
-		e.t.Fatal(err)
-	}
-	key, _ := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
-	mac := hmac.New(sha1.New, key)
-	_ = binary.Write(mac, binary.BigEndian, time.Now().Unix()/30)
-	sum := mac.Sum(nil)
-	code := fmt.Sprintf("%06d", (binary.BigEndian.Uint32(sum[sum[19]&0xf:])&0x7fffffff)%1_000_000)
-	if _, err := s.Confirm(ctx, sub, code); err != nil {
-		e.t.Fatal(err)
-	}
 }
 
 // problem calls GET path and returns the status and the error's code.
