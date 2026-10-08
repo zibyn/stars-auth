@@ -1,58 +1,9 @@
-import {
-	queryOptions,
-	useMutation,
-	useQuery,
-	useQueryClient,
-} from "@tanstack/react-query";
-import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { ConfirmDialog, Field, SaveBar, Section } from "#/components/console";
 import { Input } from "#/components/ui/input";
-import {
-	api,
-	type ChannelPlugin,
-	type ChannelSettings,
-	type Policy,
-} from "#/lib/console-api";
-import { useCan } from "./console";
-
-export const Route = createFileRoute("/console/login")({ component: Login });
-
-const tabs = [
-	{ label: "登录方式", to: "/console/login" },
-	{ label: "通道", to: "/console/login/channels" },
-] as const;
-
-function Login() {
-	return (
-		<>
-			<h1 className="font-semibold text-2xl tracking-tight">登录</h1>
-			<nav className="flex gap-1 border-b">
-				{tabs.map((t) => (
-					<Link
-						key={t.to}
-						to={t.to}
-						activeOptions={{ exact: true }}
-						className="-mb-px border-transparent border-b-2 px-3 py-2 text-sm"
-						inactiveProps={{
-							className: "text-muted-foreground hover:text-foreground",
-						}}
-						activeProps={{ className: "border-primary font-medium" }}
-					>
-						{t.label}
-					</Link>
-				))}
-			</nav>
-			<Outlet />
-		</>
-	);
-}
-
-export const channelsQuery = queryOptions({
-	queryKey: ["channels"],
-	queryFn: () =>
-		api<{ plugins: ChannelPlugin[]; channels: ChannelSettings[] }>("/channels"),
-});
+import { api, type Policy } from "#/lib/console-api";
+import { useCan } from "../console";
 
 const settingsKey = ["settings"];
 
@@ -184,9 +135,3 @@ function NumberForm({
 		</Section>
 	);
 }
-
-// toChannels links to the 通道 page from a hint that needs a channel.
-export const toChannels = {
-	label: "去设置通道",
-	to: "/console/login/channels",
-} as const;

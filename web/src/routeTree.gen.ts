@@ -15,7 +15,6 @@ import { Route as ConsoleRouteImport } from './routes/console'
 import { Route as AccountCallbackRouteImport } from './routes/account_.callback'
 import { Route as ConsoleIndexRouteImport } from './routes/console.index'
 import { Route as ConsoleAuditRouteImport } from './routes/console.audit'
-import { Route as ConsoleLoginRouteImport } from './routes/console.login'
 import { Route as ConsoleSettingsRouteImport } from './routes/console.settings'
 import { Route as ConsoleCallbackRouteImport } from './routes/console_.callback'
 import { Route as ConsoleApisIndexRouteImport } from './routes/console.apis.index'
@@ -23,8 +22,6 @@ import { Route as ConsoleApisApiRouteImport } from './routes/console.apis.$api'
 import { Route as ConsoleAppsIndexRouteImport } from './routes/console.apps.index'
 import { Route as ConsoleAppsClientIdRouteImport } from './routes/console.apps.$clientId'
 import { Route as ConsoleAppsNewRouteImport } from './routes/console.apps.new'
-import { Route as ConsoleLoginIndexRouteImport } from './routes/console.login.index'
-import { Route as ConsoleLoginChannelsRouteImport } from './routes/console.login.channels'
 import { Route as ConsoleUsersIndexRouteImport } from './routes/console.users.index'
 import { Route as ConsoleUsersSubRouteImport } from './routes/console.users.$sub'
 
@@ -56,11 +53,6 @@ const ConsoleIndexRoute = ConsoleIndexRouteImport.update({
 const ConsoleAuditRoute = ConsoleAuditRouteImport.update({
   id: '/audit',
   path: '/audit',
-  getParentRoute: () => ConsoleRoute,
-} as any)
-const ConsoleLoginRoute = ConsoleLoginRouteImport.update({
-  id: '/login',
-  path: '/login',
   getParentRoute: () => ConsoleRoute,
 } as any)
 const ConsoleSettingsRoute = ConsoleSettingsRouteImport.update({
@@ -98,16 +90,6 @@ const ConsoleAppsNewRoute = ConsoleAppsNewRouteImport.update({
   path: '/apps/new',
   getParentRoute: () => ConsoleRoute,
 } as any)
-const ConsoleLoginIndexRoute = ConsoleLoginIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => ConsoleLoginRoute,
-} as any)
-const ConsoleLoginChannelsRoute = ConsoleLoginChannelsRouteImport.update({
-  id: '/channels',
-  path: '/channels',
-  getParentRoute: () => ConsoleLoginRoute,
-} as any)
 const ConsoleUsersIndexRoute = ConsoleUsersIndexRouteImport.update({
   id: '/users/',
   path: '/users/',
@@ -125,18 +107,15 @@ export interface FileRoutesByFullPath {
   '/console': typeof ConsoleRouteWithChildren
   '/account/callback': typeof AccountCallbackRoute
   '/console/audit': typeof ConsoleAuditRoute
-  '/console/login': typeof ConsoleLoginRouteWithChildren
   '/console/settings': typeof ConsoleSettingsRoute
   '/console/callback': typeof ConsoleCallbackRoute
   '/console/': typeof ConsoleIndexRoute
   '/console/apis/$api': typeof ConsoleApisApiRoute
   '/console/apps/$clientId': typeof ConsoleAppsClientIdRoute
   '/console/apps/new': typeof ConsoleAppsNewRoute
-  '/console/login/channels': typeof ConsoleLoginChannelsRoute
   '/console/users/$sub': typeof ConsoleUsersSubRoute
   '/console/apis/': typeof ConsoleApisIndexRoute
   '/console/apps/': typeof ConsoleAppsIndexRoute
-  '/console/login/': typeof ConsoleLoginIndexRoute
   '/console/users/': typeof ConsoleUsersIndexRoute
 }
 export interface FileRoutesByTo {
@@ -150,11 +129,9 @@ export interface FileRoutesByTo {
   '/console/apis/$api': typeof ConsoleApisApiRoute
   '/console/apps/$clientId': typeof ConsoleAppsClientIdRoute
   '/console/apps/new': typeof ConsoleAppsNewRoute
-  '/console/login/channels': typeof ConsoleLoginChannelsRoute
   '/console/users/$sub': typeof ConsoleUsersSubRoute
   '/console/apis': typeof ConsoleApisIndexRoute
   '/console/apps': typeof ConsoleAppsIndexRoute
-  '/console/login': typeof ConsoleLoginIndexRoute
   '/console/users': typeof ConsoleUsersIndexRoute
 }
 export interface FileRoutesById {
@@ -164,18 +141,15 @@ export interface FileRoutesById {
   '/console': typeof ConsoleRouteWithChildren
   '/account_/callback': typeof AccountCallbackRoute
   '/console/audit': typeof ConsoleAuditRoute
-  '/console/login': typeof ConsoleLoginRouteWithChildren
   '/console/settings': typeof ConsoleSettingsRoute
   '/console_/callback': typeof ConsoleCallbackRoute
   '/console/': typeof ConsoleIndexRoute
   '/console/apis/$api': typeof ConsoleApisApiRoute
   '/console/apps/$clientId': typeof ConsoleAppsClientIdRoute
   '/console/apps/new': typeof ConsoleAppsNewRoute
-  '/console/login/channels': typeof ConsoleLoginChannelsRoute
   '/console/users/$sub': typeof ConsoleUsersSubRoute
   '/console/apis/': typeof ConsoleApisIndexRoute
   '/console/apps/': typeof ConsoleAppsIndexRoute
-  '/console/login/': typeof ConsoleLoginIndexRoute
   '/console/users/': typeof ConsoleUsersIndexRoute
 }
 export interface FileRouteTypes {
@@ -186,18 +160,15 @@ export interface FileRouteTypes {
     | '/console'
     | '/account/callback'
     | '/console/audit'
-    | '/console/login'
     | '/console/settings'
     | '/console/callback'
     | '/console/'
     | '/console/apis/$api'
     | '/console/apps/$clientId'
     | '/console/apps/new'
-    | '/console/login/channels'
     | '/console/users/$sub'
     | '/console/apis/'
     | '/console/apps/'
-    | '/console/login/'
     | '/console/users/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -211,11 +182,9 @@ export interface FileRouteTypes {
     | '/console/apis/$api'
     | '/console/apps/$clientId'
     | '/console/apps/new'
-    | '/console/login/channels'
     | '/console/users/$sub'
     | '/console/apis'
     | '/console/apps'
-    | '/console/login'
     | '/console/users'
   id:
     | '__root__'
@@ -224,18 +193,15 @@ export interface FileRouteTypes {
     | '/console'
     | '/account_/callback'
     | '/console/audit'
-    | '/console/login'
     | '/console/settings'
     | '/console_/callback'
     | '/console/'
     | '/console/apis/$api'
     | '/console/apps/$clientId'
     | '/console/apps/new'
-    | '/console/login/channels'
     | '/console/users/$sub'
     | '/console/apis/'
     | '/console/apps/'
-    | '/console/login/'
     | '/console/users/'
   fileRoutesById: FileRoutesById
 }
@@ -291,13 +257,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ConsoleAuditRouteImport
       parentRoute: typeof ConsoleRoute
     }
-    '/console/login': {
-      id: '/console/login'
-      path: '/login'
-      fullPath: '/console/login'
-      preLoaderRoute: typeof ConsoleLoginRouteImport
-      parentRoute: typeof ConsoleRoute
-    }
     '/console/settings': {
       id: '/console/settings'
       path: '/settings'
@@ -347,20 +306,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ConsoleAppsNewRouteImport
       parentRoute: typeof ConsoleRoute
     }
-    '/console/login/': {
-      id: '/console/login/'
-      path: '/'
-      fullPath: '/console/login/'
-      preLoaderRoute: typeof ConsoleLoginIndexRouteImport
-      parentRoute: typeof ConsoleLoginRoute
-    }
-    '/console/login/channels': {
-      id: '/console/login/channels'
-      path: '/channels'
-      fullPath: '/console/login/channels'
-      preLoaderRoute: typeof ConsoleLoginChannelsRouteImport
-      parentRoute: typeof ConsoleLoginRoute
-    }
     '/console/users/': {
       id: '/console/users/'
       path: '/users'
@@ -378,23 +323,8 @@ declare module '@tanstack/react-router' {
   }
 }
 
-interface ConsoleLoginRouteChildren {
-  ConsoleLoginChannelsRoute: typeof ConsoleLoginChannelsRoute
-  ConsoleLoginIndexRoute: typeof ConsoleLoginIndexRoute
-}
-
-const ConsoleLoginRouteChildren: ConsoleLoginRouteChildren = {
-  ConsoleLoginChannelsRoute: ConsoleLoginChannelsRoute,
-  ConsoleLoginIndexRoute: ConsoleLoginIndexRoute,
-}
-
-const ConsoleLoginRouteWithChildren = ConsoleLoginRoute._addFileChildren(
-  ConsoleLoginRouteChildren,
-)
-
 interface ConsoleRouteChildren {
   ConsoleAuditRoute: typeof ConsoleAuditRoute
-  ConsoleLoginRoute: typeof ConsoleLoginRouteWithChildren
   ConsoleSettingsRoute: typeof ConsoleSettingsRoute
   ConsoleIndexRoute: typeof ConsoleIndexRoute
   ConsoleApisApiRoute: typeof ConsoleApisApiRoute
@@ -408,7 +338,6 @@ interface ConsoleRouteChildren {
 
 const ConsoleRouteChildren: ConsoleRouteChildren = {
   ConsoleAuditRoute: ConsoleAuditRoute,
-  ConsoleLoginRoute: ConsoleLoginRouteWithChildren,
   ConsoleSettingsRoute: ConsoleSettingsRoute,
   ConsoleIndexRoute: ConsoleIndexRoute,
   ConsoleApisApiRoute: ConsoleApisApiRoute,
@@ -433,12 +362,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

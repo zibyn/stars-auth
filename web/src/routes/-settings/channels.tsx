@@ -1,5 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import {
+	queryOptions,
+	useMutation,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import {
 	ConfirmDialog,
@@ -22,12 +27,21 @@ import {
 	type ChannelSettings,
 } from "#/lib/console-api";
 import { sendsNothing, smsLocked } from "#/lib/login";
-import { useCan } from "./console";
-import { channelsQuery, PolicyNumber, usePolicy } from "./console.login";
+import { useCan } from "../console";
+import { PolicyNumber, usePolicy } from "./policy";
 
-export const Route = createFileRoute("/console/login/channels")({
-	component: ChannelsPage,
+export const channelsQuery = queryOptions({
+	queryKey: ["channels"],
+	queryFn: () =>
+		api<{ plugins: ChannelPlugin[]; channels: ChannelSettings[] }>("/channels"),
 });
+
+// toChannels links to the 通道 page from a hint that needs a channel.
+export const toChannels = {
+	label: "去设置通道",
+	to: "/console/settings",
+	search: { tab: "channels" },
+} as const;
 
 // lose is what users can't do while the kind has no channel.
 const kinds = [
@@ -47,7 +61,7 @@ const kinds = [
 
 const date = (s: string) => new Date(s).toLocaleString("zh-CN");
 
-function ChannelsPage() {
+export function ChannelsTab() {
 	return (
 		<div className="space-y-10">
 			<Channels />
@@ -257,7 +271,7 @@ function Channel({
 										title={`停用${label}通道？`}
 									>
 										先在登录方式里关闭必须绑定手机号。开着它时停用短信，没有手机号的用户收不到绑定验证码，就登录不进来。{" "}
-										<Link to="/console/login" className="underline">
+										<Link to="/console/settings" className="underline">
 											去登录方式
 										</Link>
 									</ConfirmDialog>

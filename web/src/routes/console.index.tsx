@@ -7,11 +7,11 @@ import { Button, buttonVariants } from "#/components/ui/button";
 import { ownCount } from "#/lib/apps";
 import { type AuditEvent, api, type Overview } from "#/lib/console-api";
 import { checklist, checklistDone, checklistSummary } from "#/lib/overview";
+import { channelsQuery } from "./-settings/channels";
 import { meQuery, useCan } from "./console";
 import { apisQuery } from "./console.apis.index";
 import { applicationsQuery } from "./console.apps.index";
 import { EventList } from "./console.audit";
-import { channelsQuery } from "./console.login";
 
 export const Route = createFileRoute("/console/")({ component: Home });
 
@@ -158,7 +158,11 @@ function Checklist() {
 			<div className="flex-1">
 				<SectionHeading title={summary.title} intro={summary.next.hint} />
 			</div>
-			<Link to={summary.next.to} className={buttonVariants({ size: "lg" })}>
+			<Link
+				to={summary.next.to}
+				search={"search" in summary.next ? summary.next.search : undefined}
+				className={buttonVariants({ size: "lg" })}
+			>
 				{summary.next.label}
 			</Link>
 			<Button

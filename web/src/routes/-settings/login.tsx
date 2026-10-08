@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import {
 	ConfirmDialog,
@@ -25,16 +24,8 @@ import {
 	passwordLocksOut,
 	termsError,
 } from "#/lib/login";
-import {
-	channelsQuery,
-	toChannels,
-	usePolicy,
-	useSavePolicy,
-} from "./console.login";
-
-export const Route = createFileRoute("/console/login/")({
-	component: LoginMethods,
-});
+import { channelsQuery, toChannels } from "./channels";
+import { usePolicy, useSavePolicy } from "./policy";
 
 const passwordModes = { off: "关闭", admins: "仅管理员", all: "所有用户" };
 
@@ -43,7 +34,7 @@ const codeKinds = [
 	{ kind: "email", label: "邮箱", channel: "邮件" },
 ] as const;
 
-function LoginMethods() {
+export function LoginTab() {
 	const { policy, editable } = usePolicy();
 	const channels = useQuery(channelsQuery);
 	const error = policy.error ?? channels.error;

@@ -652,7 +652,7 @@ function Onboarding({
 			<div className="mt-4 space-y-1 text-muted-foreground text-sm">
 				<p>
 					用户能用哪些方式登录，去
-					<Link to="/console/login" className="underline">
+					<Link to="/console/settings" className="underline">
 						「登录方式」
 					</Link>
 					检查。
