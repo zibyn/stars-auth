@@ -1,3 +1,4 @@
+import { revalidateLogic, useForm, useStore } from "@tanstack/react-form";
 import {
 	queryOptions,
 	useMutation,
@@ -6,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { FormError, FormField, failed, saved } from "#/components/form";
 import { ItemList } from "#/components/item-list";
 import { Star } from "#/components/star";
 import { Badge } from "#/components/ui/badge";
@@ -16,6 +18,7 @@ import {
 	DialogDescription,
 	DialogTitle,
 } from "#/components/ui/dialog";
+import { FieldGroup } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import {
 	Item,
@@ -25,6 +28,12 @@ import {
 	ItemTitle,
 } from "#/components/ui/item";
 import { UserAvatar } from "#/components/user-avatar";
+import {
+	bindSchema,
+	deleteSchema,
+	passwordSchema,
+	reauthSchema,
+} from "#/lib/account";
 import {
 	APIError,
 	api,
@@ -50,9 +59,6 @@ const sessionsQuery = queryOptions({
 
 const date = (s: string) => new Date(s).toLocaleString("zh-CN");
 
-const message = (e: unknown) =>
-	e instanceof Error ? e.message : "出错了,请重试";
-
 // Sensitive actions run once the User has authenticated in the last 10
 // minutes; otherwise the reauthentication dialog comes first.
 type Guard = (action: () => void) => void;
@@ -63,7 +69,6 @@ function Account() {
 	const queryClient = useQueryClient();
 	const [pending, setPending] = useState<(() => void) | null>(null);
 	const [deleted, setDeleted] = useState(false);
-	const [exportError, setExportError] = useState("");
 
 	if (deleted) {
 		return (
@@ -109,9 +114,6 @@ function Account() {
 				{user.passwordAllowed && <Security me={user} guard={guard} />}
 				<Sessions />
 				<Section title="数据与隐私">
-					{exportError && (
-						<p className="text-[13px] text-destructive">{exportError}</p>
-					)}
 					<ItemList>
 						<Row
 							label="导出我的数据"
@@ -121,12 +123,7 @@ function Account() {
 								variant="outline"
 								size="sm"
 								onClick={() =>
-									guard(() =>
-										exportData(user.sub).then(
-											() => setExportError(""),
-											(e) => setExportError(message(e)),
-										),
-									)
+									guard(() => exportData(user.sub).catch(failed("导出失败")))
 								}
 							>
 								导出
@@ -171,13 +168,11 @@ function LoginMethods({ me, guard }: { me: Me; guard: Guard }) {
 		mutationFn: (kind: string) =>
 			api(`/identifiers/${kind}`, { method: "DELETE" }),
 		onSuccess: () => queryClient.invalidateQueries(meQuery),
+		onError: failed("解绑失败"),
 	});
 	const username = me.identifiers.find((i) => i.kind === "username");
 	return (
 		<Section title="登录方式">
-			{unbind.error && (
-				<p className="text-[13px] text-destructive">{message(unbind.error)}</p>
-			)}
 			<ItemList>
 				{(["phone", "email"] as const).map((kind) => {
 					const id = me.identifiers.find((i) => i.kind === kind);
@@ -236,23 +231,28 @@ function BindIdentifier({
 	onClose: () => void;
 }) {
 	const queryClient = useQueryClient();
-	const [value, setValue] = useState("");
-	const [code, setCode] = useState("");
 	const [sent, setSent] = useState(false);
 	const send = useMutation({
-		mutationFn: () =>
+		mutationFn: (value: string) =>
 			api(`/identifiers/${kind}/code`, { method: "POST", body: { value } }),
 		onSuccess: () => setSent(true),
 	});
 	const bind = useMutation({
-		mutationFn: () =>
-			api(`/identifiers/${kind}`, { method: "PUT", body: { value, code } }),
+		mutationFn: (v: { value: string; code: string }) =>
+			api(`/identifiers/${kind}`, { method: "PUT", body: v }),
 		onSuccess: async () => {
 			await queryClient.invalidateQueries(meQuery);
+			saved();
 			onClose();
 		},
 	});
-	const error = send.error ?? bind.error;
+	const form = useForm({
+		defaultValues: { value: "", code: "" },
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: bindSchema(kind, sent) },
+		onSubmit: ({ value }) =>
+			sent ? bind.mutate(value) : send.mutate(value.value),
+	});
 	return (
 		<Dialog open onOpenChange={(open) => !open && onClose()}>
 			<DialogContent>
@@ -261,41 +261,56 @@ function BindIdentifier({
 					验证码会发到新{kindName[kind]},无需验证原来的。
 				</DialogDescription>
 				<form
+					noValidate
 					className="space-y-3"
 					onSubmit={(e) => {
 						e.preventDefault();
-						sent ? bind.mutate() : send.mutate();
+						form.handleSubmit();
 					}}
 				>
-					<Input
-						type={kind === "phone" ? "tel" : "email"}
-						autoComplete={kind === "phone" ? "tel" : "email"}
-						placeholder={kind === "phone" ? "+86 手机号" : "邮箱"}
-						value={value}
-						onChange={(e) => {
-							setValue(e.target.value);
-							setSent(false);
-						}}
-						required
-					/>
-					{sent && (
-						<Input
-							inputMode="numeric"
-							autoComplete="one-time-code"
-							placeholder="6 位验证码"
-							value={code}
-							onChange={(e) => setCode(e.target.value)}
-							required
-						/>
-					)}
-					{error && <p className="text-destructive">{message(error)}</p>}
+					<FieldGroup className="gap-3">
+						<form.Field
+							name="value"
+							listeners={{ onChange: () => setSent(false) }}
+						>
+							{(field) => (
+								<FormField field={field} label={`新${kindName[kind]}`}>
+									{(control) => (
+										<Input
+											{...control}
+											type={kind === "phone" ? "tel" : "email"}
+											autoComplete={kind === "phone" ? "tel" : "email"}
+											placeholder={kind === "phone" ? "+86 手机号" : "邮箱"}
+										/>
+									)}
+								</FormField>
+							)}
+						</form.Field>
+						{sent && (
+							<form.Field name="code">
+								{(field) => (
+									<FormField field={field} label="验证码">
+										{(control) => (
+											<Input
+												{...control}
+												inputMode="numeric"
+												autoComplete="one-time-code"
+												placeholder="6 位验证码"
+											/>
+										)}
+									</FormField>
+								)}
+							</form.Field>
+						)}
+					</FieldGroup>
+					<FormError error={send.error ?? bind.error} />
 					<div className="flex justify-end gap-2">
 						{sent && (
 							<Button
 								type="button"
 								variant="ghost"
 								disabled={send.isPending}
-								onClick={() => send.mutate()}
+								onClick={() => send.mutate(form.state.values.value)}
 							>
 								重新发送
 							</Button>
@@ -316,12 +331,10 @@ function Security({ me, guard }: { me: Me; guard: Guard }) {
 	const remove = useMutation({
 		mutationFn: () => api("/password", { method: "DELETE" }),
 		onSuccess: () => queryClient.invalidateQueries(meQuery),
+		onError: failed("删除密码失败"),
 	});
 	return (
 		<Section title="安全">
-			{remove.error && (
-				<p className="text-[13px] text-destructive">{message(remove.error)}</p>
-			)}
 			<ItemList>
 				<Row
 					label="密码"
@@ -357,37 +370,48 @@ function Security({ me, guard }: { me: Me; guard: Guard }) {
 
 function SetPassword({ onClose }: { onClose: () => void }) {
 	const queryClient = useQueryClient();
-	const [password, setPassword] = useState("");
 	const save = useMutation({
-		mutationFn: () => api("/password", { method: "PUT", body: { password } }),
+		mutationFn: (password: string) =>
+			api("/password", { method: "PUT", body: { password } }),
 		onSuccess: async () => {
 			await queryClient.invalidateQueries(meQuery);
+			saved();
 			onClose();
 		},
+	});
+	const form = useForm({
+		defaultValues: { password: "" },
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: passwordSchema },
+		onSubmit: ({ value }) => save.mutate(value.password),
 	});
 	return (
 		<Dialog open onOpenChange={(open) => !open && onClose()}>
 			<DialogContent>
 				<DialogTitle>设置密码</DialogTitle>
 				<form
+					noValidate
 					className="space-y-3"
 					onSubmit={(e) => {
 						e.preventDefault();
-						save.mutate();
+						form.handleSubmit();
 					}}
 				>
-					<Input
-						type="password"
-						autoComplete="new-password"
-						placeholder="至少 8 位"
-						minLength={8}
-						value={password}
-						onChange={(e) => setPassword(e.target.value)}
-						required
-					/>
-					{save.error && (
-						<p className="text-destructive">{message(save.error)}</p>
-					)}
+					<form.Field name="password">
+						{(field) => (
+							<FormField field={field} label="新密码">
+								{(control) => (
+									<Input
+										{...control}
+										type="password"
+										autoComplete="new-password"
+										placeholder="至少 8 位"
+									/>
+								)}
+							</FormField>
+						)}
+					</form.Field>
+					<FormError error={save.error} />
 					<div className="flex justify-end">
 						<Button type="submit" disabled={save.isPending}>
 							保存
@@ -405,6 +429,7 @@ function Sessions() {
 	const end = useMutation({
 		mutationFn: (id: string) => api(`/sessions/${id}`, { method: "DELETE" }),
 		onSuccess: () => queryClient.invalidateQueries(sessionsQuery),
+		onError: failed("下线失败"),
 	});
 	return (
 		<Section
@@ -449,7 +474,6 @@ function DeleteAccount({
 	onDeleted: () => void;
 }) {
 	const [open, setOpen] = useState(false);
-	const [confirm, setConfirm] = useState("");
 	const remove = useMutation({
 		mutationFn: () => api("/me", { method: "DELETE" }),
 		onSuccess: () => {
@@ -457,6 +481,16 @@ function DeleteAccount({
 			onDeleted();
 		},
 	});
+	const form = useForm({
+		defaultValues: { confirm: "" },
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: deleteSchema },
+		onSubmit: () => remove.mutate(),
+	});
+	const confirmed = useStore(
+		form.store,
+		(s) => s.values.confirm.trim() === "注销",
+	);
 	return (
 		<>
 			<Row label="注销账号" hint="立即生效,不可恢复">
@@ -475,20 +509,21 @@ function DeleteAccount({
 						立即生效,没有冷静期:所有登录方式、设备和数据都会被删除,各应用会收到通知。此操作不可恢复。
 					</DialogDescription>
 					<form
+						noValidate
 						className="space-y-3"
 						onSubmit={(e) => {
 							e.preventDefault();
-							remove.mutate();
+							form.handleSubmit();
 						}}
 					>
-						<Input
-							placeholder="输入「注销」确认"
-							value={confirm}
-							onChange={(e) => setConfirm(e.target.value)}
-						/>
-						{remove.error && (
-							<p className="text-destructive">{message(remove.error)}</p>
-						)}
+						<form.Field name="confirm">
+							{(field) => (
+								<FormField field={field} label="输入「注销」确认">
+									{(control) => <Input {...control} placeholder="注销" />}
+								</FormField>
+							)}
+						</form.Field>
+						<FormError error={remove.error} />
 						<div className="flex justify-end gap-2">
 							<Button
 								type="button"
@@ -500,7 +535,7 @@ function DeleteAccount({
 							<Button
 								type="submit"
 								variant="destructive"
-								disabled={confirm !== "注销" || remove.isPending}
+								disabled={!confirmed || remove.isPending}
 							>
 								永久注销
 							</Button>
@@ -535,14 +570,13 @@ function Reauth({
 	const [method, setMethod] = useState<(typeof methods)[number] | undefined>();
 	const current = method ?? methods[0];
 	const [sent, setSent] = useState(false);
-	const [secret, setSecret] = useState("");
 	const send = useMutation({
 		mutationFn: () =>
 			api("/reauth/code", { method: "POST", body: { kind: current } }),
 		onSuccess: () => setSent(true),
 	});
 	const verify = useMutation({
-		mutationFn: () =>
+		mutationFn: (secret: string) =>
 			api("/reauth", {
 				method: "POST",
 				body:
@@ -551,10 +585,19 @@ function Reauth({
 						: { kind: current, code: secret },
 			}),
 		onSuccess: () => {
-			setSecret("");
+			form.reset();
 			setSent(false);
 			onDone();
 		},
+	});
+	const form = useForm({
+		defaultValues: { secret: "" },
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: reauthSchema(current ?? "password", sent) },
+		onSubmit: ({ value }) =>
+			current !== "password" && !sent
+				? send.mutate()
+				: verify.mutate(value.secret),
 	});
 	const error = send.error ?? verify.error;
 	const target = me.identifiers.find((i) => i.kind === current)?.value;
@@ -575,7 +618,7 @@ function Reauth({
 								onClick={() => {
 									setMethod(m);
 									setSent(false);
-									setSecret("");
+									form.reset();
 								}}
 							>
 								{m === "password" ? "密码" : `${kindName[m]}验证码`}
@@ -587,43 +630,55 @@ function Reauth({
 					<p>没有可用的验证方式,请联系管理员。</p>
 				) : (
 					<form
+						noValidate
 						className="space-y-3"
 						onSubmit={(e) => {
 							e.preventDefault();
-							current !== "password" && !sent ? send.mutate() : verify.mutate();
+							form.handleSubmit();
 						}}
 					>
 						{current === "password" ? (
-							<Input
-								type="password"
-								autoComplete="current-password"
-								placeholder="密码"
-								value={secret}
-								onChange={(e) => setSecret(e.target.value)}
-								required
-							/>
+							<form.Field name="secret">
+								{(field) => (
+									<FormField field={field} label="密码">
+										{(control) => (
+											<Input
+												{...control}
+												type="password"
+												autoComplete="current-password"
+											/>
+										)}
+									</FormField>
+								)}
+							</form.Field>
 						) : (
 							<>
 								<p className="text-muted-foreground">验证码将发送到 {target}</p>
 								{sent && (
-									<Input
-										inputMode="numeric"
-										autoComplete="one-time-code"
-										placeholder="6 位验证码"
-										value={secret}
-										onChange={(e) => setSecret(e.target.value)}
-										required
-									/>
+									<form.Field name="secret">
+										{(field) => (
+											<FormField field={field} label="验证码">
+												{(control) => (
+													<Input
+														{...control}
+														inputMode="numeric"
+														autoComplete="one-time-code"
+														placeholder="6 位验证码"
+													/>
+												)}
+											</FormField>
+										)}
+									</form.Field>
 								)}
 							</>
 						)}
-						{error && (
-							<p className="text-destructive">
-								{error instanceof APIError && error.status === 403
-									? "请重新验证"
-									: message(error)}
-							</p>
-						)}
+						<FormError
+							error={
+								error instanceof APIError && error.status === 403
+									? new Error("请重新验证")
+									: error
+							}
+						/>
 						<div className="flex justify-end">
 							<Button
 								type="submit"

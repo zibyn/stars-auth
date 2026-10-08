@@ -1,4 +1,5 @@
 // User list and detail logic. Pure TypeScript: tested with node --test.
+import { z } from "zod";
 import type { Identifier } from "./console-api.ts";
 
 export const managementAPI = "urn:stars-auth:management-api";
@@ -27,3 +28,8 @@ export const primaryIdentifier = (identifiers: Identifier[]) =>
 // skipping a mainland phone number's +86.
 export const avatarInitial = (identifier: string) =>
 	identifier.replace(/^\+86/, "").charAt(0).toUpperCase();
+
+// query is what a user search box takes.
+export const query = z.string().trim().max(100, "最多输入 100 个字。");
+
+export const searchSchema = z.object({ q: query });

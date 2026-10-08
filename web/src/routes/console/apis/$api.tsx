@@ -1,4 +1,6 @@
+import { revalidateLogic, useForm } from "@tanstack/react-form";
 import {
+	type UseMutationResult,
 	useMutation,
 	useQuery,
 	useQueryClient,
@@ -14,6 +16,7 @@ import {
 } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { z } from "zod";
+import { FormError, FormField, failed, saved } from "#/components/form";
 import { ItemList } from "#/components/item-list";
 import { Alert, AlertDescription } from "#/components/ui/alert";
 import { Badge } from "#/components/ui/badge";
@@ -26,6 +29,7 @@ import {
 	EmptyHeader,
 	EmptyTitle,
 } from "#/components/ui/empty";
+import { FieldLegend, FieldSet } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import {
 	Item,
@@ -36,7 +40,12 @@ import {
 } from "#/components/ui/item";
 import { Label } from "#/components/ui/label";
 import { TabsContent } from "#/components/ui/tabs";
-import { defaultFor, rolesWith } from "#/lib/apis";
+import {
+	defaultFor,
+	permissionSchema,
+	roleSchema,
+	rolesWith,
+} from "#/lib/apis";
 import {
 	type APIDef,
 	type Application,
@@ -88,11 +97,16 @@ const tabs = [
 ] as const;
 
 // useAPIMutation runs a Management API write and refreshes the API list.
-function useAPIMutation<T>(fn: (v: T) => Promise<unknown>) {
+// Pass onError for an action outside a form; a form shows the error itself.
+function useAPIMutation<T>(
+	fn: (v: T) => Promise<unknown>,
+	onError?: (e: Error) => void,
+) {
 	const client = useQueryClient();
 	return useMutation({
 		mutationFn: fn,
 		onSuccess: () => client.invalidateQueries(apisQuery),
+		onError,
 	});
 }
 
@@ -197,8 +211,12 @@ function Permissions({ def }: { def: APIDef }) {
 			body: { name: v.name },
 		}),
 	);
-	const remove = useAPIMutation((key: string) =>
-		api(`${base}/permissions/${encodeURIComponent(key)}`, { method: "DELETE" }),
+	const remove = useAPIMutation(
+		(key: string) =>
+			api(`${base}/permissions/${encodeURIComponent(key)}`, {
+				method: "DELETE",
+			}),
+		failed("删除权限失败"),
 	);
 	const [adding, setAdding] = useState(false);
 	const add = editable ? (
@@ -266,83 +284,80 @@ function Permissions({ def }: { def: APIDef }) {
 				})}
 			</ItemList>
 			{adding ? (
-				<KeyNameForm
-					keyLabel="权限 key"
-					keyPlaceholder="如：orders:export"
-					namePlaceholder="如：导出订单"
-					submit="添加权限"
-					onCancel={() => setAdding(false)}
-					onSubmit={(v, done) =>
-						put.mutate(v, {
-							onSuccess: () => {
-								done();
-								setAdding(false);
-							},
-						})
-					}
-				/>
+				<PermissionForm save={put} onDone={() => setAdding(false)} />
 			) : (
 				def.permissions.length > 0 && editable && add
-			)}
-			{[put, remove].map(
-				(m) =>
-					m.error && (
-						<p key={m.error.message} className="text-destructive text-sm">
-							{m.error.message}
-						</p>
-					),
 			)}
 		</div>
 	);
 }
 
-function KeyNameForm({
-	keyLabel,
-	keyPlaceholder,
-	namePlaceholder,
-	submit,
-	onCancel,
-	onSubmit,
+function PermissionForm({
+	save,
+	onDone,
 }: {
-	keyLabel: string;
-	keyPlaceholder: string;
-	namePlaceholder: string;
-	submit: string;
-	onCancel: () => void;
-	onSubmit: (v: { key: string; name: string }, done: () => void) => void;
+	save: UseMutationResult<unknown, Error, { key: string; name: string }>;
+	onDone: () => void;
 }) {
+	const form = useForm({
+		defaultValues: { key: "", name: "" },
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: permissionSchema },
+		onSubmit: ({ value }) =>
+			save.mutate(
+				{ key: value.key.trim(), name: value.name.trim() },
+				{
+					onSuccess: () => {
+						saved();
+						onDone();
+					},
+				},
+			),
+	});
 	return (
 		<form
-			className="flex flex-wrap gap-2"
+			noValidate
+			className="space-y-3"
 			onSubmit={(e) => {
 				e.preventDefault();
-				const form = e.currentTarget;
-				const f = new FormData(form);
-				onSubmit({ key: `${f.get("key")}`, name: `${f.get("name")}` }, () =>
-					form.reset(),
-				);
+				form.handleSubmit();
 			}}
 		>
-			<Input
-				name="key"
-				required
-				aria-label={keyLabel}
-				placeholder={keyPlaceholder}
-				className="w-56 font-mono"
-			/>
-			<Input
-				name="name"
-				required
-				aria-label="名称"
-				placeholder={namePlaceholder}
-				className="w-40"
-			/>
-			<Button type="submit" size="sm">
-				{submit}
-			</Button>
-			<Button type="button" size="sm" variant="ghost" onClick={onCancel}>
-				取消
-			</Button>
+			<div className="flex flex-wrap items-start gap-2">
+				<div className="w-56">
+					<form.Field name="key">
+						{(field) => (
+							<FormField field={field} label="权限 key">
+								{(control) => (
+									<Input
+										{...control}
+										placeholder="如：orders:export"
+										className="font-mono"
+									/>
+								)}
+							</FormField>
+						)}
+					</form.Field>
+				</div>
+				<div className="w-40">
+					<form.Field name="name">
+						{(field) => (
+							<FormField field={field} label="名称">
+								{(control) => <Input {...control} placeholder="如：导出订单" />}
+							</FormField>
+						)}
+					</form.Field>
+				</div>
+			</div>
+			<FormError error={save.error} />
+			<div className="flex gap-2">
+				<Button type="submit" size="sm" disabled={save.isPending}>
+					添加权限
+				</Button>
+				<Button type="button" size="sm" variant="ghost" onClick={onDone}>
+					取消
+				</Button>
+			</div>
 		</form>
 	);
 }
@@ -414,11 +429,13 @@ function RoleRow({
 }) {
 	const editable = canEdit && !role.builtin;
 	const [editing, setEditing] = useState(false);
-	const remove = useAPIMutation((force: boolean) =>
-		api(
-			`${apiPath(def.identifier)}/roles/${encodeURIComponent(role.key)}${force ? "?force=true" : ""}`,
-			{ method: "DELETE" },
-		),
+	const remove = useAPIMutation(
+		(force: boolean) =>
+			api(
+				`${apiPath(def.identifier)}/roles/${encodeURIComponent(role.key)}${force ? "?force=true" : ""}`,
+				{ method: "DELETE" },
+			),
+		failed("删除角色失败"),
 	);
 	if (editing) {
 		return (
@@ -468,9 +485,6 @@ function RoleRow({
 					</ConfirmDialog>
 				</ItemActions>
 			)}
-			{remove.error && (
-				<p className="basis-full text-destructive">{remove.error.message}</p>
-			)}
 		</Item>
 	);
 }
@@ -492,56 +506,87 @@ function RoleForm({
 				body: { name: v.name, permissions: v.permissions },
 			}),
 	);
+	const form = useForm({
+		defaultValues: {
+			key: role?.key ?? "",
+			name: role?.name ?? "",
+			permissions: role?.permissions ?? [],
+		},
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: roleSchema },
+		onSubmit: ({ value }) =>
+			put.mutate(
+				{ ...value, key: value.key.trim(), name: value.name.trim() },
+				{
+					onSuccess: () => {
+						saved();
+						onDone();
+					},
+				},
+			),
+	});
 	return (
 		<form
+			noValidate
 			className="w-full space-y-3"
 			onSubmit={(e) => {
 				e.preventDefault();
-				const f = new FormData(e.currentTarget);
-				put.mutate(
-					{
-						key: role?.key ?? `${f.get("key")}`,
-						name: `${f.get("name")}`,
-						permissions: f.getAll("permissions").map(String),
-					},
-					{ onSuccess: onDone },
-				);
+				form.handleSubmit();
 			}}
 		>
-			<div className="flex flex-wrap gap-2">
+			<div className="flex flex-wrap items-start gap-2">
 				{!role && (
-					<Input
-						name="key"
-						required
-						aria-label="角色 key"
-						placeholder="如：editor"
-						className="w-40 font-mono"
-					/>
+					<div className="w-40">
+						<form.Field name="key">
+							{(field) => (
+								<FormField field={field} label="角色 key">
+									{(control) => (
+										<Input
+											{...control}
+											placeholder="如：editor"
+											className="font-mono"
+										/>
+									)}
+								</FormField>
+							)}
+						</form.Field>
+					</div>
 				)}
-				<Input
-					name="name"
-					required
-					aria-label="名称"
-					placeholder="如：编辑"
-					defaultValue={role?.name}
-					className="w-40"
-				/>
+				<div className="w-40">
+					<form.Field name="name">
+						{(field) => (
+							<FormField field={field} label="名称">
+								{(control) => <Input {...control} placeholder="如：编辑" />}
+							</FormField>
+						)}
+					</form.Field>
+				</div>
 			</div>
-			<div className="flex flex-wrap gap-x-4 gap-y-1">
-				{def.permissions.map((p) => (
-					<Label key={p.key} className="font-normal">
-						<Checkbox
-							name="permissions"
-							value={p.key}
-							defaultChecked={role?.permissions.includes(p.key)}
-						/>
-						{p.name}
-					</Label>
-				))}
-			</div>
-			{put.error && (
-				<p className="text-destructive text-sm">{put.error.message}</p>
-			)}
+			<form.Field name="permissions">
+				{(field) => (
+					<FieldSet>
+						<FieldLegend variant="label">权限</FieldLegend>
+						<div className="flex flex-wrap gap-x-4 gap-y-1">
+							{def.permissions.map((p) => (
+								<Label key={p.key} className="font-normal">
+									<Checkbox
+										checked={field.state.value.includes(p.key)}
+										onCheckedChange={(on) =>
+											field.handleChange(
+												on
+													? [...field.state.value, p.key]
+													: field.state.value.filter((k) => k !== p.key),
+											)
+										}
+									/>
+									{p.name}
+								</Label>
+							))}
+						</div>
+					</FieldSet>
+				)}
+			</form.Field>
+			<FormError error={put.error} />
 			<div className="flex gap-2">
 				<Button type="submit" size="sm" disabled={put.isPending}>
 					保存
@@ -572,6 +617,7 @@ function DeleteAPI({
 			await navigate({ to: "/console/apis" });
 			client.invalidateQueries(apisQuery);
 		},
+		onError: failed("删除 API 资源失败"),
 	});
 	if (!can("applications:write") || def.builtin) {
 		return null;
@@ -603,9 +649,6 @@ function DeleteAPI({
 			>
 				它的权限、角色和所有角色分配都会一起删除，用户随即失去这些角色。此操作无法撤销。
 			</ConfirmDialog>
-			{remove.error && (
-				<p className="text-destructive text-sm">{remove.error.message}</p>
-			)}
 		</DangerZone>
 	);
 }

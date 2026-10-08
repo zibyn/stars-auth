@@ -1,5 +1,7 @@
+import { revalidateLogic, useForm } from "@tanstack/react-form";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { FormField } from "#/components/form";
 import { Alert, AlertDescription } from "#/components/ui/alert";
 import { Input } from "#/components/ui/input";
 import {
@@ -16,10 +18,10 @@ import {
 	asksTermsVersion,
 	hasChannel,
 	passwordLocksOut,
-	termsError,
+	termsSchema,
 } from "#/lib/login";
 import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
-import { Field, SaveBar, Section } from "#/routes/console/-components/section";
+import { SaveBar, Section } from "#/routes/console/-components/section";
 import { ChannelsLink, channelsQuery } from "./channels";
 import { usePolicy, useSavePolicy } from "./policy";
 
@@ -73,44 +75,58 @@ function CodeLogin({ channels }: { channels: ChannelSettings[] }) {
 
 function PasswordLogin({ current, editable }: SectionProps) {
 	const save = useSavePolicy();
-	const [mode, setMode] = useState(current.passwordLogin);
+	const form = useForm({
+		defaultValues: { passwordLogin: current.passwordLogin },
+		onSubmit: ({ value }) => save.mutate(value),
+	});
 	return (
 		<Section
 			title="密码登录"
 			editable={editable}
-			onSubmit={() => save.mutate({ passwordLogin: mode })}
+			form={form}
 			footer={editable && <SaveBar save={save} />}
 		>
-			<Field
-				label="密码登录范围"
-				help="用户可以用手机号、邮箱或用户名加密码登录。关闭后，已经设置的密码会保留，但不能用来登录。"
-			>
-				<Select
-					value={mode}
-					disabled={!editable}
-					onValueChange={(v) => setMode(v as Policy["passwordLogin"])}
-				>
-					<SelectTrigger className="w-48" aria-label="密码登录范围">
-						<SelectValue>
-							{(v: Policy["passwordLogin"]) => passwordModes[v]}
-						</SelectValue>
-					</SelectTrigger>
-					<SelectContent>
-						{Object.entries(passwordModes).map(([k, label]) => (
-							<SelectItem key={k} value={k}>
-								{label}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
-				{passwordLocksOut(mode) && (
-					<Alert variant="warning">
-						<AlertDescription>
-							只用用户名登录的用户将无法登录，账号中心也不能设置密码。
-						</AlertDescription>
-					</Alert>
+			<form.Field name="passwordLogin">
+				{(field) => (
+					<FormField
+						field={field}
+						label="密码登录范围"
+						help="用户可以用手机号、邮箱或用户名加密码登录。关闭后，已经设置的密码会保留，但不能用来登录。"
+					>
+						{({ id }) => (
+							<>
+								<Select
+									value={field.state.value}
+									disabled={!editable}
+									onValueChange={(v) =>
+										field.handleChange(v as Policy["passwordLogin"])
+									}
+								>
+									<SelectTrigger id={id} className="w-48">
+										<SelectValue>
+											{(v: Policy["passwordLogin"]) => passwordModes[v]}
+										</SelectValue>
+									</SelectTrigger>
+									<SelectContent>
+										{Object.entries(passwordModes).map(([k, label]) => (
+											<SelectItem key={k} value={k}>
+												{label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								{passwordLocksOut(field.state.value) && (
+									<Alert variant="warning">
+										<AlertDescription>
+											只用用户名登录的用户将无法登录，账号中心也不能设置密码。
+										</AlertDescription>
+									</Alert>
+								)}
+							</>
+						)}
+					</FormField>
 				)}
-			</Field>
+			</form.Field>
 		</Section>
 	);
 }
@@ -121,40 +137,50 @@ function RequirePhone({
 	sms,
 }: SectionProps & { sms: boolean }) {
 	const save = useSavePolicy();
-	const [on, setOn] = useState(current.requirePhone);
 	const [asking, setAsking] = useState(false);
-	// Without SMS it can only be turned off, never on.
-	const blocked = !sms && !on;
+	const form = useForm({
+		defaultValues: { requirePhone: current.requirePhone },
+		onSubmit: ({ value }) =>
+			asksRequirePhone(current.requirePhone, value.requirePhone)
+				? setAsking(true)
+				: save.mutate(value),
+	});
 	return (
 		<Section
 			title="必须绑定手机号"
 			editable={editable}
-			onSubmit={() =>
-				asksRequirePhone(current.requirePhone, on)
-					? setAsking(true)
-					: save.mutate({ requirePhone: on })
-			}
+			form={form}
 			footer={editable && <SaveBar save={save} />}
 		>
-			<Field
-				label="必须绑定手机号"
-				help="让每个用户都有手机号，方便找回账号和发通知。开启后，没有手机号的用户要先绑定才能登录。"
-			>
-				<Switch
-					aria-label="必须绑定手机号"
-					checked={on}
-					disabled={!editable || blocked}
-					onCheckedChange={setOn}
-				/>
-				{!sms && (
-					<Alert variant="warning">
-						<AlertDescription>
-							先启用短信通道。没有短信通道，用户收不到绑定手机号的验证码。{" "}
-							<ChannelsLink>去启用短信通道</ChannelsLink>
-						</AlertDescription>
-					</Alert>
+			<form.Field name="requirePhone">
+				{(field) => (
+					<FormField
+						field={field}
+						label="必须绑定手机号"
+						help="让每个用户都有手机号，方便找回账号和发通知。开启后，没有手机号的用户要先绑定才能登录。"
+					>
+						{({ id }) => (
+							<>
+								<Switch
+									id={id}
+									checked={field.state.value}
+									// Without SMS it can only be turned off, never on.
+									disabled={!editable || (!sms && !field.state.value)}
+									onCheckedChange={field.handleChange}
+								/>
+								{!sms && (
+									<Alert variant="warning">
+										<AlertDescription>
+											先启用短信通道。没有短信通道，用户收不到绑定手机号的验证码。{" "}
+											<ChannelsLink>去启用短信通道</ChannelsLink>
+										</AlertDescription>
+									</Alert>
+								)}
+							</>
+						)}
+					</FormField>
 				)}
-			</Field>
+			</form.Field>
 			<ConfirmDialog
 				open={asking}
 				onOpenChange={setAsking}
@@ -171,67 +197,74 @@ function RequirePhone({
 
 function Terms({ current, editable }: SectionProps) {
 	const save = useSavePolicy();
-	const [error, setError] = useState("");
 	const [pending, setPending] = useState<Partial<Policy>>();
+	const form = useForm({
+		defaultValues: {
+			termsUrl: current.termsUrl,
+			privacyUrl: current.privacyUrl,
+			termsVersion: current.termsVersion,
+		},
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: termsSchema },
+		onSubmit: ({ value }) => {
+			const t = {
+				termsUrl: value.termsUrl.trim(),
+				privacyUrl: value.privacyUrl.trim(),
+				termsVersion: value.termsVersion.trim(),
+			};
+			if (asksTermsVersion(current.termsVersion, t.termsVersion)) {
+				setPending(t);
+			} else {
+				save.mutate(t);
+			}
+		},
+	});
 	return (
 		<Section
 			title="用户协议"
 			editable={editable}
-			onSubmit={(f) => {
-				const text = (k: string) => `${f.get(k) ?? ""}`.trim();
-				const t = {
-					termsUrl: text("termsUrl"),
-					privacyUrl: text("privacyUrl"),
-					termsVersion: text("termsVersion"),
-				};
-				const err = termsError(t);
-				setError(err);
-				if (err) {
-					return;
-				}
-				if (asksTermsVersion(current.termsVersion, t.termsVersion)) {
-					setPending(t);
-				} else {
-					save.mutate(t);
-				}
-			}}
-			footer={
-				editable && (
-					<>
-						{error && <p className="text-destructive text-sm">{error}</p>}
-						<SaveBar save={save} />
-					</>
-				)
-			}
+			form={form}
+			footer={editable && <SaveBar save={save} />}
 		>
-			<Field label="用户协议地址">
-				<Input
-					name="termsUrl"
-					type="url"
-					defaultValue={current.termsUrl}
-					placeholder="https://example.com/terms"
-				/>
-			</Field>
-			<Field label="隐私政策地址">
-				<Input
-					name="privacyUrl"
-					type="url"
-					defaultValue={current.privacyUrl}
-					placeholder="https://example.com/privacy"
-				/>
-			</Field>
-			<Field
-				label="协议版本"
-				help="用户登录时要勾选同意这一版协议。留空就不要求同意。"
-			>
-				<Input
-					name="termsVersion"
-					maxLength={64}
-					className="w-48"
-					defaultValue={current.termsVersion}
-					placeholder="如 2026-10"
-				/>
-			</Field>
+			<form.Field name="termsUrl">
+				{(field) => (
+					<FormField field={field} label="用户协议地址">
+						{(control) => (
+							<Input
+								{...control}
+								type="url"
+								placeholder="https://example.com/terms"
+							/>
+						)}
+					</FormField>
+				)}
+			</form.Field>
+			<form.Field name="privacyUrl">
+				{(field) => (
+					<FormField field={field} label="隐私政策地址">
+						{(control) => (
+							<Input
+								{...control}
+								type="url"
+								placeholder="https://example.com/privacy"
+							/>
+						)}
+					</FormField>
+				)}
+			</form.Field>
+			<form.Field name="termsVersion">
+				{(field) => (
+					<FormField
+						field={field}
+						label="协议版本"
+						help="用户登录时要勾选同意这一版协议。留空就不要求同意。"
+					>
+						{(control) => (
+							<Input {...control} className="w-48" placeholder="如 2026-10" />
+						)}
+					</FormField>
+				)}
+			</form.Field>
 			<ConfirmDialog
 				open={!!pending}
 				onOpenChange={(o) => !o && setPending(undefined)}

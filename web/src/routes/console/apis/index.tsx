@@ -1,9 +1,11 @@
+import { revalidateLogic, useForm } from "@tanstack/react-form";
 import {
 	useMutation,
 	useQueryClient,
 	useSuspenseQuery,
 } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { FormError, FormField } from "#/components/form";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import {
@@ -22,6 +24,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "#/components/ui/table";
+import { apiSchema } from "#/lib/apis";
 import { onlyBuiltin } from "#/lib/apps";
 import { type APIDef, api, apiPath } from "#/lib/console-api";
 import { SectionHeading } from "#/routes/console/-components/section";
@@ -128,6 +131,16 @@ function CreateForm() {
 			navigate({ to: "/console/apis/$api", params: { api: v.identifier } });
 		},
 	});
+	const form = useForm({
+		defaultValues: { identifier: "", name: "" },
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: apiSchema },
+		onSubmit: ({ value }) =>
+			create.mutate({
+				identifier: value.identifier.trim(),
+				name: value.name.trim(),
+			}),
+	});
 	return (
 		<section>
 			<SectionHeading
@@ -136,38 +149,45 @@ function CreateForm() {
 			/>
 			<form
 				id="new-api"
+				noValidate
 				className="mt-4 space-y-3"
 				onSubmit={(e) => {
 					e.preventDefault();
-					const f = new FormData(e.currentTarget);
-					create.mutate({
-						identifier: `${f.get("identifier")}`,
-						name: `${f.get("name")}`,
-					});
+					form.handleSubmit();
 				}}
 			>
-				<div className="flex flex-wrap gap-2">
-					<Input
-						name="identifier"
-						required
-						aria-label="API 资源标识符"
-						placeholder="https://api.example.com"
-						className="w-72 font-mono"
-					/>
-					<Input
-						name="name"
-						required
-						aria-label="名称"
-						placeholder="如：订单 API"
-						className="w-40"
-					/>
-					<Button type="submit" disabled={create.isPending}>
-						添加 API 资源
-					</Button>
+				<div className="flex flex-wrap items-start gap-2">
+					<div className="w-72">
+						<form.Field name="identifier">
+							{(field) => (
+								<FormField field={field} label="API 资源标识符">
+									{(control) => (
+										<Input
+											{...control}
+											placeholder="https://api.example.com"
+											className="font-mono"
+										/>
+									)}
+								</FormField>
+							)}
+						</form.Field>
+					</div>
+					<div className="w-40">
+						<form.Field name="name">
+							{(field) => (
+								<FormField field={field} label="名称">
+									{(control) => (
+										<Input {...control} placeholder="如：订单 API" />
+									)}
+								</FormField>
+							)}
+						</form.Field>
+					</div>
 				</div>
-				{create.error && (
-					<p className="text-destructive text-sm">{create.error.message}</p>
-				)}
+				<FormError error={create.error} />
+				<Button type="submit" disabled={create.isPending}>
+					添加 API 资源
+				</Button>
 			</form>
 		</section>
 	);

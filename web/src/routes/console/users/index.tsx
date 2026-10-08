@@ -1,3 +1,4 @@
+import { revalidateLogic, useForm } from "@tanstack/react-form";
 import {
 	infiniteQueryOptions,
 	useSuspenseInfiniteQuery,
@@ -11,6 +12,7 @@ import {
 import { z } from "zod";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
+import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import {
 	Select,
@@ -29,7 +31,7 @@ import {
 } from "#/components/ui/table";
 import { UserAvatar } from "#/components/user-avatar";
 import { api, type Role, type RoleInfo, type User } from "#/lib/console-api";
-import { primaryIdentifier } from "#/lib/users";
+import { primaryIdentifier, searchSchema } from "#/lib/users";
 
 const defaults = { q: "", api: "", role: "" };
 const search = z.object({
@@ -94,24 +96,13 @@ function Users() {
 	return (
 		<div className="space-y-6">
 			<div className="flex gap-2">
-				<form
-					className="flex-1"
-					onSubmit={(e) => {
-						e.preventDefault();
-						const value = new FormData(e.currentTarget).get("q");
-						navigate({
-							search: (s) => ({ ...s, q: `${value ?? ""}` || undefined }),
-						});
-					}}
-				>
-					<Input
-						key={q}
-						name="q"
-						type="search"
-						defaultValue={q}
-						placeholder="搜索手机号、邮箱、用户名或用户 ID"
-					/>
-				</form>
+				<Search
+					key={q}
+					q={q}
+					onSearch={(value) =>
+						navigate({ search: (s) => ({ ...s, q: value || undefined }) })
+					}
+				/>
 				<Select
 					value={filter}
 					onValueChange={(v) => {
@@ -222,5 +213,48 @@ function Users() {
 				</Button>
 			)}
 		</div>
+	);
+}
+
+// Search is the user search box; it searches on Enter.
+function Search({ q, onSearch }: { q: string; onSearch: (q: string) => void }) {
+	const form = useForm({
+		defaultValues: { q },
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: searchSchema },
+		onSubmit: ({ value }) => onSearch(value.q.trim()),
+	});
+	return (
+		<form
+			noValidate
+			className="flex-1"
+			onSubmit={(e) => {
+				e.preventDefault();
+				form.handleSubmit();
+			}}
+		>
+			<form.Field name="q">
+				{(field) => {
+					const invalid = !field.state.meta.isValid;
+					return (
+						<Field data-invalid={invalid}>
+							<FieldLabel htmlFor="user-search" className="sr-only">
+								搜索用户
+							</FieldLabel>
+							<Input
+								id="user-search"
+								type="search"
+								value={field.state.value}
+								onBlur={field.handleBlur}
+								onChange={(e) => field.handleChange(e.target.value)}
+								aria-invalid={invalid}
+								placeholder="搜索手机号、邮箱、用户名或用户 ID"
+							/>
+							{invalid && <FieldError errors={field.state.meta.errors} />}
+						</Field>
+					);
+				}}
+			</form.Field>
+		</form>
 	);
 }

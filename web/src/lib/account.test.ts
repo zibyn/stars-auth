@@ -1,0 +1,93 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import {
+	bindSchema,
+	deleteSchema,
+	passwordSchema,
+	reauthSchema,
+} from "./account.ts";
+
+// fieldErrors is what a form shows under each field.
+const fieldErrors = (r: {
+	error?: { issues: { path: PropertyKey[]; message: string }[] };
+}) =>
+	Object.fromEntries(
+		(r.error?.issues ?? []).map((i) => [i.path.join("."), i.message]),
+	);
+
+test("a new phone number is a mainland mobile, +86 optional", () => {
+	for (const value of ["13800000001", "+86 138-0000-0001", "8613800000001"]) {
+		assert.equal(
+			bindSchema("phone", false).safeParse({ value, code: "" }).success,
+			true,
+			value,
+		);
+	}
+	for (const value of ["", "12800000001", "+447700900123"]) {
+		assert.deepEqual(
+			fieldErrors(bindSchema("phone", false).safeParse({ value, code: "" })),
+			{ value: "请输入 +86 手机号" },
+		);
+	}
+});
+
+test("a new email looks like one", () => {
+	assert.equal(
+		bindSchema("email", false).safeParse({ value: "a@x.com", code: "" })
+			.success,
+		true,
+	);
+	assert.deepEqual(
+		fieldErrors(
+			bindSchema("email", false).safeParse({ value: "a@x", code: "" }),
+		),
+		{ value: "请输入邮箱" },
+	);
+});
+
+test("binding asks for the 6-digit code only once it is sent", () => {
+	const value = "a@x.com";
+	assert.deepEqual(
+		fieldErrors(bindSchema("email", true).safeParse({ value, code: "12345" })),
+		{ code: "请输入 6 位验证码" },
+	);
+	assert.equal(
+		bindSchema("email", true).safeParse({ value, code: "123456" }).success,
+		true,
+	);
+});
+
+test("a password has at least 8 characters", () => {
+	assert.deepEqual(
+		fieldErrors(passwordSchema.safeParse({ password: "密码1234567" })),
+		{},
+	);
+	assert.deepEqual(
+		fieldErrors(passwordSchema.safeParse({ password: "1234567" })),
+		{
+			password: "密码至少 8 位",
+		},
+	);
+});
+
+test("reauthentication needs the password, or the code once sent", () => {
+	assert.deepEqual(
+		fieldErrors(reauthSchema("password", false).safeParse({ secret: "" })),
+		{ secret: "请输入密码" },
+	);
+	assert.equal(
+		reauthSchema("email", false).safeParse({ secret: "" }).success,
+		true,
+	);
+	assert.deepEqual(
+		fieldErrors(reauthSchema("email", true).safeParse({ secret: "12" })),
+		{ secret: "请输入 6 位验证码" },
+	);
+});
+
+test("deleting the account takes typing 注销", () => {
+	assert.equal(deleteSchema.safeParse({ confirm: "注销" }).success, true);
+	assert.deepEqual(fieldErrors(deleteSchema.safeParse({ confirm: "删除" })), {
+		confirm: "请输入「注销」确认",
+	});
+});

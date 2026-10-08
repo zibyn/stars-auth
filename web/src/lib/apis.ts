@@ -1,4 +1,5 @@
 // API resource list and detail logic. Pure TypeScript: tested with node --test.
+import { z } from "zod";
 import type { Application, RoleDef } from "./console-api.ts";
 
 // defaultFor lists the Applications using an API resource as their
@@ -14,3 +15,39 @@ export const rolesWith = (
 	roles: Pick<RoleDef, "permissions">[],
 	permission: string,
 ) => roles.filter((r) => r.permissions.includes(permission)).length;
+
+// The rules below mirror the Management API's (internal/management/rbac.go).
+const name = z
+	.string()
+	.trim()
+	.min(1, "请填写名称。")
+	.max(64, "名称最多 64 个字。");
+
+// apiSchema checks 添加 API 资源.
+export const apiSchema = z.object({
+	identifier: z
+		.string()
+		.trim()
+		.min(1, "请填写 API 资源标识符。")
+		.max(200, "API 资源标识符最多 200 个字符。")
+		.regex(/^\S*$/, "API 资源标识符不能包含空格。"),
+	name,
+});
+
+const key = z
+	.string()
+	.trim()
+	.regex(
+		/^[A-Za-z0-9][A-Za-z0-9:._-]{0,63}$/,
+		"key 以字母或数字开头，只能包含字母、数字和 : . _ -，最多 64 个字符。",
+	);
+
+// permissionSchema checks 添加权限.
+export const permissionSchema = z.object({ key, name });
+
+// roleSchema checks a Role being defined or edited.
+export const roleSchema = z.object({
+	key,
+	name,
+	permissions: z.array(z.string()),
+});

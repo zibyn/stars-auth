@@ -1,8 +1,8 @@
+import { useForm } from "@tanstack/react-form";
 import {
 	queryOptions,
 	useIsMutating,
 	useMutation,
-	useMutationState,
 	useQuery,
 	useQueryClient,
 	useSuspenseQuery,
@@ -16,6 +16,7 @@ import {
 } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { FormError, failed, saved } from "#/components/form";
 import { ItemList } from "#/components/item-list";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
@@ -32,12 +33,8 @@ import {
 	EmptyHeader,
 	EmptyTitle,
 } from "#/components/ui/empty";
-import {
-	Item,
-	ItemActions,
-	ItemContent,
-	ItemDescription,
-} from "#/components/ui/item";
+import { FieldLegend, FieldSet } from "#/components/ui/field";
+import { Item, ItemActions, ItemContent } from "#/components/ui/item";
 import { Label } from "#/components/ui/label";
 import { UserAvatar } from "#/components/user-avatar";
 import {
@@ -160,7 +157,13 @@ function useHeader(): Header | null {
 					<Button
 						variant="outline"
 						disabled={act.isPending}
-						onClick={() => act.mutate({ method: "POST", path: "/enable" })}
+						onClick={() =>
+							act.mutate({
+								method: "POST",
+								path: "/enable",
+								what: "恢复用户失败",
+							})
+						}
 					>
 						恢复
 					</Button>
@@ -173,7 +176,13 @@ function useHeader(): Header | null {
 						}
 						title={`禁用${who}？`}
 						action="禁用用户"
-						onConfirm={() => act.mutate({ method: "POST", path: "/disable" })}
+						onConfirm={() =>
+							act.mutate({
+								method: "POST",
+								path: "/disable",
+								what: "禁用用户失败",
+							})
+						}
 					>
 						禁用后该用户无法登录，所有会话立即下线；之后可以随时恢复。
 					</ConfirmDialog>
@@ -181,12 +190,11 @@ function useHeader(): Header | null {
 				<DeleteUser
 					who={who}
 					disabled={act.isPending}
-					onConfirm={() => act.mutate({ method: "DELETE", path: "" })}
+					onConfirm={() =>
+						act.mutate({ method: "DELETE", path: "", what: "删除用户失败" })
+					}
 				/>
 			</>
-		),
-		details: act.error && (
-			<p className="text-destructive text-sm">{act.error.message}</p>
 		),
 	};
 }
@@ -216,6 +224,7 @@ function UserPage() {
 												method: "PUT",
 												path: `/identifiers/${kind}`,
 												body: { value },
+												what: `更换${kindName[kind]}失败`,
 											});
 										}
 									}}
@@ -288,9 +297,9 @@ function DeleteUser({
 }
 
 // useUserAction calls a users:write operation on sub (path under
-// /users/{sub}) and refreshes what it changes. The header and the page
-// each hold one; both see whether a call is running and how the latest
-// one since they mounted failed.
+// /users/{sub}) and refreshes what it changes; what names it in the toast
+// if it fails. The header and the page each hold one; both see whether a
+// call is running.
 function useUserAction(sub: string) {
 	const client = useQueryClient();
 	const navigate = useNavigate();
@@ -301,6 +310,7 @@ function useUserAction(sub: string) {
 			method: "POST" | "PUT" | "DELETE";
 			path: string;
 			body?: unknown;
+			what: string;
 		}) =>
 			api(`/users/${encodeURIComponent(sub)}${a.path}`, {
 				method: a.method,
@@ -312,14 +322,10 @@ function useUserAction(sub: string) {
 			}
 			return client.invalidateQueries();
 		},
+		onError: (e, a) => failed(a.what)(e),
 	});
-	const [since] = useState(Date.now);
 	const isPending = useIsMutating({ mutationKey }) > 0;
-	const error = useMutationState({
-		filters: { mutationKey, predicate: (m) => m.state.submittedAt >= since },
-		select: (m) => m.state.error,
-	}).at(-1);
-	return { mutate, isPending, error };
+	return { mutate, isPending };
 }
 
 function Sessions({ sub, writable }: { sub: string; writable: boolean }) {
@@ -332,6 +338,7 @@ function Sessions({ sub, writable }: { sub: string; writable: boolean }) {
 				{ method: "DELETE" },
 			),
 		onSuccess: () => client.invalidateQueries({ queryKey: ["sessions", sub] }),
+		onError: failed("下线会话失败"),
 	});
 	return (
 		<>
@@ -370,9 +377,6 @@ function Sessions({ sub, writable }: { sub: string; writable: boolean }) {
 						</EmptyHeader>
 					</Empty>
 				</div>
-			)}
-			{end.error && (
-				<p className="py-3 text-destructive text-sm">{end.error.message}</p>
 			)}
 		</>
 	);
@@ -465,40 +469,55 @@ function APIRoles({
 			}),
 		onSuccess: () => client.invalidateQueries(),
 	});
+	const form = useForm({
+		defaultValues: { roles: held },
+		onSubmit: ({ value }) => save.mutate(value.roles, { onSuccess: saved }),
+	});
 	return (
 		<Item
 			key={held.join()}
 			className="flex-col items-start gap-2"
 			render={
 				<form
+					noValidate
 					onSubmit={(e) => {
 						e.preventDefault();
-						save.mutate(
-							new FormData(e.currentTarget).getAll("roles").map(String),
-						);
+						form.handleSubmit();
 					}}
 				/>
 			}
 		>
-			<ItemDescription className="text-[13px]">
-				{roles[0].apiName}
-			</ItemDescription>
-			<div className="flex flex-wrap gap-x-4 gap-y-2">
-				{roles.map((r) => (
-					<Label key={r.key} className="font-normal">
-						<Checkbox
-							name="roles"
-							value={r.key}
-							disabled={!editable}
-							defaultChecked={held.includes(r.key)}
-						/>
-						{r.name}
-					</Label>
-				))}
-			</div>
-			{save.error && (
-				<p className="text-destructive text-sm">{save.error.message}</p>
-			)}
+			<form.Field name="roles">
+				{(field) => (
+					<FieldSet>
+						<FieldLegend
+							variant="label"
+							className="text-[13px] text-muted-foreground font-normal"
+						>
+							{roles[0].apiName}
+						</FieldLegend>
+						<div className="flex flex-wrap gap-x-4 gap-y-2">
+							{roles.map((r) => (
+								<Label key={r.key} className="font-normal">
+									<Checkbox
+										disabled={!editable}
+										checked={field.state.value.includes(r.key)}
+										onCheckedChange={(on) =>
+											field.handleChange(
+												on
+													? [...field.state.value, r.key]
+													: field.state.value.filter((k) => k !== r.key),
+											)
+										}
+									/>
+									{r.name}
+								</Label>
+							))}
+						</div>
+					</FieldSet>
+				)}
+			</form.Field>
+			<FormError error={save.error} />
 			{editable && (
 				<Button
 					type="submit"

@@ -1,3 +1,4 @@
+import { revalidateLogic, useForm, useStore } from "@tanstack/react-form";
 import {
 	useMutation,
 	useQuery,
@@ -17,6 +18,7 @@ import {
 import { Check, ChevronRight } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { z } from "zod";
+import { FormField, failed, saved } from "#/components/form";
 import { Alert, AlertDescription } from "#/components/ui/alert";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
@@ -26,6 +28,12 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "#/components/ui/collapsible";
+import {
+	Field,
+	FieldDescription,
+	FieldLabel,
+	FieldTitle,
+} from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
 import {
@@ -38,7 +46,13 @@ import {
 import { Switch } from "#/components/ui/switch";
 import { TabsContent } from "#/components/ui/tabs";
 import { Textarea } from "#/components/ui/textarea";
-import { typeName, typeWhy, webhookError } from "#/lib/apps";
+import {
+	basicSchema,
+	loginSchema,
+	typeName,
+	typeWhy,
+	webhookSchema,
+} from "#/lib/apps";
 import {
 	type Application,
 	type ApplicationSettings,
@@ -55,7 +69,6 @@ import {
 import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
 import {
 	DangerZone,
-	Field,
 	SaveBar,
 	Section,
 } from "#/routes/console/-components/section";
@@ -233,23 +246,40 @@ function BasicTab({ app, editable }: TabProps) {
 	const registered = useSuspenseQuery(apisQuery).data.apis.filter(
 		(a) => !a.builtin,
 	);
-	const [defaultApi, setDefaultApi] = useState(app.defaultApi ?? "");
+	const form = useForm({
+		defaultValues: { name: app.name },
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: basicSchema },
+		onSubmit: ({ value }) =>
+			save.mutate({ name: value.name.trim() }, { onSuccess: saved }),
+	});
+	const apiForm = useForm({
+		defaultValues: { defaultApi: app.defaultApi ?? "" },
+		onSubmit: ({ value }) => saveApi.mutate(value, { onSuccess: saved }),
+	});
 	return (
 		<div className="space-y-10">
 			<Section
 				title="基本信息"
 				editable={editable}
-				onSubmit={(f) => save.mutate({ name: `${f.get("name")}` })}
+				form={form}
 				extra={
 					<>
-						<Field
-							label="client_id"
-							help="应用的唯一编号。在 SDK 或登录请求里填它，认证服务就知道是哪个应用。"
-						>
+						<Field>
+							<FieldLabel htmlFor="client-id">client_id</FieldLabel>
 							<div className="flex gap-2">
-								<Input readOnly value={app.clientId} className="font-mono" />
+								<Input
+									id="client-id"
+									readOnly
+									value={app.clientId}
+									className="font-mono"
+								/>
 								<CopyButton value={app.clientId} />
 							</div>
+							<FieldDescription>
+								应用的唯一编号。在 SDK
+								或登录请求里填它，认证服务就知道是哪个应用。
+							</FieldDescription>
 						</Field>
 						{app.type === "confidential" && (
 							<ClientSecret app={app} editable={editable} />
@@ -258,73 +288,87 @@ function BasicTab({ app, editable }: TabProps) {
 				}
 				footer={editable && <SaveBar save={save} />}
 			>
-				<Field label="名称">
-					<Input
-						name="name"
-						required
-						defaultValue={app.name}
-						placeholder="如：星选商城 App"
-					/>
-				</Field>
-				<Field label="类型" help={typeWhy[app.type]}>
+				<form.Field name="name">
+					{(field) => (
+						<FormField field={field} label="名称">
+							{(control) => (
+								<Input {...control} placeholder="如：星选商城 App" />
+							)}
+						</FormField>
+					)}
+				</form.Field>
+				<Field>
+					<FieldTitle>类型</FieldTitle>
 					<p className="text-sm">{typeName[app.type]}</p>
+					<FieldDescription>{typeWhy[app.type]}</FieldDescription>
 				</Field>
 			</Section>
 			<Section
 				title="访问令牌"
 				editable={editable}
-				onSubmit={() => saveApi.mutate({ defaultApi })}
+				form={apiForm}
 				footer={editable && registered.length > 0 && <SaveBar save={saveApi} />}
 			>
-				<Field
-					label="默认 API 资源"
-					help="用户登录后拿到的 access token 用于调用它，并带上用户在其中的角色。不选，token 里没有角色。"
-				>
-					{registered.length === 0 ? (
+				{registered.length === 0 ? (
+					<Field>
+						<FieldTitle>默认 API 资源</FieldTitle>
 						<Alert variant="warning">
 							<AlertDescription>
 								还没有登记 API 资源。
 								<Link to="/console/apis">去登记 API 资源</Link>
 							</AlertDescription>
 						</Alert>
-					) : (
-						<div className="flex items-center gap-3">
-							<Select
-								disabled={!editable}
-								value={defaultApi}
-								onValueChange={(v) => setDefaultApi(`${v ?? ""}`)}
+					</Field>
+				) : (
+					<apiForm.Field name="defaultApi">
+						{(field) => (
+							<FormField
+								field={field}
+								label="默认 API 资源"
+								help="用户登录后拿到的 access token 用于调用它，并带上用户在其中的角色。不选，token 里没有角色。"
 							>
-								<SelectTrigger className="flex-1">
-									<SelectValue>
-										{(v: string) =>
-											registered.find((a) => a.identifier === v)?.name ?? "不选"
-										}
-									</SelectValue>
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="">不选</SelectItem>
-									{registered.map((a) => (
-										<SelectItem key={a.identifier} value={a.identifier}>
-											{a.name}
-											<span className="font-mono text-muted-foreground text-xs">
-												{a.identifier}
-											</span>
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-							{app.defaultApi && (
-								<Link
-									to="/console/apis/$api"
-									params={{ api: app.defaultApi }}
-									className="text-sm underline"
-								>
-									查看 API 资源
-								</Link>
-							)}
-						</div>
-					)}
-				</Field>
+								{({ id }) => (
+									<div className="flex items-center gap-3">
+										<Select
+											disabled={!editable}
+											value={field.state.value}
+											onValueChange={(v) => field.handleChange(`${v ?? ""}`)}
+										>
+											<SelectTrigger id={id} className="flex-1">
+												<SelectValue>
+													{(v: string) =>
+														registered.find((a) => a.identifier === v)?.name ??
+														"不选"
+													}
+												</SelectValue>
+											</SelectTrigger>
+											<SelectContent>
+												<SelectItem value="">不选</SelectItem>
+												{registered.map((a) => (
+													<SelectItem key={a.identifier} value={a.identifier}>
+														{a.name}
+														<span className="font-mono text-muted-foreground text-xs">
+															{a.identifier}
+														</span>
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+										{app.defaultApi && (
+											<Link
+												to="/console/apis/$api"
+												params={{ api: app.defaultApi }}
+												className="text-sm underline"
+											>
+												查看 API 资源
+											</Link>
+										)}
+									</div>
+								)}
+							</FormField>
+						)}
+					</apiForm.Field>
+				)}
 			</Section>
 			{editable && <DeleteApplication app={app} />}
 		</div>
@@ -337,12 +381,11 @@ function ClientSecret({ app, editable }: TabProps) {
 			api<{ secret: string }>(`/applications/${app.clientId}/secret`, {
 				method: "POST",
 			}),
+		onError: failed("重新生成 client secret 失败"),
 	});
 	return (
-		<Field
-			label="client secret"
-			help="你的后端换取令牌时用的密码。只在生成时显示一次，请立即保存到服务器配置里。"
-		>
+		<Field>
+			<FieldTitle>client secret</FieldTitle>
 			{rotate.data ? (
 				<Alert variant="warning">
 					<AlertDescription>
@@ -354,7 +397,12 @@ function ClientSecret({ app, editable }: TabProps) {
 				</Alert>
 			) : (
 				<div className="flex gap-2">
-					<Input readOnly value="••••••••••••••••" className="font-mono" />
+					<Input
+						readOnly
+						aria-label="client secret"
+						value="••••••••••••••••"
+						className="font-mono"
+					/>
 					{editable && (
 						<ConfirmDialog
 							trigger={
@@ -377,9 +425,9 @@ function ClientSecret({ app, editable }: TabProps) {
 					)}
 				</div>
 			)}
-			{rotate.error && (
-				<p className="text-destructive text-sm">{rotate.error.message}</p>
-			)}
+			<FieldDescription>
+				你的后端换取令牌时用的密码。只在生成时显示一次，请立即保存到服务器配置里。
+			</FieldDescription>
 		</Field>
 	);
 }
@@ -394,6 +442,7 @@ function DeleteApplication({ app }: { app: Application }) {
 			await navigate({ to: "/console/apps" });
 			client.invalidateQueries(applicationsQuery);
 		},
+		onError: failed("删除应用失败"),
 	});
 	return (
 		<DangerZone title="删除应用">
@@ -416,91 +465,126 @@ function DeleteApplication({ app }: { app: Application }) {
 			>
 				用户将不能再通过这个应用登录。此操作无法撤销。
 			</ConfirmDialog>
-			{remove.error && (
-				<p className="text-destructive text-sm">{remove.error.message}</p>
-			)}
 		</DangerZone>
 	);
 }
 
 function LoginTab({ app, editable }: TabProps) {
 	const save = useSave(app);
-	const [refreshTokens, setRefreshTokens] = useState(app.refreshTokens);
+	const form = useForm({
+		defaultValues: {
+			redirectUris: app.redirectUris.join("\n"),
+			postLogoutRedirectUris: app.postLogoutRedirectUris.join("\n"),
+			idleDays: app.sessionIdleTimeout ? `${app.sessionIdleTimeout / day}` : "",
+			refreshTokens: app.refreshTokens,
+		},
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: loginSchema },
+		onSubmit: ({ value }) =>
+			save.mutate(
+				{
+					redirectUris: lines(value.redirectUris),
+					postLogoutRedirectUris: lines(value.postLogoutRedirectUris),
+					sessionIdleTimeout: Number(value.idleDays.trim() || 0) * day,
+					refreshTokens: value.refreshTokens,
+				},
+				{ onSuccess: saved },
+			),
+	});
 	return (
 		<Section
 			title="登录跳转"
 			editable={editable}
-			onSubmit={(f) =>
-				save.mutate({
-					redirectUris: lines(f.get("redirectUris")),
-					postLogoutRedirectUris: lines(f.get("postLogoutRedirectUris")),
-					sessionIdleTimeout: Number(f.get("idleDays") || 0) * day,
-					refreshTokens,
-				})
-			}
+			form={form}
 			footer={editable && <SaveBar save={save} />}
 		>
-			<Field
-				label="回调地址"
-				en="redirect URI"
-				help="登录完成后跳回应用的地址。只接受这里登记过的地址。"
-			>
-				<Textarea
-					name="redirectUris"
-					className="font-mono"
-					defaultValue={app.redirectUris.join("\n")}
-					placeholder="每行一个，如 https://shop.example.com/callback"
-				/>
-			</Field>
-			{/* keepMounted: folded fields still go with the form. */}
+			<form.Field name="redirectUris">
+				{(field) => (
+					<FormField
+						field={field}
+						label="回调地址"
+						en="redirect URI"
+						help="登录完成后跳回应用的地址。只接受这里登记过的地址。"
+					>
+						{(control) => (
+							<Textarea
+								{...control}
+								className="font-mono"
+								placeholder="每行一个，如 https://shop.example.com/callback"
+							/>
+						)}
+					</FormField>
+				)}
+			</form.Field>
+			{/* keepMounted: a folded field's error still shows when unfolded. */}
 			<Collapsible>
 				<CollapsibleTrigger className="flex items-center gap-1 font-medium text-[13px] [&[data-panel-open]>svg]:rotate-90">
 					<ChevronRight className="size-4 transition-transform" />
 					高级
 				</CollapsibleTrigger>
 				<CollapsibleContent keepMounted className="mt-6 space-y-6">
-					<Field
-						label="退出后跳转地址"
-						en="post-logout redirect URI"
-						help="用户退出后回到的页面。同样只接受登记过的地址。"
-					>
-						<Textarea
-							name="postLogoutRedirectUris"
-							className="font-mono"
-							defaultValue={app.postLogoutRedirectUris.join("\n")}
-							placeholder="每行一个，可不填"
-						/>
-					</Field>
-					<Field
-						label="允许 App 保持登录"
-						en="签发 refresh token，每次刷新都给会话续期"
-						help="开启后，App 可在后台续期，用户不用反复登录。关闭后，大约 10 分钟就要重新登录。App 能保持登录多久，由这一项和下面的闲置时长共同决定。"
-					>
-						<Switch
-							disabled={!editable}
-							checked={refreshTokens}
-							onCheckedChange={setRefreshTokens}
-						/>
-					</Field>
-					<Field
-						label="闲置多久需重新登录"
-						help="用户连续这么多天没用这个应用，下次打开就要重新登录。改动只对之后新登录的会话生效。"
-					>
-						<div className="flex items-center gap-2">
-							<Input
-								name="idleDays"
-								type="number"
-								min={1}
-								max={365}
-								className="w-28"
-								defaultValue={
-									app.sessionIdleTimeout ? app.sessionIdleTimeout / day : ""
-								}
-								placeholder={app.type === "public" ? "默认 90" : "默认 30"}
-							/>
-							<span className="text-sm">天</span>
-						</div>
-					</Field>
+					<form.Field name="postLogoutRedirectUris">
+						{(field) => (
+							<FormField
+								field={field}
+								label="退出后跳转地址"
+								en="post-logout redirect URI"
+								help="用户退出后回到的页面。同样只接受登记过的地址。"
+							>
+								{(control) => (
+									<Textarea
+										{...control}
+										className="font-mono"
+										placeholder="每行一个，可不填"
+									/>
+								)}
+							</FormField>
+						)}
+					</form.Field>
+					<form.Field name="refreshTokens">
+						{(field) => (
+							<FormField
+								field={field}
+								label="允许 App 保持登录"
+								en="签发 refresh token，每次刷新都给会话续期"
+								help="开启后，App 可在后台续期，用户不用反复登录。关闭后，大约 10 分钟就要重新登录。App 能保持登录多久，由这一项和下面的闲置时长共同决定。"
+							>
+								{({ id }) => (
+									<Switch
+										id={id}
+										disabled={!editable}
+										checked={field.state.value}
+										onCheckedChange={field.handleChange}
+									/>
+								)}
+							</FormField>
+						)}
+					</form.Field>
+					<form.Field name="idleDays">
+						{(field) => (
+							<FormField
+								field={field}
+								label="闲置多久需重新登录"
+								help="用户连续这么多天没用这个应用，下次打开就要重新登录。改动只对之后新登录的会话生效。"
+							>
+								{(control) => (
+									<div className="flex items-center gap-2">
+										<Input
+											{...control}
+											type="number"
+											min={1}
+											max={365}
+											className="w-28"
+											placeholder={
+												app.type === "public" ? "默认 90" : "默认 30"
+											}
+										/>
+										<span className="text-sm">天</span>
+									</div>
+								)}
+							</FormField>
+						)}
+					</form.Field>
 				</CollapsibleContent>
 			</Collapsible>
 		</Section>
@@ -509,59 +593,78 @@ function LoginTab({ app, editable }: TabProps) {
 
 function WebhookTab({ app, editable }: TabProps) {
 	const save = useSave(app);
-	const [url, setUrl] = useState(app.webhookUrl ?? "");
-	const [error, setError] = useState("");
 	const secretSet = !!app.webhookSecretUpdatedAt;
+	const form = useForm({
+		defaultValues: { webhookUrl: app.webhookUrl ?? "", webhookSecret: "" },
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: webhookSchema(secretSet) },
+		onSubmit: ({ value }) =>
+			save.mutate(
+				{
+					webhookUrl: value.webhookUrl.trim(),
+					webhookSecret: value.webhookSecret || undefined,
+				},
+				{
+					onSuccess: () => {
+						form.setFieldValue("webhookSecret", "");
+						saved();
+					},
+				},
+			),
+	});
+	const url = useStore(form.store, (s) => s.values.webhookUrl.trim());
 	return (
 		<Section
 			title="用户删除通知"
 			editable={editable}
 			intro="用户被管理员删除或自己注销账号时，认证服务会通知这个地址，方便你的后端同步清理这个用户的业务数据。不需要的话留空即可。"
-			onSubmit={(f, form) => {
-				const secret = `${f.get("webhookSecret") ?? ""}`;
-				const e = webhookError({ url, secret, secretSet });
-				setError(e);
-				if (!e) {
-					save.mutate(
-						{ webhookUrl: url, webhookSecret: secret || undefined },
-						{ onSuccess: () => form.reset() },
-					);
-				}
-			}}
+			form={form}
 			footer={editable && <SaveBar save={save} />}
 		>
-			<Field label="通知地址" help="需能从公网访问。">
-				<Input
-					type="url"
-					className="font-mono"
-					value={url}
-					onChange={(e) => setUrl(e.target.value)}
-					placeholder="https://shop.example.com/hooks/stars"
-				/>
-			</Field>
+			<form.Field name="webhookUrl">
+				{(field) => (
+					<FormField field={field} label="通知地址" help="需能从公网访问。">
+						{(control) => (
+							<Input
+								{...control}
+								type="url"
+								className="font-mono"
+								placeholder="https://shop.example.com/hooks/stars"
+							/>
+						)}
+					</FormField>
+				)}
+			</form.Field>
 			{!url && secretSet && (
 				<Alert variant="warning">
 					<AlertDescription>保存后 Webhook 密钥会一并清除。</AlertDescription>
 				</Alert>
 			)}
-			<Field
-				label="Webhook 密钥"
-				help="你的后端用它验证通知确实来自认证服务。填写通知地址时必须一起设置。"
-			>
-				{secretSet && (
-					<p className="text-muted-foreground text-sm">
-						已设置 · 更新于 {date(app.webhookSecretUpdatedAt ?? "")}
-					</p>
+			<form.Field name="webhookSecret">
+				{(field) => (
+					<FormField
+						field={field}
+						label="Webhook 密钥"
+						help="你的后端用它验证通知确实来自认证服务。填写通知地址时必须一起设置。"
+					>
+						{(control) => (
+							<>
+								{secretSet && (
+									<p className="text-muted-foreground text-sm">
+										已设置 · 更新于 {date(app.webhookSecretUpdatedAt ?? "")}
+									</p>
+								)}
+								<Input
+									{...control}
+									type="password"
+									autoComplete="new-password"
+									placeholder="自行生成一串随机字符，可用 whsec_ 开头的格式"
+								/>
+							</>
+						)}
+					</FormField>
 				)}
-				<Input
-					name="webhookSecret"
-					type="password"
-					autoComplete="new-password"
-					aria-invalid={!!error}
-					placeholder="自行生成一串随机字符，可用 whsec_ 开头的格式"
-				/>
-			</Field>
-			{error && <p className="text-destructive text-sm">{error}</p>}
+			</form.Field>
 		</Section>
 	);
 }

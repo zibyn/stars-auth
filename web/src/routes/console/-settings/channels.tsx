@@ -1,14 +1,18 @@
+import { revalidateLogic, useForm } from "@tanstack/react-form";
 import {
 	queryOptions,
+	type UseMutationResult,
 	useMutation,
 	useQueryClient,
 	useSuspenseQuery,
 } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
+import { FormError, FormField, failed, saved } from "#/components/form";
 import { ItemList } from "#/components/item-list";
 import { Alert, AlertDescription } from "#/components/ui/alert";
 import { Button } from "#/components/ui/button";
+import { FieldGroup } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import {
 	Item,
@@ -16,7 +20,6 @@ import {
 	ItemDescription,
 	ItemTitle,
 } from "#/components/ui/item";
-import { Label } from "#/components/ui/label";
 import {
 	Select,
 	SelectContent,
@@ -29,7 +32,12 @@ import {
 	type ChannelPlugin,
 	type ChannelSettings,
 } from "#/lib/console-api";
-import { sendsNothing, smsLocked } from "#/lib/login";
+import {
+	channelSchema,
+	sendsNothing,
+	smsLocked,
+	testSchema,
+} from "#/lib/login";
 import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
 import { SectionHeading } from "#/routes/console/-components/section";
 import { useCan } from "#/routes/console/route";
@@ -162,13 +170,7 @@ function Channel({
 			setPluginKey("");
 			return refresh();
 		},
-	});
-	const test = useMutation({
-		mutationFn: (to: string) =>
-			api<{ code: string }>(`/channels/${kind}/test`, {
-				method: "POST",
-				body: { to },
-			}),
+		onError: failed(`停用${label}通道失败`),
 	});
 
 	const stopButton = (
@@ -216,112 +218,192 @@ function Channel({
 			</div>
 
 			{plugin && (
-				<form
+				<ConfigForm
 					key={`${pluginKey}-${current?.updatedAt}`}
-					className="space-y-4"
-					onSubmit={(e) => {
-						e.preventDefault();
-						const form = new FormData(e.currentTarget);
-						save.mutate(
-							Object.fromEntries(
-								plugin.fields.map((f) => [f.key, `${form.get(f.key) ?? ""}`]),
-							),
-						);
-					}}
+					kind={kind}
+					plugin={plugin}
+					stored={stored}
+					editable={editable}
+					save={save}
+					submit={current && !stored ? "切换并保存" : "保存"}
 				>
-					{plugin.fields.map((f) => {
-						const setAt = stored?.secrets[f.key];
-						return (
-							<div key={f.key} className="grid gap-2">
-								<Label htmlFor={`${kind}-${f.key}`} className="text-[13px]">
-									{f.label}
-									{f.optional && (
-										<span className="text-muted-foreground text-xs">选填</span>
-									)}
-								</Label>
-								<Input
-									id={`${kind}-${f.key}`}
-									name={f.key}
-									type={f.secret ? "password" : f.type}
-									autoComplete={f.secret ? "new-password" : "off"}
-									disabled={!editable}
-									required={!f.optional && !(f.secret && setAt)}
-									defaultValue={f.secret ? "" : stored?.config[f.key]}
-									placeholder={
-										setAt ? `已设置 · 更新于 ${date(setAt)},留空不修改` : ""
-									}
-								/>
-								{f.help && (
-									<p className="text-[13px] text-muted-foreground">{f.help}</p>
-								)}
-							</div>
-						);
-					})}
-					{save.error && (
-						<p className="text-destructive text-sm">{save.error.message}</p>
-					)}
-					{editable && (
-						<div className="flex gap-2">
-							<Button type="submit" disabled={save.isPending}>
-								{current && !stored ? "切换并保存" : "保存"}
-							</Button>
-							{current &&
-								(needed ? (
-									<ConfirmDialog
-										trigger={stopButton}
-										title={`停用${label}通道？`}
-									>
-										先在登录方式里关闭必须绑定手机号。开着它时停用短信，没有手机号的用户收不到绑定验证码，就登录不进来。{" "}
-										<Link to="/console/settings" className="underline">
-											去登录方式
-										</Link>
-									</ConfirmDialog>
-								) : (
-									<ConfirmDialog
-										trigger={stopButton}
-										title={`停用${label}通道？`}
-										action={`停用${label}通道`}
-										onConfirm={() => remove.mutate()}
-									>
-										停用后，{lose}
-									</ConfirmDialog>
-								))}
-						</div>
-					)}
-				</form>
+					{current &&
+						(needed ? (
+							<ConfirmDialog trigger={stopButton} title={`停用${label}通道？`}>
+								先在登录方式里关闭必须绑定手机号。开着它时停用短信，没有手机号的用户收不到绑定验证码，就登录不进来。{" "}
+								<Link to="/console/settings" className="underline">
+									去登录方式
+								</Link>
+							</ConfirmDialog>
+						) : (
+							<ConfirmDialog
+								trigger={stopButton}
+								title={`停用${label}通道？`}
+								action={`停用${label}通道`}
+								onConfirm={() => remove.mutate()}
+							>
+								停用后，{lose}
+							</ConfirmDialog>
+						))}
+				</ConfigForm>
 			)}
 
 			{editable && current && (
-				<form
-					className="flex flex-wrap items-center gap-2 border-t pt-4"
-					onSubmit={(e) => {
-						e.preventDefault();
-						test.mutate(`${new FormData(e.currentTarget).get("to") ?? ""}`);
-					}}
-				>
-					<Input
-						name="to"
-						type={kind === "email" ? "email" : "tel"}
-						required
-						placeholder={placeholder}
-						className="w-64"
-					/>
-					<Button type="submit" variant="outline" disabled={test.isPending}>
-						发送测试验证码
-					</Button>
-					{test.data && (
-						<span className="text-sm">
-							已发送 <span className="font-mono">{test.data.code}</span>
-							,请核对收到的验证码
-						</span>
-					)}
-					{test.error && (
-						<span className="text-destructive text-sm">
-							{test.error.message}
-						</span>
-					)}
-				</form>
+				<TestForm kind={kind} placeholder={placeholder} />
 			)}
 		</Item>
+	);
+}
+
+// ConfigForm edits the chosen plugin's fields. A secret already set shows
+// empty and stays as it is unless retyped.
+function ConfigForm({
+	kind,
+	plugin,
+	stored,
+	editable,
+	save,
+	submit,
+	children,
+}: {
+	kind: "phone" | "email";
+	plugin: ChannelPlugin;
+	stored?: ChannelSettings;
+	editable: boolean;
+	save: UseMutationResult<unknown, Error, Record<string, string>>;
+	submit: string;
+	children: ReactNode;
+}) {
+	const form = useForm({
+		defaultValues: Object.fromEntries(
+			plugin.fields.map((f) => [
+				f.key,
+				f.secret ? "" : (stored?.config[f.key] ?? ""),
+			]),
+		),
+		validationLogic: revalidateLogic(),
+		validators: {
+			onDynamic: channelSchema(plugin.fields, stored?.secrets ?? {}),
+		},
+		onSubmit: ({ value }) =>
+			save.mutate(
+				Object.fromEntries(
+					Object.entries(value).map(([k, v]) => [k, v.trim()]),
+				),
+				{ onSuccess: saved },
+			),
+	});
+	return (
+		<form
+			noValidate
+			className="space-y-4"
+			onSubmit={(e) => {
+				e.preventDefault();
+				form.handleSubmit();
+			}}
+		>
+			<FieldGroup className="gap-4">
+				{plugin.fields.map((f) => {
+					const setAt = stored?.secrets[f.key];
+					return (
+						<form.Field key={`${kind}-${f.key}`} name={f.key}>
+							{(field) => (
+								<FormField
+									field={field}
+									label={f.label}
+									en={f.optional ? "选填" : undefined}
+									help={f.help}
+								>
+									{(control) => (
+										<Input
+											{...control}
+											type={f.secret ? "password" : f.type}
+											autoComplete={f.secret ? "new-password" : "off"}
+											disabled={!editable}
+											placeholder={
+												setAt ? `已设置 · 更新于 ${date(setAt)},留空不修改` : ""
+											}
+										/>
+									)}
+								</FormField>
+							)}
+						</form.Field>
+					);
+				})}
+			</FieldGroup>
+			<FormError error={save.error} />
+			{editable && (
+				<div className="flex gap-2">
+					<Button type="submit" disabled={save.isPending}>
+						{submit}
+					</Button>
+					{children}
+				</div>
+			)}
+		</form>
+	);
+}
+
+// TestForm sends a test code through the enabled channel.
+function TestForm({
+	kind,
+	placeholder,
+}: {
+	kind: "phone" | "email";
+	placeholder: string;
+}) {
+	const test = useMutation({
+		mutationFn: (to: string) =>
+			api<{ code: string }>(`/channels/${kind}/test`, {
+				method: "POST",
+				body: { to },
+			}),
+	});
+	const form = useForm({
+		defaultValues: { to: "" },
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: testSchema(kind) },
+		onSubmit: ({ value }) => test.mutate(value.to.trim()),
+	});
+	return (
+		<form
+			noValidate
+			className="space-y-2 border-t pt-4"
+			onSubmit={(e) => {
+				e.preventDefault();
+				form.handleSubmit();
+			}}
+		>
+			<form.Field name="to">
+				{(field) => (
+					<FormField field={field} label="发送测试验证码到">
+						{(control) => (
+							<div className="flex flex-wrap items-center gap-2">
+								<Input
+									{...control}
+									type={kind === "email" ? "email" : "tel"}
+									placeholder={placeholder}
+									className="w-64"
+								/>
+								<Button
+									type="submit"
+									variant="outline"
+									disabled={test.isPending}
+								>
+									发送测试验证码
+								</Button>
+							</div>
+						)}
+					</FormField>
+				)}
+			</form.Field>
+			<FormError error={test.error} />
+			{test.data && (
+				<p className="text-sm">
+					已发送 <span className="font-mono">{test.data.code}</span>
+					,请核对收到的验证码
+				</p>
+			)}
+		</form>
 	);
 }

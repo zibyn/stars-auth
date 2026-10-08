@@ -1,3 +1,4 @@
+import { revalidateLogic, useForm } from "@tanstack/react-form";
 import {
 	queryOptions,
 	useMutation,
@@ -5,10 +6,12 @@ import {
 	useSuspenseQuery,
 } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
+import { FormField, saved } from "#/components/form";
 import { Input } from "#/components/ui/input";
 import { api, type Policy } from "#/lib/console-api";
+import { numberSchema } from "#/lib/login";
 import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
-import { Field, SaveBar, Section } from "#/routes/console/-components/section";
+import { SaveBar, Section } from "#/routes/console/-components/section";
 import { useCan } from "#/routes/console/route";
 
 const settingsKey = ["settings"];
@@ -27,7 +30,7 @@ export function usePolicy() {
 // useSavePolicy saves one section: PUT /settings takes the whole Policy, so
 // the rest goes back as it was, read from the cache. A save writes what it
 // sent into the cache at once, so another section's save before the refetch
-// doesn't undo it.
+// doesn't undo it. It toasts 已保存 itself.
 export function useSavePolicy() {
 	const client = useQueryClient();
 	return useMutation({
@@ -38,6 +41,7 @@ export function useSavePolicy() {
 		},
 		onSuccess: (body) => {
 			client.setQueryData(settingsKey, body);
+			saved();
 			return client.invalidateQueries({ queryKey: settingsKey });
 		},
 	});
@@ -85,44 +89,55 @@ function NumberForm({
 	editable: boolean;
 }) {
 	const save = useSavePolicy();
-	const [value, setValue] = useState(String(current));
-	const [asking, setAsking] = useState(false);
-	const next = Number(value);
+	const [asking, setAsking] = useState<number>();
+	const write = (n: number) => save.mutate({ [field]: n });
+	const form = useForm({
+		defaultValues: { value: String(current) },
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: numberSchema(min) },
+		onSubmit: ({ value }) => {
+			const next = Number(value.value.trim());
+			if (confirm?.when(current, next)) {
+				setAsking(next);
+			} else {
+				write(next);
+			}
+		},
+	});
 	return (
 		<Section
 			title={title}
 			editable={editable}
-			onSubmit={() => {
-				if (confirm?.when(current, next)) {
-					setAsking(true);
-				} else {
-					save.mutate({ [field]: next });
-				}
-			}}
+			form={form}
 			footer={editable && <SaveBar save={save} />}
 		>
-			<Field label={label} help={help}>
-				<div className="flex items-center gap-2">
-					<Input
-						name={field}
-						type="number"
-						min={min}
-						required
-						className="w-32"
-						value={value}
-						onChange={(e) => setValue(e.target.value)}
-					/>
-					<span className="text-sm">{suffix}</span>
-				</div>
-				{value !== "" && warning?.(next)}
-			</Field>
+			<form.Field name="value">
+				{(f) => (
+					<FormField field={f} label={label} help={help}>
+						{(control) => (
+							<>
+								<div className="flex items-center gap-2">
+									<Input
+										{...control}
+										type="number"
+										min={min}
+										className="w-32"
+									/>
+									<span className="text-sm">{suffix}</span>
+								</div>
+								{f.state.value !== "" && warning?.(Number(f.state.value))}
+							</>
+						)}
+					</FormField>
+				)}
+			</form.Field>
 			{confirm && (
 				<ConfirmDialog
-					open={asking}
-					onOpenChange={setAsking}
+					open={asking !== undefined}
+					onOpenChange={(o) => !o && setAsking(undefined)}
 					title={confirm.title}
 					action={confirm.action}
-					onConfirm={() => save.mutate({ [field]: next })}
+					onConfirm={() => asking !== undefined && write(asking)}
 				>
 					{confirm.body}
 				</ConfirmDialog>

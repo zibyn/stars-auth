@@ -5,6 +5,7 @@ import {
 	describe,
 	eventGroups,
 	eventName,
+	findSchema,
 	findUser,
 	type Names,
 	type Part,
@@ -358,5 +359,27 @@ test("a daily cap without its number still reads", () => {
 	assert.equal(
 		say(describe(ev({ event: "send.daily_cap_reached" }), names).parts),
 		"验证码达到每日发送上限，今天不再发送",
+	);
+});
+
+test("without users:read the user box only takes a user ID", () => {
+	const id = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	assert.equal(findSchema(false).safeParse({ q: "" }).success, true);
+	assert.equal(
+		findSchema(false).safeParse({ q: ` ${id.toLowerCase()} ` }).success,
+		true,
+	);
+	assert.equal(
+		findSchema(false).safeParse({ q: "alice@example.com" }).error?.issues[0]
+			.message,
+		"请填写 26 位用户 ID。没有读取用户的权限，只能按 ID 查找。",
+	);
+	assert.equal(
+		findSchema(true).safeParse({ q: "alice@example.com" }).success,
+		true,
+	);
+	assert.equal(
+		findSchema(true).safeParse({ q: "a".repeat(101) }).error?.issues[0].message,
+		"最多输入 100 个字。",
 	);
 });

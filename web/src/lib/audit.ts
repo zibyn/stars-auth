@@ -1,7 +1,9 @@
 // Audit events as sentences (docs/spec/consoles.md「审计」). Pure
 // TypeScript: tested with node --test.
+
+import { z } from "zod";
 import type { AuditEvent, Identifier } from "./console-api.ts";
-import { kindName } from "./users.ts";
+import { kindName, query } from "./users.ts";
 
 // Part is a piece of a sentence: plain text, or a User or Application
 // that links to its page, or a raw ID in monospace when there is no name.
@@ -248,3 +250,15 @@ export function findUser<
 	}
 	return found.length ? { choices: found } : { sub: q.trim().toUpperCase() };
 }
+
+// findSchema checks the user box; without users:read it can only be a
+// user ID, 26 base32 characters.
+export const findSchema = (canReadUsers: boolean) =>
+	z.object({
+		q: canReadUsers
+			? query
+			: query.regex(
+					/^$|^[A-Z2-7]{26}$/i,
+					"请填写 26 位用户 ID。没有读取用户的权限，只能按 ID 查找。",
+				),
+	});

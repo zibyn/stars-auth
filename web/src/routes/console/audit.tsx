@@ -1,3 +1,4 @@
+import { revalidateLogic, useForm } from "@tanstack/react-form";
 import {
 	infiniteQueryOptions,
 	useQuery,
@@ -11,10 +12,12 @@ import {
 } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { z } from "zod";
+import { failed } from "#/components/form";
 import { ItemList } from "#/components/item-list";
 import { Star } from "#/components/star";
 import { Avatar, AvatarFallback } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
+import { Field, FieldError, FieldLabel } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import { Item, ItemContent, ItemMedia } from "#/components/ui/item";
 import {
@@ -41,6 +44,7 @@ import {
 	doneBy,
 	eventGroups,
 	eventName,
+	findSchema,
 	findUser,
 	type Part,
 } from "#/lib/audit";
@@ -142,6 +146,8 @@ function Audit() {
 			} else {
 				setChoices(found.choices);
 			}
+		} catch (e) {
+			failed("查找用户失败")(e as Error);
 		} finally {
 			setFinding(false);
 		}
@@ -171,23 +177,13 @@ function Audit() {
 						))}
 					</SelectContent>
 				</Select>
-				<form
-					className="flex-1"
-					onSubmit={(e) => {
-						e.preventDefault();
-						find(`${new FormData(e.currentTarget).get("q") ?? ""}`.trim());
-					}}
-				>
-					<Input
-						key={filters.q}
-						name="q"
-						defaultValue={filters.q}
-						disabled={finding}
-						placeholder={
-							can("users:read") ? "手机号、邮箱、用户名或用户 ID" : "用户 ID"
-						}
-					/>
-				</form>
+				<FindUser
+					key={filters.q}
+					q={filters.q}
+					canReadUsers={can("users:read")}
+					disabled={finding}
+					onFind={find}
+				/>
 				<Input
 					type="date"
 					className="w-40"
@@ -298,6 +294,61 @@ function Sentence({ parts }: { parts: Part[] }) {
 			</span>
 		);
 	});
+}
+
+// FindUser is the box that filters by a User; it looks them up on Enter.
+function FindUser({
+	q,
+	canReadUsers,
+	disabled,
+	onFind,
+}: {
+	q: string;
+	canReadUsers: boolean;
+	disabled: boolean;
+	onFind: (q: string) => void;
+}) {
+	const form = useForm({
+		defaultValues: { q },
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: findSchema(canReadUsers) },
+		onSubmit: ({ value }) => onFind(value.q.trim()),
+	});
+	return (
+		<form
+			noValidate
+			className="flex-1"
+			onSubmit={(e) => {
+				e.preventDefault();
+				form.handleSubmit();
+			}}
+		>
+			<form.Field name="q">
+				{(field) => {
+					const invalid = !field.state.meta.isValid;
+					return (
+						<Field data-invalid={invalid}>
+							<FieldLabel htmlFor="audit-user" className="sr-only">
+								按用户筛选
+							</FieldLabel>
+							<Input
+								id="audit-user"
+								value={field.state.value}
+								onBlur={field.handleBlur}
+								onChange={(e) => field.handleChange(e.target.value)}
+								aria-invalid={invalid}
+								disabled={disabled}
+								placeholder={
+									canReadUsers ? "手机号、邮箱、用户名或用户 ID" : "用户 ID"
+								}
+							/>
+							{invalid && <FieldError errors={field.state.meta.errors} />}
+						</Field>
+					);
+				}}
+			</form.Field>
+		</form>
+	);
 }
 
 // EventTable is the audit log as 时间 / 操作人 / 事件描述, shared by the

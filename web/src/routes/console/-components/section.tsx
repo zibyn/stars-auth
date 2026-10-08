@@ -1,17 +1,20 @@
 // Page layout only. If shadcn has the component, use components/ui (ADR 0009).
 
 import type { ReactNode } from "react";
+import { FormError } from "#/components/form";
 import { Button } from "#/components/ui/button";
+import { FieldSet } from "#/components/ui/field";
 
-// Section is a section title and its content, no card around it. With
-// onSubmit the content is a form: children are what an editor may change,
-// extra stays usable for readers (copying client_id). Without it the rows
-// act on their own. Put sections in a space-y-10 parent for the 40px between.
+// Section is a section title and its content, no card around it. With a
+// TanStack form the content is that form: children are what an editor may
+// change, extra stays usable for readers (copying client_id). Without one
+// the rows act on their own. Put sections in a space-y-10 parent for the
+// 40px between.
 export function Section({
 	title,
 	intro,
 	editable = true,
-	onSubmit,
+	form,
 	extra,
 	footer,
 	children,
@@ -19,7 +22,7 @@ export function Section({
 	title: string;
 	intro?: ReactNode;
 	editable?: boolean;
-	onSubmit?: (f: FormData, form: HTMLFormElement) => void;
+	form?: { handleSubmit: () => unknown };
 	extra?: ReactNode;
 	footer?: ReactNode;
 	children: ReactNode;
@@ -27,17 +30,18 @@ export function Section({
 	return (
 		<section>
 			<SectionHeading title={title} intro={intro} />
-			{onSubmit ? (
+			{form ? (
 				<form
+					noValidate
 					className="mt-4 space-y-6"
 					onSubmit={(e) => {
 						e.preventDefault();
-						onSubmit(new FormData(e.currentTarget), e.currentTarget);
+						form.handleSubmit();
 					}}
 				>
-					<fieldset disabled={!editable} className="space-y-6">
+					<FieldSet disabled={!editable} className="gap-6">
 						{children}
-					</fieldset>
+					</FieldSet>
 					{extra}
 					{footer}
 				</form>
@@ -67,49 +71,20 @@ export function SectionHeading({
 	);
 }
 
-export function Field({
-	label,
-	en,
-	help,
-	children,
-}: {
-	label: string;
-	en?: string; // the original term, in small print beside the label
-	help?: string;
-	children: ReactNode;
-}) {
-	return (
-		<div className="grid gap-2">
-			<span className="font-medium text-[13px]">
-				{label}
-				{en && (
-					<span className="ml-1 font-normal text-muted-foreground text-xs">
-						{en}
-					</span>
-				)}
-			</span>
-			{children}
-			{help && <p className="text-[13px] text-muted-foreground">{help}</p>}
-		</div>
-	);
-}
-
-// SaveBar is a section's save button and how the last save went.
+// SaveBar is a section's save button, under why the server turned the
+// last save down. A save that goes through says so in a toast.
 export function SaveBar({
 	save,
 }: {
-	save: { isPending: boolean; isSuccess: boolean; error: Error | null };
+	save: { isPending: boolean; error: Error | null };
 }) {
 	return (
-		<div className="flex items-center gap-3">
+		<>
+			<FormError error={save.error} />
 			<Button type="submit" disabled={save.isPending}>
 				保存
 			</Button>
-			{save.isSuccess && <span className="text-green-700 text-sm">已保存</span>}
-			{save.error && (
-				<span className="text-destructive text-sm">{save.error.message}</span>
-			)}
-		</div>
+		</>
 	);
 }
 

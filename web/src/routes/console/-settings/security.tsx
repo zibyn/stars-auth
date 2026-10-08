@@ -4,6 +4,7 @@ import {
 	useQueryClient,
 	useSuspenseQuery,
 } from "@tanstack/react-query";
+import { failed } from "#/components/form";
 import { ItemList } from "#/components/item-list";
 import { Button } from "#/components/ui/button";
 import {
@@ -59,6 +60,7 @@ function SigningKeys() {
 	const rotate = useMutation({
 		mutationFn: () => api("/signing-keys/rotate", { method: "POST" }),
 		onSuccess: () => client.invalidateQueries(signingKeysQuery),
+		onError: failed("轮换签名密钥失败"),
 	});
 	const current = list.find((k) => k.current);
 	const rotated = lastRotation(list);
@@ -89,9 +91,6 @@ function SigningKeys() {
 						</Item>
 					))}
 				</ItemList>
-				{rotate.error && (
-					<p className="text-destructive text-sm">{rotate.error.message}</p>
-				)}
 				{can("keys:rotate") && (
 					<ConfirmDialog
 						trigger={

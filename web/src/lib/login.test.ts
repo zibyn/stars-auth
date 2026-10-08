@@ -4,13 +4,16 @@ import {
 	asksRequirePhone,
 	asksShorterRetention,
 	asksTermsVersion,
+	channelSchema,
 	hasChannel,
 	lastRotation,
+	numberSchema,
 	passwordLocksOut,
 	rotatedRecently,
 	sendsNothing,
 	smsLocked,
-	termsError,
+	termsSchema,
+	testSchema,
 } from "./login.ts";
 
 const sms = { kind: "phone" as const };
@@ -29,37 +32,150 @@ test("a kind without an enabled channel can't send codes", () => {
 const terms = "https://shop.example.com/terms";
 const privacy = "https://shop.example.com/privacy";
 
+// fieldErrors is what a form shows under each field.
+const fieldErrors = (r: {
+	error?: { issues: { path: PropertyKey[]; message: string }[] };
+}) =>
+	Object.fromEntries(
+		(r.error?.issues ?? []).map((i) => [i.path.join("."), i.message]),
+	);
+
 test("a terms version needs both URLs", () => {
-	assert.equal(
-		termsError({ termsUrl: terms, privacyUrl: "", termsVersion: "2026-10" }),
-		"请填写用户协议和隐私政策的地址。设了协议版本，用户登录时要打开这两份协议才能同意。",
+	assert.deepEqual(
+		fieldErrors(
+			termsSchema.safeParse({
+				termsUrl: terms,
+				privacyUrl: "",
+				termsVersion: "2026-10",
+			}),
+		),
+		{
+			privacyUrl:
+				"请填写地址。设了协议版本，用户登录时要打开用户协议和隐私政策才能同意。",
+		},
 	);
 });
 
 test("a terms URL must be https", () => {
-	assert.equal(
-		termsError({
-			termsUrl: "http://shop.example.com/terms",
-			privacyUrl: privacy,
-			termsVersion: "",
-		}),
-		"请填写 https 开头的协议地址。认证服务只接受 https 链接。",
+	assert.deepEqual(
+		fieldErrors(
+			termsSchema.safeParse({
+				termsUrl: "http://shop.example.com/terms",
+				privacyUrl: privacy,
+				termsVersion: "",
+			}),
+		),
+		{ termsUrl: "请填写 https 开头的地址。认证服务只接受 https 链接。" },
 	);
 });
 
 test("https URLs with a version, or no version and no URLs, save", () => {
 	assert.equal(
-		termsError({
+		termsSchema.safeParse({
 			termsUrl: terms,
 			privacyUrl: privacy,
 			termsVersion: "2026-10",
-		}),
-		"",
+		}).success,
+		true,
 	);
 	assert.equal(
-		termsError({ termsUrl: "", privacyUrl: "", termsVersion: "" }),
-		"",
+		termsSchema.safeParse({ termsUrl: "", privacyUrl: "", termsVersion: "" })
+			.success,
+		true,
 	);
+});
+
+test("a policy number is a whole number from its minimum up", () => {
+	assert.equal(numberSchema(0).safeParse({ value: "0" }).success, true);
+	assert.equal(numberSchema(1).safeParse({ value: "30" }).success, true);
+	for (const value of ["", "0", "1.5", "-3", "abc"]) {
+		assert.deepEqual(fieldErrors(numberSchema(1).safeParse({ value })), {
+			value: "请填写不小于 1 的整数。",
+		});
+	}
+});
+
+const fields = [
+	{ key: "region", label: "地域", type: "text", secret: false, optional: true },
+	{
+		key: "endpoint",
+		label: "接口地址",
+		type: "url",
+		secret: false,
+		optional: false,
+	},
+	{
+		key: "port",
+		label: "端口",
+		type: "number",
+		secret: false,
+		optional: false,
+	},
+	{
+		key: "secret",
+		label: "密钥",
+		type: "text",
+		secret: true,
+		optional: false,
+	},
+] as const;
+
+test("a channel needs its required fields, in their format", () => {
+	assert.deepEqual(
+		fieldErrors(
+			channelSchema(fields, {}).safeParse({
+				region: "",
+				endpoint: "sms.example",
+				port: "abc",
+				secret: "",
+			}),
+		),
+		{
+			endpoint: "请填写有效的地址。",
+			port: "请填写数字。",
+			secret: "请填写密钥。",
+		},
+	);
+	assert.deepEqual(
+		fieldErrors(
+			channelSchema(fields, {}).safeParse({
+				region: "",
+				endpoint: "",
+				port: "",
+				secret: "s",
+			}),
+		),
+		{ endpoint: "请填写接口地址。", port: "请填写端口。" },
+	);
+});
+
+test("a secret already set may stay empty", () => {
+	assert.equal(
+		channelSchema(fields, { secret: "2026-10-01T00:00:00Z" }).safeParse({
+			region: "",
+			endpoint: "https://sms.example.com",
+			port: "443",
+			secret: "",
+		}).success,
+		true,
+	);
+});
+
+test("a test code goes to an email or a phone number", () => {
+	assert.equal(
+		testSchema("email").safeParse({ to: "you@example.com" }).success,
+		true,
+	);
+	assert.deepEqual(fieldErrors(testSchema("email").safeParse({ to: "you" })), {
+		to: "请填写有效的邮箱。",
+	});
+	assert.equal(
+		testSchema("phone").safeParse({ to: "+8613800001111" }).success,
+		true,
+	);
+	assert.deepEqual(fieldErrors(testSchema("phone").safeParse({ to: "" })), {
+		to: "请填写手机号，如 +8613800001111。",
+	});
 });
 
 test("turning 必须绑定手机号 on asks first", () => {

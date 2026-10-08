@@ -1,3 +1,4 @@
+import { revalidateLogic, useForm } from "@tanstack/react-form";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
 	createFileRoute,
@@ -6,10 +7,12 @@ import {
 	useSearch,
 } from "@tanstack/react-router";
 import { z } from "zod";
+import { FormError, FormField } from "#/components/form";
 import { Button, buttonVariants } from "#/components/ui/button";
+import { FieldGroup } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
 import { Textarea } from "#/components/ui/textarea";
-import { typeName } from "#/lib/apps";
+import { createSchema, typeName } from "#/lib/apps";
 import { type Application, api } from "#/lib/console-api";
 import {
 	lines,
@@ -18,7 +21,6 @@ import {
 	platformKeys,
 	platforms,
 } from "#/lib/onboarding";
-import { Field } from "#/routes/console/-components/section";
 import { applicationsQuery } from "#/routes/console/apps/index";
 import { type Header, useCan } from "#/routes/console/route";
 
@@ -102,14 +104,14 @@ function CreateForm({ platform }: { platform: Platform }) {
 	const client = useQueryClient();
 	const navigate = useNavigate();
 	const save = useMutation({
-		mutationFn: (f: FormData) =>
+		mutationFn: (v: { name: string; redirectUris: string }) =>
 			api<{ application: Application; secret?: string }>("/applications", {
 				method: "POST",
 				body: {
 					type: p.type,
 					settings: {
-						name: `${f.get("name")}`,
-						redirectUris: lines(f.get("redirectUris")),
+						name: v.name.trim(),
+						redirectUris: lines(v.redirectUris),
 						postLogoutRedirectUris: [],
 						refreshTokens: true,
 						appleAppIds: [],
@@ -129,34 +131,51 @@ function CreateForm({ platform }: { platform: Platform }) {
 			});
 		},
 	});
+	const form = useForm({
+		defaultValues: { name: "", redirectUris: "" },
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: createSchema(!!p.redirect) },
+		onSubmit: ({ value }) => save.mutate(value),
+	});
 	return (
 		<form
+			noValidate
 			className="space-y-6"
 			onSubmit={(e) => {
 				e.preventDefault();
-				save.mutate(new FormData(e.currentTarget));
+				form.handleSubmit();
 			}}
 		>
-			<Field label="名称">
-				<Input name="name" required placeholder="如：星选商城" />
-			</Field>
-			{p.redirect && (
-				<Field
-					label="回调地址"
-					en="redirect URI"
-					help="登录完成后跳回应用的地址。只接受这里登记过的地址。"
-				>
-					<Textarea
-						name="redirectUris"
-						required
-						className="font-mono"
-						placeholder={`每行一个，如 https://shop.example.com/${platform === "spa" ? "callback" : "auth/callback"}`}
-					/>
-				</Field>
-			)}
-			{save.error && (
-				<p className="text-destructive text-sm">{save.error.message}</p>
-			)}
+			<FieldGroup className="gap-6">
+				<form.Field name="name">
+					{(field) => (
+						<FormField field={field} label="名称">
+							{(control) => <Input {...control} placeholder="如：星选商城" />}
+						</FormField>
+					)}
+				</form.Field>
+				{p.redirect && (
+					<form.Field name="redirectUris">
+						{(field) => (
+							<FormField
+								field={field}
+								label="回调地址"
+								en="redirect URI"
+								help="登录完成后跳回应用的地址。只接受这里登记过的地址。"
+							>
+								{(control) => (
+									<Textarea
+										{...control}
+										className="font-mono"
+										placeholder={`每行一个，如 https://shop.example.com/${platform === "spa" ? "callback" : "auth/callback"}`}
+									/>
+								)}
+							</FormField>
+						)}
+					</form.Field>
+				)}
+			</FieldGroup>
+			<FormError error={save.error} />
 			<Button type="submit" disabled={save.isPending}>
 				创建应用
 			</Button>

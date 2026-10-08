@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { defaultFor, rolesWith } from "./apis.ts";
+import {
+	apiSchema,
+	defaultFor,
+	permissionSchema,
+	roleSchema,
+	rolesWith,
+} from "./apis.ts";
 
 const orders = "https://api.example.com/orders";
 const shop = { clientId: "shop", defaultApi: orders };
@@ -24,4 +30,71 @@ test("deleting a permission counts the roles that hold it", () => {
 	assert.equal(rolesWith(roles, "orders:read"), 2);
 	assert.equal(rolesWith(roles, "orders:export"), 1);
 	assert.equal(rolesWith(roles, "orders:delete"), 0);
+});
+
+// fieldErrors is what a form shows under each field.
+const fieldErrors = (r: {
+	error?: { issues: { path: PropertyKey[]; message: string }[] };
+}) =>
+	Object.fromEntries(
+		(r.error?.issues ?? []).map((i) => [i.path.join("."), i.message]),
+	);
+
+test("adding an API resource needs an identifier without spaces and a name", () => {
+	assert.deepEqual(
+		fieldErrors(apiSchema.safeParse({ identifier: "", name: "" })),
+		{
+			identifier: "请填写 API 资源标识符。",
+			name: "请填写名称。",
+		},
+	);
+	assert.deepEqual(
+		fieldErrors(
+			apiSchema.safeParse({ identifier: "orders api", name: "订单 API" }),
+		),
+		{ identifier: "API 资源标识符不能包含空格。" },
+	);
+	assert.equal(
+		apiSchema.safeParse({ identifier: orders, name: "订单 API" }).success,
+		true,
+	);
+});
+
+test("a permission key is letters, digits and : . _ -, up to 64", () => {
+	assert.equal(
+		permissionSchema.safeParse({ key: "orders:export", name: "导出订单" })
+			.success,
+		true,
+	);
+	for (const key of ["", ":orders", "orders export", "订单", "a".repeat(65)]) {
+		assert.deepEqual(
+			fieldErrors(permissionSchema.safeParse({ key, name: "导出订单" })),
+			{
+				key: "key 以字母或数字开头，只能包含字母、数字和 : . _ -，最多 64 个字符。",
+			},
+		);
+	}
+	assert.deepEqual(
+		fieldErrors(
+			permissionSchema.safeParse({
+				key: "orders:export",
+				name: "x".repeat(65),
+			}),
+		),
+		{ name: "名称最多 64 个字。" },
+	);
+});
+
+test("a role needs a key and a name; permissions may be empty", () => {
+	assert.equal(
+		roleSchema.safeParse({ key: "editor", name: "编辑", permissions: [] })
+			.success,
+		true,
+	);
+	assert.deepEqual(
+		fieldErrors(
+			roleSchema.safeParse({ key: "editor", name: " ", permissions: [] }),
+		),
+		{ name: "请填写名称。" },
+	);
 });
