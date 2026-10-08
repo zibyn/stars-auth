@@ -18,6 +18,7 @@ import { Route as ConsoleAuditRouteImport } from './routes/console.audit'
 import { Route as ConsoleLoginRouteImport } from './routes/console.login'
 import { Route as ConsoleSettingsRouteImport } from './routes/console.settings'
 import { Route as ConsoleCallbackRouteImport } from './routes/console_.callback'
+import { Route as PrototypeSettingsTabsRouteImport } from './routes/prototype.settings-tabs'
 import { Route as ConsoleApisIndexRouteImport } from './routes/console.apis.index'
 import { Route as ConsoleApisApiRouteImport } from './routes/console.apis.$api'
 import { Route as ConsoleAppsIndexRouteImport } from './routes/console.apps.index'
@@ -71,6 +72,11 @@ const ConsoleSettingsRoute = ConsoleSettingsRouteImport.update({
 const ConsoleCallbackRoute = ConsoleCallbackRouteImport.update({
   id: '/console_/callback',
   path: '/console/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrototypeSettingsTabsRoute = PrototypeSettingsTabsRouteImport.update({
+  id: '/prototype/settings-tabs',
+  path: '/prototype/settings-tabs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ConsoleApisIndexRoute = ConsoleApisIndexRouteImport.update({
@@ -128,6 +134,7 @@ export interface FileRoutesByFullPath {
   '/console/login': typeof ConsoleLoginRouteWithChildren
   '/console/settings': typeof ConsoleSettingsRoute
   '/console/callback': typeof ConsoleCallbackRoute
+  '/prototype/settings-tabs': typeof PrototypeSettingsTabsRoute
   '/console/': typeof ConsoleIndexRoute
   '/console/apis/$api': typeof ConsoleApisApiRoute
   '/console/apps/$clientId': typeof ConsoleAppsClientIdRoute
@@ -146,6 +153,7 @@ export interface FileRoutesByTo {
   '/console/audit': typeof ConsoleAuditRoute
   '/console/settings': typeof ConsoleSettingsRoute
   '/console/callback': typeof ConsoleCallbackRoute
+  '/prototype/settings-tabs': typeof PrototypeSettingsTabsRoute
   '/console': typeof ConsoleIndexRoute
   '/console/apis/$api': typeof ConsoleApisApiRoute
   '/console/apps/$clientId': typeof ConsoleAppsClientIdRoute
@@ -167,6 +175,7 @@ export interface FileRoutesById {
   '/console/login': typeof ConsoleLoginRouteWithChildren
   '/console/settings': typeof ConsoleSettingsRoute
   '/console_/callback': typeof ConsoleCallbackRoute
+  '/prototype/settings-tabs': typeof PrototypeSettingsTabsRoute
   '/console/': typeof ConsoleIndexRoute
   '/console/apis/$api': typeof ConsoleApisApiRoute
   '/console/apps/$clientId': typeof ConsoleAppsClientIdRoute
@@ -189,6 +198,7 @@ export interface FileRouteTypes {
     | '/console/login'
     | '/console/settings'
     | '/console/callback'
+    | '/prototype/settings-tabs'
     | '/console/'
     | '/console/apis/$api'
     | '/console/apps/$clientId'
@@ -207,6 +217,7 @@ export interface FileRouteTypes {
     | '/console/audit'
     | '/console/settings'
     | '/console/callback'
+    | '/prototype/settings-tabs'
     | '/console'
     | '/console/apis/$api'
     | '/console/apps/$clientId'
@@ -227,6 +238,7 @@ export interface FileRouteTypes {
     | '/console/login'
     | '/console/settings'
     | '/console_/callback'
+    | '/prototype/settings-tabs'
     | '/console/'
     | '/console/apis/$api'
     | '/console/apps/$clientId'
@@ -245,6 +257,7 @@ export interface RootRouteChildren {
   ConsoleRoute: typeof ConsoleRouteWithChildren
   AccountCallbackRoute: typeof AccountCallbackRoute
   ConsoleCallbackRoute: typeof ConsoleCallbackRoute
+  PrototypeSettingsTabsRoute: typeof PrototypeSettingsTabsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -310,6 +323,13 @@ declare module '@tanstack/react-router' {
       path: '/console/callback'
       fullPath: '/console/callback'
       preLoaderRoute: typeof ConsoleCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/prototype/settings-tabs': {
+      id: '/prototype/settings-tabs'
+      path: '/prototype/settings-tabs'
+      fullPath: '/prototype/settings-tabs'
+      preLoaderRoute: typeof PrototypeSettingsTabsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/console/apis/': {
@@ -429,6 +449,7 @@ const rootRouteChildren: RootRouteChildren = {
   ConsoleRoute: ConsoleRouteWithChildren,
   AccountCallbackRoute: AccountCallbackRoute,
   ConsoleCallbackRoute: ConsoleCallbackRoute,
+  PrototypeSettingsTabsRoute: PrototypeSettingsTabsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
