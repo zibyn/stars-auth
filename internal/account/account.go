@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"strings"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/identity"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
 	"github.com/zibyn/stars-auth/internal/otp"
+	"github.com/zibyn/stars-auth/internal/twofactor"
 )
 
 // Prefix is where the Account API lives; its OpenAPI document is at
@@ -45,12 +47,14 @@ type Service struct {
 	keys   *oidcstore.Keys
 	ids    *identity.Store
 	codes  *otp.Service
+	twoFA  *twofactor.Store
 }
 
 func New(pool *pgxpool.Pool, keyring *crypt.Keyring, issuer string) *Service {
 	return &Service{
 		issuer: issuer, pool: pool, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring),
 		ids: identity.New(pool, keyring), codes: otp.New(pool, channel.NewStore(pool, keyring)),
+		twoFA: twofactor.New(pool, keyring),
 	}
 }
 
@@ -94,6 +98,10 @@ func (s *Service) Register(mux *http.ServeMux) {
 	op(api, http.MethodDelete, "end-session", "/sessions/{id}", "Sign one of the User's Sessions out", s.endSession, http.StatusNotFound)
 	op(api, http.MethodGet, "export", "/export", "The User's data, as a JSON download", s.export, http.StatusForbidden)
 	op(api, http.MethodDelete, "remove-password", "/password", "Delete the User's password", s.removePassword, http.StatusForbidden)
+	op(api, http.MethodPost, "begin-totp", "/2fa/totp", "Begin turning 两步验证 on: a new TOTP to add to an authenticator, replacing one not yet confirmed", s.beginTOTP, http.StatusForbidden, http.StatusConflict)
+	op(api, http.MethodPost, "confirm-totp", "/2fa/totp/confirm", "Turn 两步验证 on with a code from the new TOTP; the recovery codes are shown this once", s.confirmTOTP, http.StatusForbidden, http.StatusConflict)
+	op(api, http.MethodDelete, "disable-2fa", "/2fa", "Turn 两步验证 off, deleting the TOTP and recovery codes", s.disableTwoFactor, http.StatusForbidden)
+	op(api, http.MethodPost, "regenerate-recovery-codes", "/2fa/recovery-codes", "Replace the recovery codes with a new set", s.regenerateRecoveryCodes, http.StatusForbidden)
 }
 
 // op registers an operation; errs are its errors beyond the usual.
@@ -153,7 +161,23 @@ type meOutput struct {
 		HasPassword     bool         `json:"hasPassword"`
 		PasswordAllowed bool         `json:"passwordAllowed" doc:"The password login setting lets this User sign in with, and set, a password"`
 		RecentAuthUntil time.Time    `json:"recentAuthUntil" doc:"Until when sensitive actions need no reauthentication"`
+		TwoFactor       TwoFactor    `json:"twoFactor"`
 	}
+}
+
+// TwoFactor is the User's 两步验证, never its secrets.
+type TwoFactor struct {
+	Enabled           bool       `json:"enabled"`
+	EnabledAt         *time.Time `json:"enabledAt,omitempty"`
+	RecoveryCodesLeft int64      `json:"recoveryCodesLeft"`
+}
+
+func twoFactorOf(u sqlc.AccountUserRow) TwoFactor {
+	t := TwoFactor{Enabled: u.TwoFactorSince.Valid, RecoveryCodesLeft: u.RecoveryCodesLeft}
+	if t.Enabled {
+		t.EnabledAt = &u.TwoFactorSince.Time
+	}
+	return t
 }
 
 func (s *Service) me(ctx context.Context, _ *struct{}) (*meOutput, error) {
@@ -165,7 +189,7 @@ func (s *Service) me(ctx context.Context, _ *struct{}) (*meOutput, error) {
 	out := &meOutput{}
 	b := &out.Body
 	b.Sub, b.CreatedAt, b.HasPassword, b.PasswordAllowed = c.sub, u.CreatedAt.Time, u.HasPassword, u.PasswordAllowed
-	b.RecentAuthUntil = c.authTime.Add(recent)
+	b.RecentAuthUntil, b.TwoFactor = c.authTime.Add(recent), twoFactorOf(u)
 	return out, json.Unmarshal(u.Identifiers, &b.Identifiers)
 }
 
@@ -346,6 +370,106 @@ func (s *Service) removePassword(ctx context.Context, _ *struct{}) (*struct{}, e
 		return nil, err
 	}
 	return nil, fail(s.ids.RemovePassword(ctx, callerOf(ctx).sub))
+}
+
+type totpOutput struct {
+	Body struct {
+		URI    string `json:"uri" doc:"otpauth:// URI, for the QR code"`
+		Secret string `json:"secret" doc:"Base32, to paste into a password manager"`
+	}
+}
+
+func (s *Service) beginTOTP(ctx context.Context, _ *struct{}) (*totpOutput, error) {
+	if err := fresh(ctx); err != nil {
+		return nil, err
+	}
+	sub := callerOf(ctx).sub
+	ids, err := s.q.UserIdentifiers(ctx, sub)
+	if err != nil {
+		return nil, err
+	}
+	out := &totpOutput{}
+	if out.Body.Secret, err = s.twoFA.Begin(ctx, sub); err != nil {
+		return nil, twoFactorErr(err)
+	}
+	u, err := url.Parse(s.issuer)
+	if err != nil {
+		return nil, err
+	}
+	out.Body.URI = twofactor.URI(u.Hostname(), masked(sub, ids), out.Body.Secret)
+	return out, nil
+}
+
+// masked is the User's primary Identifier as an authenticator's entry shows
+// it: 138****8000, a***@example.com.
+func masked(sub string, ids []sqlc.UserIdentifiersRow) string {
+	for _, kind := range []string{"phone", "email", "username"} {
+		for _, id := range ids {
+			if id.Kind != kind {
+				continue
+			}
+			switch v := id.Value; kind {
+			case "phone":
+				v = strings.TrimPrefix(v, "+86")
+				return v[:3] + "****" + v[len(v)-4:]
+			case "email":
+				name, domain, _ := strings.Cut(v, "@")
+				return name[:1] + "***@" + domain
+			default:
+				return v
+			}
+		}
+	}
+	return sub
+}
+
+type recoveryCodesOutput struct {
+	Body struct {
+		RecoveryCodes []string `json:"recoveryCodes" doc:"10 codes, each usable once instead of a TOTP code; shown only now"`
+	}
+}
+
+type confirmTOTPInput struct {
+	Body struct {
+		Code string `json:"code" doc:"A code the authenticator shows"`
+	}
+}
+
+func (s *Service) confirmTOTP(ctx context.Context, in *confirmTOTPInput) (*recoveryCodesOutput, error) {
+	if err := fresh(ctx); err != nil {
+		return nil, err
+	}
+	out := &recoveryCodesOutput{}
+	var err error
+	out.Body.RecoveryCodes, err = s.twoFA.Confirm(ctx, callerOf(ctx).sub, in.Body.Code)
+	return out, twoFactorErr(err)
+}
+
+// disableTwoFactor turns 两步验证 off; the User's other Sessions stay.
+func (s *Service) disableTwoFactor(ctx context.Context, _ *struct{}) (*struct{}, error) {
+	if err := fresh(ctx); err != nil {
+		return nil, err
+	}
+	sub := callerOf(ctx).sub
+	return nil, twoFactorErr(s.twoFA.Disable(ctx, sub, "mfa.disabled", sub))
+}
+
+func (s *Service) regenerateRecoveryCodes(ctx context.Context, _ *struct{}) (*recoveryCodesOutput, error) {
+	if err := fresh(ctx); err != nil {
+		return nil, err
+	}
+	out := &recoveryCodesOutput{}
+	var err error
+	out.Body.RecoveryCodes, err = s.twoFA.RegenerateRecoveryCodes(ctx, callerOf(ctx).sub)
+	return out, twoFactorErr(err)
+}
+
+// twoFactorErr is 409 for 两步验证 already on.
+func twoFactorErr(err error) error {
+	if errors.Is(err, twofactor.ErrOn) {
+		return huma.Error409Conflict(err.Error())
+	}
+	return fail(err)
 }
 
 // deleteAccount deletes the User for good (docs/spec/identity.md#注销): their

@@ -90,7 +90,8 @@ type exportOutput struct {
 		Identifiers        []Identifier `json:"identifiers" nullable:"false"`
 		ExternalIdentities []struct{}   `json:"externalIdentities" nullable:"false"`
 		Credentials        struct {
-			Password bool `json:"password" doc:"Whether a password is set; never the password"`
+			Password  bool      `json:"password" doc:"Whether a password is set; never the password"`
+			TwoFactor TwoFactor `json:"twoFactor" doc:"Never the TOTP secret or recovery codes"`
 		} `json:"credentials"`
 		Sessions    []Session    `json:"sessions" nullable:"false"`
 		Consents    []Consent    `json:"consents" nullable:"false"`
@@ -110,7 +111,7 @@ func (s *Service) export(ctx context.Context, _ *struct{}) (*exportOutput, error
 	}
 	out := &exportOutput{ContentDisposition: `attachment; filename="stars-auth-` + sub + `.json"`}
 	b := &out.Body
-	b.Sub, b.CreatedAt, b.Credentials.Password = sub, u.CreatedAt.Time, u.HasPassword
+	b.Sub, b.CreatedAt, b.Credentials.Password, b.Credentials.TwoFactor = sub, u.CreatedAt.Time, u.HasPassword, twoFactorOf(u)
 	b.ExternalIdentities, b.Consents, b.AuditEvents = []struct{}{}, []Consent{}, []AuditEvent{}
 	if err := json.Unmarshal(u.Identifiers, &b.Identifiers); err != nil {
 		return nil, err

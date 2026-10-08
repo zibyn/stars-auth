@@ -4,12 +4,18 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
+	"crypto/sha1"
 	"crypto/sha256"
+	"encoding/base32"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -587,5 +593,219 @@ func TestDirectAPIDeletesTheAccount(t *testing.T) {
 	var n int
 	if err := e.pool.QueryRow(context.Background(), "SELECT count(*) FROM users").Scan(&n); err != nil || n != 0 {
 		t.Errorf("%d users left: %v", n, err)
+	}
+}
+
+// totp is the code an authenticator shows for a Base32 secret at t
+// (RFC 6238: SHA1, 6 digits, 30 seconds).
+func totp(t *testing.T, secret string, at time.Time) string {
+	t.Helper()
+	key, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mac := hmac.New(sha1.New, key)
+	_ = binary.Write(mac, binary.BigEndian, at.Unix()/30)
+	sum := mac.Sum(nil)
+	n := binary.BigEndian.Uint32(sum[sum[19]&0xf:]) & 0x7fffffff
+	return fmt.Sprintf("%06d", n%1_000_000)
+}
+
+type twoFactor struct {
+	Enabled           bool       `json:"enabled"`
+	EnabledAt         *time.Time `json:"enabledAt"`
+	RecoveryCodesLeft int        `json:"recoveryCodesLeft"`
+}
+
+type totpSetup struct {
+	URI    string `json:"uri"`
+	Secret string `json:"secret"`
+}
+
+type recoveryCodes struct {
+	RecoveryCodes []string `json:"recoveryCodes"`
+}
+
+// twoFactorOf is what me says of the User's 两步验证.
+func (e *env) twoFactorOf(tok string) twoFactor {
+	e.t.Helper()
+	var got struct {
+		TwoFactor twoFactor `json:"twoFactor"`
+	}
+	if c := e.call("GET", tok, "/v1/account/me", nil, &got); c != 200 {
+		e.t.Fatalf("me: %d", c)
+	}
+	return got.TwoFactor
+}
+
+// A User turns 两步验证 on by adding the TOTP to an authenticator and
+// typing one of its codes; only then is it on, and the 10 recovery codes
+// are shown, that once.
+func TestEnableTwoFactor(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", "phone:+8613800138000")
+	tok := e.signIn("ALICE", 0)
+
+	if got := e.twoFactorOf(tok); got.Enabled || got.RecoveryCodesLeft != 0 {
+		t.Fatalf("before: %+v", got)
+	}
+	var first, setup totpSetup
+	if c := e.call("POST", tok, "/v1/account/2fa/totp", nil, &first); c != 200 || len(first.Secret) != 32 {
+		t.Fatalf("begin: %d %+v", c, first)
+	}
+	// Beginning again replaces the TOTP not yet confirmed.
+	if c := e.call("POST", tok, "/v1/account/2fa/totp", nil, &setup); c != 200 || setup.Secret == first.Secret {
+		t.Fatalf("begin again: %d %+v", c, setup)
+	}
+	host := strings.TrimPrefix(e.issuer, "http://")
+	host = host[:strings.LastIndex(host, ":")]
+	if want := "otpauth://totp/" + host + ":138%2A%2A%2A%2A8000?issuer=" + host + "&secret=" + setup.Secret; setup.URI != want {
+		t.Errorf("uri %q, want %q", setup.URI, want)
+	}
+	if got := e.twoFactorOf(tok); got.Enabled {
+		t.Fatalf("on before confirming: %+v", got)
+	}
+
+	now := time.Now()
+	for _, wrong := range []string{totp(t, first.Secret, now), "12345"} {
+		if c := e.call("POST", tok, "/v1/account/2fa/totp/confirm", map[string]string{"code": wrong}, nil); c != 422 {
+			t.Errorf("confirm with %q: %d", wrong, c)
+		}
+	}
+	var codes recoveryCodes
+	if c := e.call("POST", tok, "/v1/account/2fa/totp/confirm", map[string]string{"code": totp(t, setup.Secret, now)}, &codes); c != 200 {
+		t.Fatalf("confirm: %d", c)
+	}
+	checkRecoveryCodes(t, codes.RecoveryCodes)
+	if got := e.twoFactorOf(tok); !got.Enabled || got.EnabledAt == nil || got.RecoveryCodesLeft != 10 {
+		t.Errorf("after: %+v", got)
+	}
+	if c := e.call("POST", tok, "/v1/account/2fa/totp", nil, nil); c != 409 {
+		t.Errorf("begin while on: %d", c)
+	}
+	if c := e.call("POST", tok, "/v1/account/2fa/totp/confirm", map[string]string{"code": totp(t, setup.Secret, now.Add(30*time.Second))}, nil); c != 409 {
+		t.Errorf("confirm while on: %d", c)
+	}
+	e.audited(t, "mfa.enabled", 1)
+}
+
+// checkRecoveryCodes wants 10 distinct codes shaped xxxx-xxxx.
+func checkRecoveryCodes(t *testing.T, codes []string) {
+	t.Helper()
+	seen := map[string]bool{}
+	for _, c := range codes {
+		if !regexp.MustCompile(`^[a-z2-7]{4}-[a-z2-7]{4}$`).MatchString(c) || seen[c] {
+			t.Errorf("recovery code %q", c)
+		}
+		seen[c] = true
+	}
+	if len(codes) != 10 {
+		t.Errorf("%d recovery codes", len(codes))
+	}
+}
+
+// audited wants n events of a kind about ALICE, done by ALICE.
+func (e *env) audited(t *testing.T, event string, n int) {
+	t.Helper()
+	var got int
+	if err := e.pool.QueryRow(context.Background(),
+		"SELECT count(*) FROM audit_log WHERE sub = 'ALICE' AND event = $1 AND detail->>'by' = 'ALICE'", event).Scan(&got); err != nil || got != n {
+		t.Errorf("%d %s events, want %d: %v", got, event, n, err)
+	}
+}
+
+// enableTwoFactor turns 两步验证 on for the User tok is for.
+func (e *env) enableTwoFactor(tok string) (secret string, codes []string) {
+	e.t.Helper()
+	var setup totpSetup
+	var out recoveryCodes
+	if c := e.call("POST", tok, "/v1/account/2fa/totp", nil, &setup); c != 200 {
+		e.t.Fatalf("begin: %d", c)
+	}
+	if c := e.call("POST", tok, "/v1/account/2fa/totp/confirm", map[string]string{"code": totp(e.t, setup.Secret, time.Now())}, &out); c != 200 {
+		e.t.Fatalf("confirm: %d", c)
+	}
+	return setup.Secret, out.RecoveryCodes
+}
+
+// Turning 两步验证 on or off and regenerating the recovery codes need a
+// recent authentication, and sign no other device out.
+func TestManageTwoFactor(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", "email:alice@example.com")
+	tok := e.signIn("ALICE", 0)
+	other := e.signIn("ALICE", time.Hour)
+
+	for _, op := range [][2]string{{"POST", "/2fa/totp"}, {"POST", "/2fa/totp/confirm"}, {"DELETE", "/2fa"}, {"POST", "/2fa/recovery-codes"}} {
+		if c := e.call(op[0], other, "/v1/account"+op[1], map[string]string{"code": "123456"}, nil); c != 403 {
+			t.Errorf("%s %s without reauthentication: %d", op[0], op[1], c)
+		}
+	}
+	if c := e.call("DELETE", tok, "/v1/account/2fa", nil, nil); c != 422 {
+		t.Errorf("turn off while off: %d", c)
+	}
+	if c := e.call("POST", tok, "/v1/account/2fa/recovery-codes", nil, nil); c != 422 {
+		t.Errorf("regenerate while off: %d", c)
+	}
+
+	_, old := e.enableTwoFactor(tok)
+	var codes recoveryCodes
+	if c := e.call("POST", tok, "/v1/account/2fa/recovery-codes", nil, &codes); c != 200 {
+		t.Fatalf("regenerate: %d", c)
+	}
+	checkRecoveryCodes(t, codes.RecoveryCodes)
+	for _, c := range codes.RecoveryCodes {
+		if slices.Contains(old, c) {
+			t.Errorf("old code %q again", c)
+		}
+	}
+	if c := e.call("DELETE", tok, "/v1/account/2fa", nil, nil); c != 204 {
+		t.Fatalf("turn off: %d", c)
+	}
+	if got := e.twoFactorOf(other); got.Enabled || got.RecoveryCodesLeft != 0 {
+		t.Errorf("after turning off, from the other Session: %+v", got)
+	}
+	e.audited(t, "mfa.enabled", 1)
+	e.audited(t, "recovery_codes.regenerated", 1)
+	e.audited(t, "mfa.disabled", 1)
+}
+
+// Deleting the account deletes the TOTP and recovery codes with it; the
+// export says only whether 两步验证 is on, since when, and how many
+// recovery codes are left.
+func TestTwoFactorData(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", "phone:+8613800138000")
+	tok := e.signIn("ALICE", 0)
+	secret, codes := e.enableTwoFactor(tok)
+
+	req, _ := http.NewRequest("GET", e.issuer+"/v1/account/export", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	var got struct {
+		Credentials struct {
+			TwoFactor twoFactor `json:"twoFactor"`
+		} `json:"credentials"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil || !got.Credentials.TwoFactor.Enabled ||
+		got.Credentials.TwoFactor.EnabledAt == nil || got.Credentials.TwoFactor.RecoveryCodesLeft != 10 {
+		t.Errorf("export: %v %s", err, raw)
+	}
+	if strings.Contains(string(raw), secret) || strings.Contains(string(raw), codes[0]) {
+		t.Errorf("export holds secrets: %s", raw)
+	}
+
+	if c := e.call("DELETE", tok, "/v1/account/me", nil, nil); c != 204 {
+		t.Fatalf("delete: %d", c)
+	}
+	var n int
+	if err := e.pool.QueryRow(context.Background(),
+		"SELECT (SELECT count(*) FROM totp_credentials) + (SELECT count(*) FROM recovery_codes)").Scan(&n); err != nil || n != 0 {
+		t.Errorf("%d rows left: %v", n, err)
 	}
 }
