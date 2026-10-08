@@ -261,10 +261,13 @@ func TestSetupThenPasswordLogin(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("authorize: %d %s", resp.StatusCode, page)
 	}
-	for _, want := range []string{`autocomplete="username"`, `autocomplete="current-password"`, `method="post"`} {
+	for _, want := range []string{`autocomplete="username"`, `method="post"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("login page lacks %s", want)
 		}
+	}
+	if _, form := e.link(page, "使用密码登录"); !strings.Contains(form, `autocomplete="current-password"`) {
+		t.Errorf("password form lacks autocomplete hints")
 	}
 
 	resp, page = e.submit(page, "owner", "wrong-password")
@@ -390,5 +393,112 @@ func TestAccessTokenCarriesRolesOfItsAPI(t *testing.T) {
 	}
 	if id := e.claims(tok.IDToken); id["roles"] != nil || id["entitlements"] != nil || id["groups"] != nil {
 		t.Errorf("ID token: %v", id)
+	}
+}
+
+// The first step asks only for an Identifier; a username goes on to a
+// password step, with no code sent and no PoW asked for.
+func TestUsernameGoesToPasswordStep(t *testing.T) {
+	e := start(t)
+	e.bootstrap("owner", "password1")
+	e.setTerms("v1")
+	_, page := e.authorize("")
+	if strings.Count(page, `name="identifier"`) != 1 || strings.Count(page, `name="agree"`) != 1 || strings.Contains(page, `name="password"`) {
+		t.Fatalf("first step is not a single identifier form:\n%s", page)
+	}
+	resp, page := e.post(page, url.Values{"op": {"send"}, "identifier": {"owner"}, "agree": {"v1"}})
+	// The terms were agreed to on the first step; the box is not shown again.
+	if resp.StatusCode != 200 || strings.Count(page, `name="password"`) != 1 || strings.Contains(page, "<altcha-widget") ||
+		!strings.Contains(page, `name="username" value="owner"`) || strings.Contains(page, `type="checkbox"`) ||
+		!strings.Contains(page, `name="agree" value="v1"`) {
+		t.Fatalf("want the password step, got %d:\n%s", resp.StatusCode, page)
+	}
+	if len(e.inbox.codes) != 0 {
+		t.Errorf("a code was sent: %v", e.inbox.codes)
+	}
+	if _, back := e.link(page, "更换账号"); !strings.Contains(back, `name="identifier"`) || strings.Contains(back, `name="password"`) {
+		t.Errorf("更换账号 does not go back to the first step:\n%s", back)
+	}
+	resp, _ = e.post(page, url.Values{"op": {"password"}, "username": {"owner"}, "password": {"password1"}, "agree": {"v1"}})
+	if claims := e.idToken(e.code(resp)); !slices.Equal(claims["amr"].([]any), []any{"pwd"}) {
+		t.Errorf("id token claims: %v", claims)
+	}
+}
+
+// With password login off, the page offers no password, and a username is
+// turned away the same whether it exists or not.
+func TestPasswordLoginOffTurnsUsernamesAway(t *testing.T) {
+	e := start(t)
+	e.bootstrap("owner", "password1")
+	if _, err := e.pool.Exec(context.Background(), "UPDATE settings SET password_login = 'off'"); err != nil {
+		t.Fatal(err)
+	}
+	_, page := e.authorize("")
+	if strings.Contains(page, "使用密码登录") {
+		t.Errorf("password link shown with password login off")
+	}
+	for _, name := range []string{"owner", "nobody"} {
+		resp, body := e.post(page, url.Values{"op": {"send"}, "identifier": {name}})
+		if resp.StatusCode != 200 || !strings.Contains(body, "该账号不能用验证码登录") || strings.Contains(body, `name="password"`) {
+			t.Errorf("%s: %d %s", name, resp.StatusCode, body)
+		}
+	}
+}
+
+// link follows the page's link with the given text.
+func (e *env) link(page, text string) (*http.Response, string) {
+	e.t.Helper()
+	m := regexp.MustCompile(`<a href="([^"]+)">` + text + `</a>`).FindStringSubmatch(page)
+	if m == nil {
+		e.t.Fatalf("no %s link in:\n%s", text, page)
+	}
+	return e.do("GET", html.UnescapeString(m[1]), nil)
+}
+
+// The password form takes the Identifier and the password together, with
+// no PoW, and links back to codes.
+func TestPasswordForm(t *testing.T) {
+	e := start(t)
+	e.bootstrap("owner", "password1")
+	e.setTerms("v1")
+	_, page := e.authorize("")
+	_, page = e.link(page, "使用密码登录")
+	if strings.Count(page, `name="username"`) != 1 || strings.Count(page, `name="password"`) != 1 ||
+		strings.Count(page, `name="agree"`) != 1 || strings.Contains(page, `name="identifier"`) || strings.Contains(page, "<altcha-widget") {
+		t.Fatalf("password form:\n%s", page)
+	}
+	// Unticked, the form comes back as it was.
+	_, body := e.post(page, url.Values{"op": {"password"}, "mode": {"password"}, "username": {"owner"}, "password": {"password1"}})
+	if !strings.Contains(body, "请先阅读并同意") || !strings.Contains(body, `type="checkbox" name="agree"`) {
+		t.Errorf("unticked: %s", body)
+	}
+	if _, back := e.link(page, "改用验证码登录"); !strings.Contains(back, `name="identifier"`) || strings.Contains(back, `name="password"`) {
+		t.Errorf("back to codes:\n%s", back)
+	}
+	resp, _ := e.post(page, url.Values{"op": {"password"}, "mode": {"password"}, "username": {"owner"}, "password": {"password1"}, "agree": {"v1"}})
+	e.code(resp)
+}
+
+// With no Channel, the password form is the page, with nothing to switch to.
+func TestNoChannelShowsPasswordForm(t *testing.T) {
+	e := start(t)
+	if _, err := e.pool.Exec(context.Background(), "DELETE FROM channels"); err != nil {
+		t.Fatal(err)
+	}
+	_, page := e.authorize("")
+	if !strings.Contains(page, `name="password"`) || strings.Contains(page, `name="identifier"`) || strings.Contains(page, "改用验证码登录") {
+		t.Errorf("page:\n%s", page)
+	}
+}
+
+// A mistyped phone number or email is an error, not a username.
+func TestMistypedIdentifierIsNotAUsername(t *testing.T) {
+	e := start(t)
+	_, page := e.authorize("")
+	for _, typed := range []string{"foo@bar", "1381234"} {
+		_, body := e.post(page, url.Values{"op": {"send"}, "identifier": {typed}})
+		if !strings.Contains(html.UnescapeString(body), identity.ErrIdentifier.Error()) || strings.Contains(body, `name="password"`) {
+			t.Errorf("%s: %s", typed, body)
+		}
 	}
 }

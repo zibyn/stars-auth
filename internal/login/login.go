@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -231,7 +232,10 @@ func (s *Service) authenticate(w http.ResponseWriter, r *http.Request, as *goidc
 	if none {
 		return goidc.StatusFailure, goidc.NewError(goidc.ErrorCodeLoginRequired, "login required")
 	}
-	return s.render(w, r, as, c, loginPage{})
+	// The page's links: ?password for the password form, ?identifier to
+	// send a code again.
+	q := r.URL.Query()
+	return s.render(w, r, as, c, loginPage{PasswordForm: q.Has("password"), Identifier: q.Get("identifier")})
 }
 
 // mustLogin reports whether the request rules out the existing Session.
@@ -254,7 +258,7 @@ func mustLogin(as *goidc.AuthnSession, sess *sqlc.TouchSessionRow) bool {
 
 func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession, c *goidc.Client) (goidc.Status, error) {
 	ctx := r.Context()
-	form := loginPage{Identifier: r.PostFormValue("identifier"), Username: r.PostFormValue("username")}
+	form := loginPage{Identifier: r.PostFormValue("identifier"), Username: r.PostFormValue("username"), PasswordForm: r.PostFormValue("mode") == "password"}
 	if err := s.origin.Check(r); err != nil {
 		form.Error = "请从登录页提交"
 		return s.render(w, r, as, c, form)
@@ -281,11 +285,22 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 	switch r.PostFormValue("op") {
 	case "send":
 		kind, value, err := identity.ParseIdentifier(form.Identifier)
+		if pending == "" && !agreed {
+			return fail(errAgree)
+		}
+		if err != nil && pending == "" && !codeLike.MatchString(strings.TrimSpace(form.Identifier)) {
+			// Not shaped like a phone number or email: a username, which
+			// signs in by password. Whether it exists is not told.
+			if setting, err := s.q.PasswordLogin(ctx); err != nil {
+				return goidc.StatusFailure, err
+			} else if setting == "off" {
+				return fail(errNoCode)
+			}
+			form.Username, form.Identifier = strings.TrimSpace(form.Identifier), ""
+			return s.render(w, r, as, c, form)
+		}
 		if err == nil && pending != "" && kind != "phone" {
 			err = identity.ErrPhone
-		}
-		if err == nil && pending == "" && !agreed {
-			err = errAgree
 		}
 		if err == nil {
 			err = s.pow.Verify(ctx, r.PostFormValue("altcha"))
@@ -331,6 +346,7 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 			break
 		}
 		if !agreed {
+			form.PasswordForm = true // back to the form with the box to tick
 			return fail(errAgree)
 		}
 		var sub string
@@ -359,7 +375,14 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 	return s.render(w, r, as, c, loginPage{})
 }
 
-var errAgree = identity.Invalid("请先阅读并同意用户协议和隐私政策")
+// codeLike is what the page takes for a phone number or email, and runs the
+// PoW for; pages.html tests the same.
+var codeLike = regexp.MustCompile(`@|^[\d\s+-]+$`)
+
+var (
+	errAgree  = identity.Invalid("请先阅读并同意用户协议和隐私政策")
+	errNoCode = identity.Invalid("该账号不能用验证码登录")
+)
 
 // login starts a browser Session for a User who just authenticated, having
 // agreed to the terms of version (if any).
@@ -562,11 +585,17 @@ type loginPage struct {
 	// then Bind: they must bind a phone number.
 	Consent, Bind bool
 	// CodeKinds names what codes can go to ("手机号", "邮箱" or both); empty
-	// when no Channel is enabled.
-	CodeKinds  string
-	Identifier string
-	CodeSent   bool
-	Username   string
+	// when no Channel is enabled. IdentifierLabel adds usernames when
+	// PasswordOn: password login is not off.
+	CodeKinds, IdentifierLabel string
+	PasswordOn                 bool
+	// The steps: the first asks for an Identifier, then a code was sent to
+	// it (CodeSent) or it was a Username, which takes a password.
+	// PasswordForm takes both at once.
+	Identifier   string
+	CodeSent     bool
+	Username     string
+	PasswordForm bool
 }
 
 func (s *Service) render(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession, c *goidc.Client, p loginPage) (goidc.Status, error) {
@@ -590,6 +619,11 @@ func (s *Service) render(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		return goidc.StatusFailure, err
 	}
 	p.Terms = terms
+	setting, err := s.q.PasswordLogin(ctx)
+	if err != nil {
+		return goidc.StatusFailure, err
+	}
+	p.PasswordOn = setting != "off"
 	kinds, err := s.q.ChannelKinds(ctx)
 	if err != nil {
 		return goidc.StatusFailure, err
@@ -603,6 +637,10 @@ func (s *Service) render(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		p.CodeKinds = "邮箱"
 	case len(kinds) == 2:
 		p.CodeKinds = "手机号或邮箱"
+	}
+	p.IdentifierLabel = p.CodeKinds
+	if p.PasswordOn && !p.Bind {
+		p.IdentifierLabel = strings.Replace(p.CodeKinds, "或", "、", 1) + "或用户名"
 	}
 	page(w, http.StatusOK, "login", p)
 	return goidc.StatusPending, nil
