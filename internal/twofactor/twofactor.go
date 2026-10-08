@@ -31,8 +31,8 @@ const (
 	ErrOn           identity.Invalid = "两步验证已开启"
 	ErrOff          identity.Invalid = "两步验证未开启"
 	ErrNotBegun     identity.Invalid = "请先扫码添加验证器"
-	ErrCode         = identity.ErrWrongTOTP
-	ErrRecoveryCode = identity.ErrWrongRecoveryCode
+	ErrCode                          = identity.ErrWrongTOTP
+	ErrRecoveryCode                  = identity.ErrWrongRecoveryCode
 )
 
 // recoveryCodes is how many 恢复码 a set has.
@@ -44,10 +44,20 @@ type Store struct {
 	pool    *pgxpool.Pool
 	q       *sqlc.Queries
 	keyring *crypt.Keyring
+	ids     *identity.Store
 }
 
 func New(pool *pgxpool.Pool, keyring *crypt.Keyring) *Store {
-	return &Store{pool: pool, q: sqlc.New(pool), keyring: keyring}
+	return &Store{pool: pool, q: sqlc.New(pool), keyring: keyring, ids: identity.New(pool, keyring)}
+}
+
+// On reports whether sub has 两步验证 on: a confirmed TOTP.
+func (s *Store) On(ctx context.Context, sub string) (bool, error) {
+	t, err := s.q.TOTP(ctx, sub)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil && t.ConfirmedAt.Valid, err
 }
 
 func aad(sub string) []byte { return []byte("totp:" + sub) }
@@ -130,6 +140,17 @@ func (s *Store) RegenerateRecoveryCodes(ctx context.Context, sub string) ([]stri
 		return audit(ctx, q, "recovery_codes.regenerated", sub, sub)
 	})
 	return codes, err
+}
+
+// Check takes sub's 恢复码 when one is given, else the TOTP code; a wrong
+// one counts toward the lockout of ip.
+func (s *Store) Check(ctx context.Context, ip, sub, totp, recoveryCode string) error {
+	return s.ids.FromIP(ctx, ip, func() error {
+		if recoveryCode != "" {
+			return s.UseRecoveryCode(ctx, sub, recoveryCode)
+		}
+		return s.CheckTOTP(ctx, sub, totp)
+	})
 }
 
 // CheckTOTP accepts a code from the User's TOTP, while 两步验证 is on; each

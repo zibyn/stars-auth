@@ -61,14 +61,14 @@ const totpTries = 5
 const amrMFA = "mfa"
 
 type Service struct {
-	issuer string
-	q      *sqlc.Queries
-	ids    *identity.Store
-	tf     *twofactor.Store
-	codes  *otp.Service
-	pow    *pow.PoW
-	op     *provider.Provider
-	origin *http.CrossOriginProtection
+	issuer    string
+	q         *sqlc.Queries
+	ids       *identity.Store
+	twoFactor *twofactor.Store
+	codes     *otp.Service
+	pow       *pow.PoW
+	op        *provider.Provider
+	origin    *http.CrossOriginProtection
 }
 
 // ConsoleClientID is the built-in Application the admin console signs in as.
@@ -94,13 +94,13 @@ func New(ctx context.Context, pool *pgxpool.Pool, keyring *crypt.Keyring, issuer
 		return nil, err
 	}
 	s := &Service{
-		issuer: issuer,
-		q:      sqlc.New(pool),
-		ids:    identity.New(pool, keyring),
-		tf:     twofactor.New(pool, keyring),
-		codes:  otp.New(pool, channel.NewStore(pool, keyring)),
-		pow:    work,
-		origin: http.NewCrossOriginProtection(),
+		issuer:    issuer,
+		q:         sqlc.New(pool),
+		ids:       identity.New(pool, keyring),
+		twoFactor: twofactor.New(pool, keyring),
+		codes:     otp.New(pool, channel.NewStore(pool, keyring)),
+		pow:       work,
+		origin:    http.NewCrossOriginProtection(),
 	}
 	store := oidcstore.New(pool, keyring)
 	store.Scopes = strings.Join([]string{goidc.ScopeOpenID.ID, goidc.ScopeOfflineAccess.ID, goidc.ScopePhone.ID, goidc.ScopeEmail.ID}, " ")
@@ -308,7 +308,7 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		}
 		form.Recovery = r.PostFormValue("recovery_code") != ""
 		amr := storedAMR(as.Store[storeAMR])
-		err := s.secondFactor(ctx, clientIP(r), pending, r.PostFormValue("totp"), r.PostFormValue("recovery_code"))
+		err := s.twoFactor.Check(ctx, clientIP(r), pending, r.PostFormValue("totp"), r.PostFormValue("recovery_code"))
 		switch {
 		case err == nil:
 			amr = withMFA(amr)
@@ -434,22 +434,7 @@ func (s *Service) needsTOTP(ctx context.Context, sub string, amr []string) (bool
 	if slices.Contains(amr, amrMFA) {
 		return false, nil
 	}
-	t, err := s.q.TOTP(ctx, sub)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	return err == nil && t.ConfirmedAt.Valid, err
-}
-
-// secondFactor checks sub's TOTP code, or 恢复码 when one is given; a wrong
-// one counts against ip.
-func (s *Service) secondFactor(ctx context.Context, ip, sub, totp, recoveryCode string) error {
-	return s.ids.FromIP(ctx, ip, func() error {
-		if recoveryCode != "" {
-			return s.tf.UseRecoveryCode(ctx, sub, recoveryCode)
-		}
-		return s.tf.CheckTOTP(ctx, sub, totp)
-	})
+	return s.twoFactor.On(ctx, sub)
 }
 
 // wrongSecondFactor reports whether err is a wrong TOTP code or 恢复码: one

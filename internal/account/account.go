@@ -41,20 +41,20 @@ const recent = 10 * time.Minute
 const DeletePath = "/v1/auth/delete"
 
 type Service struct {
-	issuer string
-	pool   *pgxpool.Pool
-	q      *sqlc.Queries
-	keys   *oidcstore.Keys
-	ids    *identity.Store
-	codes  *otp.Service
-	twoFA  *twofactor.Store
+	issuer    string
+	pool      *pgxpool.Pool
+	q         *sqlc.Queries
+	keys      *oidcstore.Keys
+	ids       *identity.Store
+	codes     *otp.Service
+	twoFactor *twofactor.Store
 }
 
 func New(pool *pgxpool.Pool, keyring *crypt.Keyring, issuer string) *Service {
 	return &Service{
 		issuer: issuer, pool: pool, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring),
 		ids: identity.New(pool, keyring), codes: otp.New(pool, channel.NewStore(pool, keyring)),
-		twoFA: twofactor.New(pool, keyring),
+		twoFactor: twofactor.New(pool, keyring),
 	}
 }
 
@@ -234,17 +234,8 @@ type kindBody struct {
 // errTwoFactorOnly refuses a code or the password to a User with 两步验证 on.
 const errTwoFactorOnly identity.Invalid = "已开启两步验证,请输入验证器中的验证码或恢复码"
 
-// twoFactorOn reports whether sub has 两步验证 on.
-func (s *Service) twoFactorOn(ctx context.Context, sub string) (bool, error) {
-	t, err := s.q.TOTP(ctx, sub)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	return t.ConfirmedAt.Valid, err
-}
-
 func (s *Service) sendReauthCode(ctx context.Context, in *kindBody) (*struct{}, error) {
-	if on, err := s.twoFactorOn(ctx, callerOf(ctx).sub); err != nil || on {
+	if on, err := s.twoFactor.On(ctx, callerOf(ctx).sub); err != nil || on {
 		return nil, fail(cmp.Or(err, error(errTwoFactorOnly)))
 	}
 	value, err := s.identifier(ctx, in.Body.Kind)
@@ -269,7 +260,7 @@ type reauthInput struct {
 // code does.
 func (s *Service) reauth(ctx context.Context, in *reauthInput) (*struct{}, error) {
 	c := callerOf(ctx)
-	on, err := s.twoFactorOn(ctx, c.sub)
+	on, err := s.twoFactor.On(ctx, c.sub)
 	if err != nil {
 		return nil, err
 	}
@@ -310,16 +301,10 @@ func (s *Service) reauth(ctx context.Context, in *reauthInput) (*struct{}, error
 // counts toward the IP lockout like a wrong code.
 func (s *Service) reauthTwoFactor(ctx context.Context, in *reauthInput) error {
 	c := callerOf(ctx)
-	err := s.ids.FromIP(ctx, c.ip, func() error {
-		switch {
-		case in.Body.TOTP != "":
-			return s.twoFA.CheckTOTP(ctx, c.sub, in.Body.TOTP)
-		case in.Body.RecoveryCode != "":
-			return s.twoFA.UseRecoveryCode(ctx, c.sub, in.Body.RecoveryCode)
-		}
+	if in.Body.TOTP == "" && in.Body.RecoveryCode == "" {
 		return errTwoFactorOnly
-	})
-	if err != nil {
+	}
+	if err := s.twoFactor.Check(ctx, c.ip, c.sub, in.Body.TOTP, in.Body.RecoveryCode); err != nil {
 		return err
 	}
 	return s.q.Reauthenticate(ctx, sqlc.ReauthenticateParams{ID: c.session, UserID: c.sub, Amr: []string{"otp", "mfa"}})
@@ -433,7 +418,7 @@ func (s *Service) beginTOTP(ctx context.Context, _ *struct{}) (*totpOutput, erro
 		return nil, err
 	}
 	out := &totpOutput{}
-	if out.Body.Secret, err = s.twoFA.Begin(ctx, sub); err != nil {
+	if out.Body.Secret, err = s.twoFactor.Begin(ctx, sub); err != nil {
 		return nil, twoFactorErr(err)
 	}
 	u, err := url.Parse(s.issuer)
@@ -485,7 +470,7 @@ func (s *Service) confirmTOTP(ctx context.Context, in *confirmTOTPInput) (*recov
 	}
 	out := &recoveryCodesOutput{}
 	var err error
-	out.Body.RecoveryCodes, err = s.twoFA.Confirm(ctx, callerOf(ctx).sub, in.Body.Code)
+	out.Body.RecoveryCodes, err = s.twoFactor.Confirm(ctx, callerOf(ctx).sub, in.Body.Code)
 	return out, twoFactorErr(err)
 }
 
@@ -501,7 +486,7 @@ func (s *Service) disableTwoFactor(ctx context.Context, _ *struct{}) (*struct{},
 	} else if must {
 		return nil, huma.Error409Conflict("管理员必须启用两步验证,你持有管理员角色,不能关闭")
 	}
-	return nil, twoFactorErr(s.twoFA.Disable(ctx, sub, "mfa.disabled", sub))
+	return nil, twoFactorErr(s.twoFactor.Disable(ctx, sub, "mfa.disabled", sub))
 }
 
 func (s *Service) regenerateRecoveryCodes(ctx context.Context, _ *struct{}) (*recoveryCodesOutput, error) {
@@ -510,7 +495,7 @@ func (s *Service) regenerateRecoveryCodes(ctx context.Context, _ *struct{}) (*re
 	}
 	out := &recoveryCodesOutput{}
 	var err error
-	out.Body.RecoveryCodes, err = s.twoFA.RegenerateRecoveryCodes(ctx, callerOf(ctx).sub)
+	out.Body.RecoveryCodes, err = s.twoFactor.RegenerateRecoveryCodes(ctx, callerOf(ctx).sub)
 	return out, twoFactorErr(err)
 }
 

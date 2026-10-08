@@ -215,7 +215,7 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 		if totp == "" && recoveryCode == "" {
 			return mistake(identity.Invalid("两步验证 is on: send totp or recovery_code"))
 		}
-		err := s.secondFactor(ctx, clientIP(r), p.Sub, totp, recoveryCode)
+		err := s.twoFactor.Check(ctx, clientIP(r), p.Sub, totp, recoveryCode)
 		switch {
 		case err == nil:
 			return signedIn(p.Sub, time.Unix(p.AuthTime, 0), withMFA(p.AMR))

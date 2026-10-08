@@ -30,17 +30,17 @@ import (
 const Prefix = "/v1/management"
 
 type Service struct {
-	issuer   string
-	pool     *pgxpool.Pool
-	keyring  *crypt.Keyring
-	q        *sqlc.Queries
-	keys     *oidcstore.Keys
-	channels *channel.Store
-	mfa      *twofactor.Store
+	issuer    string
+	pool      *pgxpool.Pool
+	keyring   *crypt.Keyring
+	q         *sqlc.Queries
+	keys      *oidcstore.Keys
+	channels  *channel.Store
+	twoFactor *twofactor.Store
 }
 
 func New(pool *pgxpool.Pool, keyring *crypt.Keyring, issuer string) *Service {
-	return &Service{issuer: issuer, pool: pool, keyring: keyring, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring), channels: channel.NewStore(pool, keyring), mfa: twofactor.New(pool, keyring)}
+	return &Service{issuer: issuer, pool: pool, keyring: keyring, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring), channels: channel.NewStore(pool, keyring), twoFactor: twofactor.New(pool, keyring)}
 }
 
 type callerKey struct{}

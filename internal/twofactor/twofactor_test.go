@@ -47,10 +47,24 @@ func TestChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := twofactor.New(pool, keyring)
+	on := func() bool {
+		t.Helper()
+		on, err := s.On(ctx, "ALICE")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return on
+	}
+	if on() {
+		t.Error("on with no TOTP")
+	}
 
 	secret, err := s.Begin(ctx, "ALICE")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if on() {
+		t.Error("on before confirming")
 	}
 	now := time.Now()
 	if err := s.CheckTOTP(ctx, "ALICE", code(t, secret, now)); !errors.Is(err, twofactor.ErrOff) {
@@ -59,6 +73,9 @@ func TestChecks(t *testing.T) {
 	codes, err := s.Confirm(ctx, "ALICE", code(t, secret, now.Add(-30*time.Second)))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !on() {
+		t.Error("off after confirming")
 	}
 	for _, c := range []string{code(t, secret, now.Add(-30*time.Second)), code(t, secret, now.Add(-90*time.Second))} {
 		if err := s.CheckTOTP(ctx, "ALICE", c); !errors.Is(err, twofactor.ErrCode) {
