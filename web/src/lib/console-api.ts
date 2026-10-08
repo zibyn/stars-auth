@@ -85,6 +85,7 @@ export type Policy = {
 	privacyUrl: string;
 	termsVersion: string;
 	auditRetentionDays: number;
+	adminsNeedTwoFactor: boolean;
 };
 export type SigningKey = { kid: string; createdAt: string; current: boolean };
 
