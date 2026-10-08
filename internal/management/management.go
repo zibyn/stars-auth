@@ -22,6 +22,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/db/sqlc"
 	"github.com/zibyn/stars-auth/internal/identity"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
+	"github.com/zibyn/stars-auth/internal/provider"
 	"github.com/zibyn/stars-auth/internal/twofactor"
 )
 
@@ -37,10 +38,11 @@ type Service struct {
 	keys      *oidcstore.Keys
 	channels  *channel.Store
 	twoFactor *twofactor.Store
+	providers *provider.Store
 }
 
 func New(pool *pgxpool.Pool, keyring *crypt.Keyring, issuer string) *Service {
-	return &Service{issuer: issuer, pool: pool, keyring: keyring, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring), channels: channel.NewStore(pool, keyring), twoFactor: twofactor.New(pool, keyring)}
+	return &Service{issuer: issuer, pool: pool, keyring: keyring, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring), channels: channel.NewStore(pool, keyring), twoFactor: twofactor.New(pool, keyring), providers: provider.NewStore(pool, keyring)}
 }
 
 type callerKey struct{}
@@ -105,6 +107,12 @@ func (s *Service) Register(mux *http.ServeMux) {
 	get(api, "list-channels", "config:read", "/channels", "Channel plugins and the enabled Channel of each Identifier kind", s.listChannels)
 	op(api, http.MethodPut, "put-channel", "config:write", "/channels/{kind}", "Enable and configure the Channel of an Identifier kind", s.putChannel)
 	op(api, http.MethodDelete, "delete-channel", "config:write", "/channels/{kind}", "Turn off codes of an Identifier kind", s.deleteChannel)
+	get(api, "list-providers", "config:read", "/providers", "Provider types and the Providers added, with how many Users each signs in", s.listProviders)
+	op(api, http.MethodPost, "create-provider", "config:write", "/providers", "Add a Provider", s.createProvider, http.StatusConflict)
+	op(api, http.MethodPut, "update-provider", "config:write", "/providers/{id}", "Change a Provider's name and settings; its ID and Immutable fields stay", s.updateProvider)
+	op(api, http.MethodPost, "enable-provider", "config:write", "/providers/{id}/enable", "Put a Provider back on the login page", s.enableProvider)
+	op(api, http.MethodPost, "disable-provider", "config:write", "/providers/{id}/disable", "Take a Provider off the login page; its Users cannot sign in with it", s.disableProvider)
+	op(api, http.MethodDelete, "delete-provider", "config:write", "/providers/{id}", "Delete a Provider no User is bound to", s.deleteProvider, http.StatusConflict)
 	get(api, "get-settings", "config:read", "/settings", "The login policy", s.getSettings)
 	op(api, http.MethodPut, "put-settings", "config:write", "/settings", "Change the login policy", s.putSettings)
 	get(api, "list-signing-keys", "config:read", "/signing-keys", "The token signing keys", s.listKeys)

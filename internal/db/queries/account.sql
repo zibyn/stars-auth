@@ -34,7 +34,8 @@ SELECT id FROM users WHERE id = $1 FOR UPDATE;
 -- name: LoginPaths :one
 -- What a User could sign in with (docs/spec/identity.md#不变式).
 SELECT COALESCE(array_agg(kind ORDER BY kind) FILTER (WHERE kind IS NOT NULL), '{}')::text[] AS identifiers,
-       EXISTS (SELECT 1 FROM passwords p WHERE p.user_id = $1) AS has_password
+       EXISTS (SELECT 1 FROM passwords p WHERE p.user_id = $1) AS has_password,
+       EXISTS (SELECT 1 FROM external_identities e WHERE e.user_id = $1) AS has_external_identity
 FROM identifiers WHERE user_id = $1;
 
 -- name: RemoveIdentifier :execrows

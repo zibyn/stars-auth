@@ -62,7 +62,7 @@ func bound(n int64, err error) error {
 
 // changeLoginPaths runs change with the User locked, and undoes it if it
 // leaves them no way to sign in (invariant 1): a phone number, an email,
-// or a username with a password.
+// a username with a password, or an External Identity.
 func (s *Store) changeLoginPaths(ctx context.Context, sub string, change func(*sqlc.Queries) error) error {
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
@@ -75,6 +75,9 @@ func (s *Store) changeLoginPaths(ctx context.Context, sub string, change func(*s
 		paths, err := q.LoginPaths(ctx, sub)
 		if err != nil {
 			return err
+		}
+		if paths.HasExternalIdentity {
+			return nil
 		}
 		for _, kind := range paths.Identifiers {
 			if kind != "username" || paths.HasPassword {

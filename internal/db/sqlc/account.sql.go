@@ -81,20 +81,22 @@ func (q *Queries) LockUser(ctx context.Context, id string) (string, error) {
 
 const loginPaths = `-- name: LoginPaths :one
 SELECT COALESCE(array_agg(kind ORDER BY kind) FILTER (WHERE kind IS NOT NULL), '{}')::text[] AS identifiers,
-       EXISTS (SELECT 1 FROM passwords p WHERE p.user_id = $1) AS has_password
+       EXISTS (SELECT 1 FROM passwords p WHERE p.user_id = $1) AS has_password,
+       EXISTS (SELECT 1 FROM external_identities e WHERE e.user_id = $1) AS has_external_identity
 FROM identifiers WHERE user_id = $1
 `
 
 type LoginPathsRow struct {
-	Identifiers []string
-	HasPassword bool
+	Identifiers         []string
+	HasPassword         bool
+	HasExternalIdentity bool
 }
 
 // What a User could sign in with (docs/spec/identity.md#不变式).
 func (q *Queries) LoginPaths(ctx context.Context, userID string) (LoginPathsRow, error) {
 	row := q.db.QueryRow(ctx, loginPaths, userID)
 	var i LoginPathsRow
-	err := row.Scan(&i.Identifiers, &i.HasPassword)
+	err := row.Scan(&i.Identifiers, &i.HasPassword, &i.HasExternalIdentity)
 	return i, err
 }
 

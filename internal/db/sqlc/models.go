@@ -70,6 +70,14 @@ type Consent struct {
 	At       pgtype.Timestamptz
 }
 
+type ExternalIdentity struct {
+	Provider  string
+	Subject   string
+	UserID    string
+	Token     []byte
+	CreatedAt pgtype.Timestamptz
+}
+
 type Identifier struct {
 	UserID string
 	Kind   string
@@ -138,6 +146,31 @@ type Permission struct {
 type PowSpent struct {
 	Signature string
 	ExpiresAt pgtype.Timestamptz
+}
+
+type Provider struct {
+	ID        string
+	Type      string
+	Name      string
+	Enabled   bool
+	Config    []byte
+	CreatedAt pgtype.Timestamptz
+}
+
+type ProviderLogin struct {
+	StateHash    []byte
+	Provider     string
+	Nonce        string
+	Verifier     string
+	AuthnSession string
+	ExpiresAt    pgtype.Timestamptz
+}
+
+type ProviderSecret struct {
+	Provider  string
+	Field     string
+	Value     []byte
+	UpdatedAt pgtype.Timestamptz
 }
 
 type RecoveryCode struct {
