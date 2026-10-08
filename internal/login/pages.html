@@ -81,7 +81,27 @@ altcha-widget { --altcha-border-radius: 8px; --altcha-color-border: var(--line);
 {{define "agreed"}}{{if not .Bind}}{{with .Terms.TermsVersion}}<input type="hidden" name="agree" value="{{.}}">{{end}}{{end}}{{end}}
 
 {{define "login"}}{{template "head" "登录"}}
-{{if .Consent}}<h1>{{if .Terms.TermsVersion}}协议已更新{{else}}继续登录{{end}}</h1>
+{{if .TOTP}}<h1>两步验证</h1>
+{{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
+<form method="post" action="{{.Action}}">
+  <input type="hidden" name="op" value="totp">
+  {{if .Recovery}}
+  <p>输入一个未用过的恢复码,每个恢复码只能用一次。</p>
+  <label>恢复码
+    <input name="recovery_code" autocomplete="off" autocapitalize="none" spellcheck="false" required autofocus>
+  </label>
+  <button>登录</button>
+  <a href="{{.Action}}">使用验证器</a>
+  {{else}}
+  <p>打开验证器 App,输入其中显示的 6 位验证码。</p>
+  <label>验证码
+    <input name="totp" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autofocus>
+  </label>
+  <button>登录</button>
+  <a href="{{.Action}}?recovery">使用恢复码</a>
+  {{end}}
+</form>
+{{else if .Consent}}<h1>{{if .Terms.TermsVersion}}协议已更新{{else}}继续登录{{end}}</h1>
 {{if .Terms.TermsVersion}}<p>继续之前,请阅读并同意新版协议。</p>{{end}}
 {{with .Error}}<p class="error" role="alert">{{.}}</p>{{end}}
 <form method="post" action="{{.Action}}">

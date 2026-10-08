@@ -31,8 +31,8 @@ const (
 	ErrOn           identity.Invalid = "两步验证已开启"
 	ErrOff          identity.Invalid = "两步验证未开启"
 	ErrNotBegun     identity.Invalid = "请先扫码添加验证器"
-	ErrCode         identity.Invalid = "验证码不正确或已用过"
-	ErrRecoveryCode identity.Invalid = "恢复码不正确或已用过"
+	ErrCode         = identity.ErrWrongTOTP
+	ErrRecoveryCode = identity.ErrWrongRecoveryCode
 )
 
 // recoveryCodes is how many 恢复码 a set has.
