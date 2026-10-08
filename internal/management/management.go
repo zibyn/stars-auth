@@ -166,6 +166,7 @@ func (s *Service) authorize(api huma.API) func(huma.Context, func(huma.Context))
 			_ = huma.WriteErr(api, ctx, http.StatusForbidden, "not an admin")
 			return
 		}
+		// No client_credentials exemption yet: the provider doesn't enable that grant, and a client's sub holds no Role.
 		if c.TwoFactorRequired && !c.TwoFactor {
 			// The console shows a page sending the admin to the account center.
 			ctx.SetHeader("Content-Type", "application/problem+json")
