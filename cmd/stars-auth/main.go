@@ -19,10 +19,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/zibyn/stars-auth/internal/account"
-	// Channel plugins register themselves (ADR 0004).
+	// Channel plugins and Provider types register themselves (ADR 0004).
 	_ "github.com/zibyn/stars-auth/internal/channel/aliyun"
 	_ "github.com/zibyn/stars-auth/internal/channel/smtp"
 	_ "github.com/zibyn/stars-auth/internal/channel/webhook"
+	_ "github.com/zibyn/stars-auth/internal/provider/oidc"
 	"github.com/zibyn/stars-auth/internal/config"
 	"github.com/zibyn/stars-auth/internal/crypt"
 	"github.com/zibyn/stars-auth/internal/db"
