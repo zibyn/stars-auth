@@ -25,7 +25,9 @@ func (q *Queries) APIBuiltin(ctx context.Context, identifier string) (bool, erro
 const caller = `-- name: Caller :one
 SELECT count(*) > 0 AS admin,
        COALESCE(array_agg(DISTINCT rp.permission ORDER BY rp.permission)
-                FILTER (WHERE rp.permission IS NOT NULL), '{}')::text[] AS permissions
+                FILTER (WHERE rp.permission IS NOT NULL), '{}')::text[] AS permissions,
+       EXISTS (SELECT 1 FROM totp_credentials t WHERE t.user_id = $1 AND t.confirmed_at IS NOT NULL) AS two_factor,
+       (SELECT admins_need_two_factor FROM settings) AS two_factor_required
 FROM user_roles ur LEFT JOIN role_permissions rp USING (api, role)
 WHERE ur.user_id = $1 AND ur.api = $2
   AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = ur.user_id AND u.disabled_at IS NOT NULL)
@@ -37,16 +39,23 @@ type CallerParams struct {
 }
 
 type CallerRow struct {
-	Admin       bool
-	Permissions []string
+	Admin             bool
+	Permissions       []string
+	TwoFactor         bool
+	TwoFactorRequired bool
 }
 
 // Holding any Role on the API makes an admin, even one with no Permissions;
-// a disabled User is none.
+// a disabled User is none. Admins must use 两步验证 when the settings say so.
 func (q *Queries) Caller(ctx context.Context, arg CallerParams) (CallerRow, error) {
 	row := q.db.QueryRow(ctx, caller, arg.UserID, arg.Api)
 	var i CallerRow
-	err := row.Scan(&i.Admin, &i.Permissions)
+	err := row.Scan(
+		&i.Admin,
+		&i.Permissions,
+		&i.TwoFactor,
+		&i.TwoFactorRequired,
+	)
 	return i, err
 }
 
@@ -165,18 +174,20 @@ func (q *Queries) DeleteUser(ctx context.Context, arg DeleteUserParams) (int64, 
 }
 
 const getSettings = `-- name: GetSettings :one
-SELECT password_login, require_phone, daily_send_limit, terms_url, privacy_url, terms_version, audit_retention_days
+SELECT password_login, require_phone, daily_send_limit, terms_url, privacy_url, terms_version, audit_retention_days,
+       admins_need_two_factor
 FROM settings
 `
 
 type GetSettingsRow struct {
-	PasswordLogin      string
-	RequirePhone       bool
-	DailySendLimit     int32
-	TermsUrl           string
-	PrivacyUrl         string
-	TermsVersion       string
-	AuditRetentionDays int32
+	PasswordLogin       string
+	RequirePhone        bool
+	DailySendLimit      int32
+	TermsUrl            string
+	PrivacyUrl          string
+	TermsVersion        string
+	AuditRetentionDays  int32
+	AdminsNeedTwoFactor bool
 }
 
 func (q *Queries) GetSettings(ctx context.Context) (GetSettingsRow, error) {
@@ -190,6 +201,7 @@ func (q *Queries) GetSettings(ctx context.Context) (GetSettingsRow, error) {
 		&i.PrivacyUrl,
 		&i.TermsVersion,
 		&i.AuditRetentionDays,
+		&i.AdminsNeedTwoFactor,
 	)
 	return i, err
 }
@@ -201,7 +213,8 @@ SELECT u.id, u.created_at, u.disabled_at,
        COALESCE((SELECT json_agg(json_build_object('api', r.api, 'key', r.key, 'name', r.name) ORDER BY r.api, r.key)
                  FROM user_roles ur JOIN roles r ON r.api = ur.api AND r.key = ur.role
                  WHERE ur.user_id = u.id), '[]')::jsonb AS roles,
-       EXISTS (SELECT 1 FROM passwords p WHERE p.user_id = u.id) AS has_password
+       EXISTS (SELECT 1 FROM passwords p WHERE p.user_id = u.id) AS has_password,
+       EXISTS (SELECT 1 FROM totp_credentials t WHERE t.user_id = u.id AND t.confirmed_at IS NOT NULL) AS two_factor
 FROM users u
 WHERE u.id = $1
 `
@@ -213,6 +226,7 @@ type GetUserRow struct {
 	Identifiers []byte
 	Roles       []byte
 	HasPassword bool
+	TwoFactor   bool
 }
 
 func (q *Queries) GetUser(ctx context.Context, id string) (GetUserRow, error) {
@@ -225,6 +239,7 @@ func (q *Queries) GetUser(ctx context.Context, id string) (GetUserRow, error) {
 		&i.Identifiers,
 		&i.Roles,
 		&i.HasPassword,
+		&i.TwoFactor,
 	)
 	return i, err
 }
@@ -876,21 +891,23 @@ const updateSettings = `-- name: UpdateSettings :exec
 WITH u AS (
     UPDATE settings SET password_login = $2, require_phone = $3,
         daily_send_limit = $4, terms_url = $5, privacy_url = $6,
-        terms_version = $7, audit_retention_days = $8
+        terms_version = $7, audit_retention_days = $8,
+        admins_need_two_factor = $9
 )
 INSERT INTO audit_log (event, sub, detail)
 VALUES ('settings.updated', NULL, jsonb_build_object('by', $1::text))
 `
 
 type UpdateSettingsParams struct {
-	By                 string
-	PasswordLogin      string
-	RequirePhone       bool
-	DailySendLimit     int32
-	TermsUrl           string
-	PrivacyUrl         string
-	TermsVersion       string
-	AuditRetentionDays int32
+	By                  string
+	PasswordLogin       string
+	RequirePhone        bool
+	DailySendLimit      int32
+	TermsUrl            string
+	PrivacyUrl          string
+	TermsVersion        string
+	AuditRetentionDays  int32
+	AdminsNeedTwoFactor bool
 }
 
 // Changes the login policy; audited with who did it.
@@ -904,6 +921,7 @@ func (q *Queries) UpdateSettings(ctx context.Context, arg UpdateSettingsParams) 
 		arg.PrivacyUrl,
 		arg.TermsVersion,
 		arg.AuditRetentionDays,
+		arg.AdminsNeedTwoFactor,
 	)
 	return err
 }

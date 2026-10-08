@@ -22,6 +22,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/db/sqlc"
 	"github.com/zibyn/stars-auth/internal/identity"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
+	"github.com/zibyn/stars-auth/internal/twofactor"
 )
 
 // Prefix is where the Management API lives; its OpenAPI document is at
@@ -29,16 +30,17 @@ import (
 const Prefix = "/v1/management"
 
 type Service struct {
-	issuer   string
-	pool     *pgxpool.Pool
-	keyring  *crypt.Keyring
-	q        *sqlc.Queries
-	keys     *oidcstore.Keys
-	channels *channel.Store
+	issuer    string
+	pool      *pgxpool.Pool
+	keyring   *crypt.Keyring
+	q         *sqlc.Queries
+	keys      *oidcstore.Keys
+	channels  *channel.Store
+	twoFactor *twofactor.Store
 }
 
 func New(pool *pgxpool.Pool, keyring *crypt.Keyring, issuer string) *Service {
-	return &Service{issuer: issuer, pool: pool, keyring: keyring, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring), channels: channel.NewStore(pool, keyring)}
+	return &Service{issuer: issuer, pool: pool, keyring: keyring, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring), channels: channel.NewStore(pool, keyring), twoFactor: twofactor.New(pool, keyring)}
 }
 
 type callerKey struct{}
@@ -48,7 +50,12 @@ type callerKey struct{}
 type caller struct {
 	sub         string
 	permissions []string
+	twoFactor   bool // 两步验证 is on
 }
+
+// TwoFactorRequired is the code of the 403 an admin without 两步验证 gets
+// while 管理员必须启用两步验证 is on.
+const TwoFactorRequired = "two_factor_required"
 
 // Register adds the Management API and its OpenAPI document to mux.
 func (s *Service) Register(mux *http.ServeMux) {
@@ -74,6 +81,7 @@ func (s *Service) Register(mux *http.ServeMux) {
 	op(api, http.MethodPost, "disable-user", "users:write", "/users/{sub}/disable", "Disable a User: no logins, every Session ended", s.disableUser, http.StatusConflict)
 	op(api, http.MethodPost, "enable-user", "users:write", "/users/{sub}/enable", "Restore a disabled User", s.enableUser, http.StatusConflict)
 	op(api, http.MethodDelete, "delete-user", "users:write", "/users/{sub}", "Delete a User and all their data", s.deleteUser, http.StatusConflict)
+	op(api, http.MethodDelete, "reset-two-factor", "users:write", "/users/{sub}/2fa", "Reset a User's 两步验证: their TOTP and 恢复码 go, their Sessions stay", s.resetTwoFactor, http.StatusConflict)
 	op(api, http.MethodPut, "replace-identifier", "users:write", "/users/{sub}/identifiers/{kind}", "Set a User's Identifier of a kind, replacing theirs", s.replaceIdentifier, http.StatusConflict)
 	get(api, "overview", "users:read", "/overview", "Counts for the console's overview", s.overview)
 	get(api, "list-audit", "audit:read", "/audit", "Search the audit log", s.listAudit)
@@ -158,11 +166,22 @@ func (s *Service) authorize(api huma.API) func(huma.Context, func(huma.Context))
 			_ = huma.WriteErr(api, ctx, http.StatusForbidden, "not an admin")
 			return
 		}
+		// No client_credentials exemption yet: the provider doesn't enable that grant, and a client's sub holds no Role.
+		if c.TwoFactorRequired && !c.TwoFactor {
+			// The console shows a page sending the admin to the account center.
+			ctx.SetHeader("Content-Type", "application/problem+json")
+			ctx.SetStatus(http.StatusForbidden)
+			_ = json.NewEncoder(ctx.BodyWriter()).Encode(struct {
+				huma.ErrorModel
+				Code string `json:"code"`
+			}{huma.ErrorModel{Title: "Forbidden", Status: http.StatusForbidden, Detail: "需要先开启两步验证"}, TwoFactorRequired})
+			return
+		}
 		if want != "" && !slices.Contains(c.Permissions, want) {
 			_ = huma.WriteErr(api, ctx, http.StatusForbidden, "missing permission "+want)
 			return
 		}
-		next(huma.WithValue(ctx, callerKey{}, caller{sub: sub, permissions: c.Permissions}))
+		next(huma.WithValue(ctx, callerKey{}, caller{sub: sub, permissions: c.Permissions, twoFactor: c.TwoFactor}))
 		s.auditWrite(ctx, sub)
 	}
 }
@@ -189,6 +208,7 @@ type User struct {
 type UserDetail struct {
 	User
 	HasPassword bool `json:"hasPassword"`
+	TwoFactor   bool `json:"twoFactor" doc:"两步验证 is on"`
 }
 
 type meOutput struct {
@@ -277,7 +297,7 @@ func (s *Service) getUser(ctx context.Context, in *struct {
 	if err != nil {
 		return nil, err
 	}
-	return &getUserOutput{Body: UserDetail{User: u, HasPassword: r.HasPassword}}, nil
+	return &getUserOutput{Body: UserDetail{User: u, HasPassword: r.HasPassword, TwoFactor: r.TwoFactor}}, nil
 }
 
 func user(sub string, created time.Time, disabled pgtype.Timestamptz, identifiers, roles []byte) (User, error) {

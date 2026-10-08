@@ -28,11 +28,15 @@ const (
 	ErrIPLocked       Invalid = "失败次数过多,请 1 小时后再试"
 	// ErrWrongCode is otp's; FromIP counts it.
 	ErrWrongCode Invalid = "验证码错误或已失效"
+	// ErrWrongTOTP and ErrWrongRecoveryCode are twofactor's; FromIP counts
+	// them.
+	ErrWrongTOTP         Invalid = "验证码不正确或已用过"
+	ErrWrongRecoveryCode Invalid = "恢复码不正确或已用过"
 )
 
 // FromIP runs check, a password or code check made from ip: refused while
-// ip is locked out, and a wrong password or code, or a password tried on
-// a locked User, counts toward locking it out.
+// ip is locked out, and a wrong password, code, TOTP code or 恢复码, or a
+// password tried on a locked User, counts toward locking it out.
 func (s *Store) FromIP(ctx context.Context, ip string, check func() error) error {
 	key := "ip:" + ip
 	if locked, err := s.q.LockedOut(ctx, key); err != nil {
@@ -41,7 +45,7 @@ func (s *Store) FromIP(ctx context.Context, ip string, check func() error) error
 		return ErrIPLocked
 	}
 	err := check()
-	if err == ErrBadCredentials || err == ErrPasswordLocked || err == ErrWrongCode { //nolint:errorlint // never wrapped
+	if err == ErrBadCredentials || err == ErrPasswordLocked || err == ErrWrongCode || err == ErrWrongTOTP || err == ErrWrongRecoveryCode { //nolint:errorlint // never wrapped
 		detail, _ := json.Marshal(map[string]string{"ip": ip})
 		if _, dbErr := s.failed(ctx, key, ipFailures, ipWindow, ipLock, sqlc.AuditParams{Event: "login.ip_locked", Detail: detail}); dbErr != nil {
 			return dbErr

@@ -9,6 +9,7 @@ import (
 
 	"github.com/zibyn/stars-auth/internal/db/sqlc"
 	"github.com/zibyn/stars-auth/internal/identity"
+	"github.com/zibyn/stars-auth/internal/twofactor"
 )
 
 type subPath struct {
@@ -113,6 +114,19 @@ func (s *Service) replaceIdentifier(ctx context.Context, in *replaceIdentifierIn
 	_, err = s.q.ReplaceIdentifier(ctx, sqlc.ReplaceIdentifierParams{UserID: in.Sub, Kind: in.Kind, Value: value, By: callerSub(ctx)})
 	if isUniqueViolation(err) {
 		return nil, huma.Error409Conflict(identity.ErrIdentifierTaken.Error())
+	}
+	return nil, err
+}
+
+// resetTwoFactor is for a User who lost both their authenticator and 恢复码;
+// the admin checked who they are offline.
+func (s *Service) resetTwoFactor(ctx context.Context, in *subPath) (*struct{}, error) {
+	if err := s.mayManage(ctx, in.Sub); err != nil {
+		return nil, err
+	}
+	err := s.twoFactor.Disable(ctx, in.Sub, "mfa.reset", callerSub(ctx))
+	if errors.Is(err, twofactor.ErrOff) || errors.Is(err, twofactor.ErrNotBegun) {
+		return nil, huma.Error409Conflict("该 User 未开启两步验证")
 	}
 	return nil, err
 }

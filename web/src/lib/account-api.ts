@@ -22,7 +22,13 @@ export type Me = {
 	hasPassword: boolean;
 	passwordAllowed: boolean;
 	recentAuthUntil: string;
+	twoFactor: {
+		enabled: boolean;
+		enabledAt?: string;
+		recoveryCodesLeft: number;
+	};
 };
+export type TOTPSetup = { uri: string; secret: string };
 export type Session = {
 	id: string;
 	kind: "browser" | "app";

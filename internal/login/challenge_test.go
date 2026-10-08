@@ -18,6 +18,7 @@ type challengeResp struct {
 	Code        string `json:"authorization_code"`
 	Error       string `json:"error"`
 	AuthSession string `json:"auth_session"`
+	Next        string `json:"next"`
 }
 
 // challenge posts form to the direct auth API, as App clientID, with the
@@ -54,7 +55,7 @@ func (e *env) appCodeLogin(phone string) string {
 	}
 	sent := e.challenge(url.Values{"identifier": {phone}, "altcha": {e.solve()}})
 	code := e.inbox.take(phone)
-	if sent.Status != 403 || sent.Error != "insufficient_authorization" || sent.AuthSession == "" || code == "" {
+	if sent.Status != 403 || sent.Error != "insufficient_authorization" || sent.Next != "code" || sent.AuthSession == "" || code == "" {
 		e.t.Fatalf("send: %+v", sent)
 	}
 	done := e.challenge(url.Values{"auth_session": {sent.AuthSession}, "code": {code}})
@@ -178,14 +179,19 @@ func TestDirectLoginBindsRequiredPhone(t *testing.T) {
 	}
 	sent := e.challenge(url.Values{"identifier": {"a@example.com"}, "altcha": {e.solve()}})
 	bind := e.challenge(url.Values{"auth_session": {sent.AuthSession}, "code": {e.inbox.take("a@example.com")}})
-	if bind.Status != 403 || bind.Error != "insufficient_authorization" || bind.AuthSession != sent.AuthSession {
+	if sent.Next != "code" {
+		t.Errorf("send: %+v", sent)
+	}
+	if bind.Status != 403 || bind.Error != "insufficient_authorization" || bind.Next != "phone" || bind.AuthSession != sent.AuthSession {
 		t.Fatalf("want a bind step: %+v", bind)
 	}
 	if r := e.challenge(url.Values{"auth_session": {bind.AuthSession}, "identifier": {"b@example.com"}, "altcha": {e.solve()}}); r.Status != 400 {
 		t.Errorf("bind an email: %+v", r)
 	}
 	const phone = "+8613900139000"
-	e.challenge(url.Values{"auth_session": {bind.AuthSession}, "identifier": {phone}, "altcha": {e.solve()}})
+	if r := e.challenge(url.Values{"auth_session": {bind.AuthSession}, "identifier": {phone}, "altcha": {e.solve()}}); r.Next != "code" {
+		t.Errorf("send to the phone to bind: %+v", r)
+	}
 	done := e.challenge(url.Values{"auth_session": {bind.AuthSession}, "code": {e.inbox.take(phone)}})
 	if done.Status != 200 {
 		t.Fatalf("after binding: %+v", done)

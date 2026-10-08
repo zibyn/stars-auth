@@ -38,7 +38,8 @@ User (sub: 不透明、稳定、永不复用)
 
 ### 换绑与解绑
 
-- 都要求**近期重新认证**:10 分钟内用任一方式认证过;已开启 2FA 的,必须包含 TOTP 或 Passkey。也可以用自己已绑定的 Provider 重新认证:通用 OIDC 带 `prompt=login` 和 `max_age=0`,并校验 `auth_time`。
+- 都要求**近期重新认证**:这个 Session 10 分钟内认证过,只看认证时间。没开两步验证的 User 用自己已绑定的手机号或邮箱收验证码,或者用密码重新认证。也可以用自己已绑定的 Provider 重新认证:通用 OIDC 带 `prompt=login` 和 `max_age=0`,并校验 `auth_time`。
+- 开了两步验证的 User 只能用 TOTP 或恢复码重新认证,验证码和密码一律拒绝,这样拿到手机号或密码的人做不了敏感操作。同一个时间步的码只能用一次,恢复码用过即作废(记审计 `recovery_code.used`);输错计入单个 IP 的失败计数。成功后这个 Session 的 `amr` 记为 `["otp", "mfa"]`。
 - 新的手机号或邮箱要用验证码验证;旧的不要求。
 - 解绑规则相同,受不变式 1 约束。
 - **绑定 External Identity**:只在账号中心,用重定向型 Provider 完成;直连 API 不提供绑定。解绑时触发该 Provider 的解绑回调(如 Apple 吊销令牌)。

@@ -31,19 +31,76 @@ export const passwordSchema = z.object({
 	password: z.string().refine((v) => [...v].length >= 8, "密码至少 8 位"),
 });
 
-// reauthSchema checks the password, or the code once it is sent.
-export const reauthSchema = (
-	method: "phone" | "email" | "password",
-	sent: boolean,
-) =>
+const totp = z
+	.string()
+	.trim()
+	.regex(/^\d{6}$/, "请输入验证器中的 6 位数字");
+
+// A recovery code, xxxx-xxxx, in any case with or without the dash.
+const recoveryCode = z
+	.string()
+	.refine(
+		(v) => /^[a-z2-7]{8}$/i.test(v.replace(/[\s-]/g, "")),
+		"请输入恢复码,形如 xxxx-xxxx",
+	);
+
+// reauthMethods is, per way of reauthenticating, how its secret is checked,
+// sent to POST /reauth and typed in.
+const codeMethod = (kind: "phone" | "email") =>
+	({
+		schema: code,
+		body: (secret: string) => ({ kind, code: secret }),
+		label: "验证码",
+		input: {
+			inputMode: "numeric",
+			autoComplete: "one-time-code",
+			placeholder: "6 位验证码",
+		},
+	}) as const;
+export const reauthMethods = {
+	phone: codeMethod("phone"),
+	email: codeMethod("email"),
+	password: {
+		schema: z.string().min(1, "请输入密码"),
+		body: (secret: string) => ({ password: secret }),
+		label: "密码",
+		input: { type: "password", autoComplete: "current-password" },
+	},
+	totp: {
+		schema: totp,
+		body: (secret: string) => ({ totp: secret.trim() }),
+		label: "验证器中的验证码",
+		input: {
+			inputMode: "numeric",
+			autoComplete: "one-time-code",
+			placeholder: "6 位数字",
+		},
+	},
+	recovery: {
+		schema: recoveryCode,
+		body: (secret: string) => ({ recoveryCode: secret }),
+		label: "恢复码",
+		input: { autoComplete: "off", placeholder: "xxxx-xxxx" },
+	},
+} as const;
+
+export type ReauthMethod = keyof typeof reauthMethods;
+
+// reauthSchema checks the secret of method; a code only once it is sent.
+export const reauthSchema = (method: ReauthMethod, sent: boolean) =>
 	z.object({
 		secret:
-			method === "password"
-				? z.string().min(1, "请输入密码")
-				: sent
-					? code
-					: z.string(),
+			(method === "phone" || method === "email") && !sent
+				? z.string()
+				: reauthMethods[method].schema,
 	});
+
+// totpSchema checks a code from the authenticator, confirming the TOTP.
+export const totpSchema = z.object({ code: totp });
+
+// recoveryCodesText is the file the recovery codes download as.
+export const recoveryCodesText = (host: string, codes: string[]) =>
+	`${host} 两步验证恢复码\n每个只能用一次。\n\n${codes.join("\n")}\n`;
 
 export const deleteSchema = z.object({
 	confirm: z.string().refine((v) => v.trim() === "注销", "请输入「注销」确认"),

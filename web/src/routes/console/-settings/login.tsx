@@ -43,7 +43,45 @@ export function LoginTab() {
 			<PasswordLogin current={p} editable={editable} />
 			<RequirePhone current={p} editable={editable} sms={sms} />
 			<Terms current={p} editable={editable} />
+			<AdminsNeedTwoFactor current={p} editable={editable} />
 		</div>
+	);
+}
+
+// AdminsNeedTwoFactor: the server turns it down while the admin saving it
+// has no 两步验证 of their own; SaveBar shows why.
+function AdminsNeedTwoFactor({ current, editable }: SectionProps) {
+	const save = useSavePolicy();
+	const form = useForm({
+		defaultValues: { adminsNeedTwoFactor: current.adminsNeedTwoFactor },
+		onSubmit: ({ value }) => save.mutate(value),
+	});
+	return (
+		<Section
+			title="两步验证"
+			editable={editable}
+			form={form}
+			footer={editable && <SaveBar save={save} />}
+		>
+			<form.Field name="adminsNeedTwoFactor">
+				{(field) => (
+					<FormField
+						field={field}
+						label="管理员必须启用两步验证"
+						help="管理员账号被盗会暴露整个实例。开启后，没有开启两步验证的管理员不能使用管理端，要先去账号中心开启，也不能在账号中心关闭两步验证。你自己要先开启两步验证。"
+					>
+						{({ id }) => (
+							<Switch
+								id={id}
+								checked={field.state.value}
+								disabled={!editable}
+								onCheckedChange={field.handleChange}
+							/>
+						)}
+					</FormField>
+				)}
+			</form.Field>
+		</Section>
 	);
 }
 

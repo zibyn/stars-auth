@@ -26,7 +26,7 @@ Web / RP ──(OIDC: /authorize + 托管登录页)──┘
 - **challenge 输入**:
   - 一期:手机号或邮箱(请求发码)、验证码、Identifier + 密码;
   - 二期起:WebAuthn 断言、TOTP、Provider ID + 客户端令牌(Apple 为 `authorization_code`,见 ADR 0011)。
-- **多步认证**:用草案中的 `auth_session` 串联各步。
+- **多步认证**:用草案中的 `auth_session` 串联各步。`403 insufficient_authorization` 多带一个非标准字段 `next`,指明下一步:`code`(输入刚发出的验证码)、`phone`(先绑定手机号)、`totp`(开了两步验证:在同一 `auth_session` 里提交 `totp` 或 `recovery_code`;先于 `phone`)。`totp` / `recovery_code` 输错时返回 `400 invalid_request` 并带回原 `auth_session`;第 5 次输错后返回 `invalid_session`,须从头登录。以后只新增取值,不改名、不删除;客户端遇到不认识的取值按失败处理。(ADR 0010)
 - **每个请求必须携带**:
   - 所同意的协议版本号,见 [security-compliance.md](security-compliance.md#协议同意);
   - 发码请求和密码登录请求还要附带 PoW 解答。
@@ -40,7 +40,7 @@ Web / RP ──(OIDC: /authorize + 托管登录页)──┘
 | ID token | JWT,RS256 | — | `sub`、`amr`;scope 为 `phone` / `email` 时带对应 claim;不带角色 |
 | refresh token | 不透明 | 跟随 Session | 每次刷新都轮换;一旦重用,终止整个 Session |
 
-- **`amr`**:按 RFC 8176 取 `sms`、`otp`、`pwd`、`hwk` / `swk`;做过 2FA 时加 `mfa`;Provider 登录一律为自定义值 `fed`。
+- **`amr`**:按 RFC 8176 取 `sms`、`otp`、`pwd`、`hwk` / `swk`;做过两步验证(TOTP 或恢复码)时为 `[第一因素, "otp", "mfa"]`(第一因素的值加上 `otp`、`mfa`,不重复:邮箱验证码登录为 `["otp", "mfa"]`,短信为 `["sms", "otp", "mfa"]`);Application 以 `mfa` 判断是否做过两步验证;Provider 登录一律为自定义值 `fed`。
 - **业务后端校验**:用 JWKS 本地验签,检查签名、`aud`、`typ`,权限读 `entitlements`。
 - **签名**:只用 RS256;由管理员手动轮换,JWKS 新旧并存。
 - **吊销**:最多滞后一个 access token 的寿命。

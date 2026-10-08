@@ -7,6 +7,8 @@ import {
 } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { toast } from "sonner";
+import { encode } from "uqr";
 import { FormError, FormField, failed, saved } from "#/components/form";
 import { ItemList } from "#/components/item-list";
 import { Star } from "#/components/star";
@@ -32,7 +34,11 @@ import {
 	bindSchema,
 	deleteSchema,
 	passwordSchema,
+	type ReauthMethod,
+	reauthMethods,
 	reauthSchema,
+	recoveryCodesText,
+	totpSchema,
 } from "#/lib/account";
 import {
 	APIError,
@@ -41,9 +47,11 @@ import {
 	logout,
 	type Me,
 	type Session,
+	type TOTPSetup,
 } from "#/lib/account-api";
 import { kindName, primaryIdentifier } from "#/lib/users";
 import { meQuery } from "#/routes/account/route";
+import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
 import { Panel } from "#/routes/console/-components/panel";
 import { DangerZone, Section } from "#/routes/console/-components/section";
 
@@ -111,7 +119,7 @@ function Account() {
 					</Button>
 				</header>
 				<LoginMethods me={user} guard={guard} />
-				{user.passwordAllowed && <Security me={user} guard={guard} />}
+				<Security me={user} guard={guard} />
 				<Sessions />
 				<Section title="数据与隐私">
 					<ItemList>
@@ -152,11 +160,17 @@ function Account() {
 
 async function exportData(sub: string) {
 	const data = await api<unknown>("/export");
-	const a = document.createElement("a");
-	a.href = URL.createObjectURL(
+	saveFile(
+		`stars-auth-${sub}.json`,
 		new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
 	);
-	a.download = `stars-auth-${sub}.json`;
+}
+
+// saveFile hands the browser a file to download.
+function saveFile(name: string, blob: Blob) {
+	const a = document.createElement("a");
+	a.href = URL.createObjectURL(blob);
+	a.download = name;
 	a.click();
 	URL.revokeObjectURL(a.href);
 }
@@ -336,35 +350,292 @@ function Security({ me, guard }: { me: Me; guard: Guard }) {
 	return (
 		<Section title="安全">
 			<ItemList>
-				<Row
-					label="密码"
-					hint={
-						me.hasPassword
-							? "已设置,可配合手机号、邮箱或用户名登录"
-							: "未设置;忘记密码时用验证码登录后在这里修改"
-					}
-				>
-					{me.hasPassword && (
-						<Button
-							variant="ghost"
-							size="sm"
-							disabled={remove.isPending}
-							onClick={() => guard(() => remove.mutate())}
-						>
-							删除
-						</Button>
-					)}
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={() => guard(() => setEditing(true))}
+				{me.passwordAllowed && (
+					<Row
+						label="密码"
+						hint={
+							me.hasPassword
+								? "已设置,可配合手机号、邮箱或用户名登录"
+								: "未设置;忘记密码时用验证码登录后在这里修改"
+						}
 					>
-						{me.hasPassword ? "修改" : "设置"}
-					</Button>
-				</Row>
+						{me.hasPassword && (
+							<Button
+								variant="ghost"
+								size="sm"
+								disabled={remove.isPending}
+								onClick={() => guard(() => remove.mutate())}
+							>
+								删除
+							</Button>
+						)}
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={() => guard(() => setEditing(true))}
+						>
+							{me.hasPassword ? "修改" : "设置"}
+						</Button>
+					</Row>
+				)}
+				<TwoFactor me={me} guard={guard} />
 			</ItemList>
 			{editing && <SetPassword onClose={() => setEditing(false)} />}
 		</Section>
+	);
+}
+
+// TwoFactor turns 两步验证 on and off and replaces the recovery codes.
+function TwoFactor({ me, guard }: { me: Me; guard: Guard }) {
+	const queryClient = useQueryClient();
+	const [codes, setCodes] = useState<string[] | null>(null);
+	const [disabling, setDisabling] = useState(false);
+	const begin = useMutation({
+		mutationFn: () => api<TOTPSetup>("/2fa/totp", { method: "POST" }),
+		onError: failed("开启两步验证失败"),
+	});
+	const regenerate = useMutation({
+		mutationFn: () =>
+			api<{ recoveryCodes: string[] }>("/2fa/recovery-codes", {
+				method: "POST",
+			}),
+		onSuccess: async (r) => {
+			setCodes(r.recoveryCodes);
+			await queryClient.invalidateQueries(meQuery);
+		},
+		onError: failed("重新生成恢复码失败"),
+	});
+	const disable = useMutation({
+		mutationFn: () => api("/2fa", { method: "DELETE" }),
+		onSuccess: () => queryClient.invalidateQueries(meQuery),
+		onError: failed("关闭两步验证失败"),
+	});
+	const { enabled, recoveryCodesLeft } = me.twoFactor;
+	return (
+		<>
+			<Row
+				label="两步验证"
+				hint={
+					enabled
+						? `已开启 · 剩余 ${recoveryCodesLeft} 个恢复码`
+						: "未开启;开启后用验证码或密码登录时,还要输入验证器中的 6 位数字"
+				}
+			>
+				{enabled ? (
+					<>
+						<Button
+							variant="ghost"
+							size="sm"
+							disabled={regenerate.isPending}
+							onClick={() => guard(() => regenerate.mutate())}
+						>
+							重新生成恢复码
+						</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							disabled={disable.isPending}
+							onClick={() => guard(() => setDisabling(true))}
+						>
+							关闭
+						</Button>
+					</>
+				) : (
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={begin.isPending}
+						onClick={() => guard(() => begin.mutate())}
+					>
+						开启
+					</Button>
+				)}
+			</Row>
+			{begin.data && (
+				<EnableTwoFactor
+					setup={begin.data}
+					onClose={() => begin.reset()}
+					onEnabled={(codes) => {
+						begin.reset();
+						setCodes(codes);
+					}}
+				/>
+			)}
+			{codes && <RecoveryCodes codes={codes} onClose={() => setCodes(null)} />}
+			<ConfirmDialog
+				open={disabling}
+				onOpenChange={setDisabling}
+				title="关闭两步验证?"
+				action="关闭两步验证"
+				onConfirm={() => disable.mutate()}
+			>
+				验证器里的条目和全部恢复码都会作废,之后登录只需验证码或密码。其他设备不会下线。
+			</ConfirmDialog>
+		</>
+	);
+}
+
+// EnableTwoFactor adds the new TOTP to an authenticator, by QR code or by
+// copying the key, and turns 两步验证 on with one of its codes.
+function EnableTwoFactor({
+	setup,
+	onClose,
+	onEnabled,
+}: {
+	setup: TOTPSetup;
+	onClose: () => void;
+	onEnabled: (recoveryCodes: string[]) => void;
+}) {
+	const queryClient = useQueryClient();
+	const confirm = useMutation({
+		mutationFn: (code: string) =>
+			api<{ recoveryCodes: string[] }>("/2fa/totp/confirm", {
+				method: "POST",
+				body: { code },
+			}),
+		onSuccess: async (r) => {
+			await queryClient.invalidateQueries(meQuery);
+			onEnabled(r.recoveryCodes);
+		},
+	});
+	const form = useForm({
+		defaultValues: { code: "" },
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: totpSchema },
+		onSubmit: ({ value }) => confirm.mutate(value.code.trim()),
+	});
+	return (
+		<Dialog open onOpenChange={(open) => !open && onClose()}>
+			<DialogContent>
+				<DialogTitle>开启两步验证</DialogTitle>
+				<DialogDescription>
+					用验证器 App 扫描二维码;密码管理器等不能扫码时,复制密钥手动添加。
+				</DialogDescription>
+				<QRCode value={setup.uri} className="mx-auto size-44" />
+				<div className="flex items-center gap-2">
+					<code className="min-w-0 flex-1 break-all rounded-md bg-muted px-2 py-1.5 font-mono text-xs">
+						{setup.secret}
+					</code>
+					<CopyButton value={setup.secret} />
+				</div>
+				<form
+					noValidate
+					className="space-y-3"
+					onSubmit={(e) => {
+						e.preventDefault();
+						form.handleSubmit();
+					}}
+				>
+					<form.Field name="code">
+						{(field) => (
+							<FormField field={field} label="验证器中的 6 位数字">
+								{(control) => (
+									<Input
+										{...control}
+										inputMode="numeric"
+										autoComplete="one-time-code"
+										placeholder="123456"
+									/>
+								)}
+							</FormField>
+						)}
+					</form.Field>
+					<FormError error={confirm.error} />
+					<div className="flex justify-end">
+						<Button type="submit" disabled={confirm.isPending}>
+							确认开启
+						</Button>
+					</div>
+				</form>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+// QRCode draws text as a QR code, dark on white whatever the theme, so
+// any camera reads it.
+function QRCode({ value, className }: { value: string; className?: string }) {
+	const { data } = encode(value, { border: 2 });
+	const d = data
+		.flatMap((row, y) =>
+			row.map((dark, x) => (dark ? `M${x} ${y}h1v1h-1z` : "")),
+		)
+		.join("");
+	return (
+		<svg
+			viewBox={`0 0 ${data.length} ${data.length}`}
+			className={className}
+			role="img"
+			aria-label="两步验证二维码"
+			shapeRendering="crispEdges"
+		>
+			<rect width={data.length} height={data.length} fill="white" />
+			<path d={d} fill="black" />
+		</svg>
+	);
+}
+
+function CopyButton({ value }: { value: string }) {
+	return (
+		<Button
+			type="button"
+			variant="outline"
+			size="sm"
+			onClick={() =>
+				navigator.clipboard
+					.writeText(value)
+					.then(() => toast.success("已复制"), failed("复制失败"))
+			}
+		>
+			复制
+		</Button>
+	);
+}
+
+// RecoveryCodes shows a new set of recovery codes, the only time they are
+// shown.
+function RecoveryCodes({
+	codes,
+	onClose,
+}: {
+	codes: string[];
+	onClose: () => void;
+}) {
+	return (
+		<Dialog open onOpenChange={(open) => !open && onClose()}>
+			<DialogContent>
+				<DialogTitle>保存恢复码</DialogTitle>
+				<DialogDescription>
+					丢了验证器时,每个恢复码可代替一次 6
+					位数字,用过即作废。它们只显示这一次,请存到安全的地方。
+				</DialogDescription>
+				<ul className="grid grid-cols-2 gap-2 rounded-lg bg-muted p-4 text-center font-mono">
+					{codes.map((c) => (
+						<li key={c}>{c}</li>
+					))}
+				</ul>
+				<div className="flex justify-end gap-2">
+					<CopyButton value={codes.join("\n")} />
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={() =>
+							saveFile(
+								"stars-auth-recovery-codes.txt",
+								new Blob([recoveryCodesText(location.hostname, codes)], {
+									type: "text/plain",
+								}),
+							)
+						}
+					>
+						下载
+					</Button>
+					<Button size="sm" onClick={onClose}>
+						我已保存
+					</Button>
+				</div>
+			</DialogContent>
+		</Dialog>
 	);
 }
 
@@ -548,7 +819,7 @@ function DeleteAccount({
 }
 
 // Reauth proves the User again with a code to one of their Identifiers, or
-// their password.
+// their password; with 两步验证 on, only with a TOTP or recovery code.
 function Reauth({
 	me,
 	open,
@@ -563,13 +834,27 @@ function Reauth({
 	const codeKinds = me.identifiers
 		.map((i) => i.kind)
 		.filter((k): k is "phone" | "email" => k !== "username");
-	const methods = [
-		...codeKinds,
-		...(me.hasPassword && me.passwordAllowed ? (["password"] as const) : []),
-	];
-	const [method, setMethod] = useState<(typeof methods)[number] | undefined>();
-	const current = method ?? methods[0];
+	const twoFactor = me.twoFactor.enabled;
+	const methods: ReauthMethod[] = twoFactor
+		? ["totp"]
+		: [
+				...codeKinds,
+				...(me.hasPassword && me.passwordAllowed
+					? (["password"] as const)
+					: []),
+			];
+	const [method, setMethod] = useState<ReauthMethod | undefined>();
+	const current =
+		method && (twoFactor ? method === "recovery" : methods.includes(method))
+			? method
+			: methods[0];
+	const byCode = current === "phone" || current === "email";
 	const [sent, setSent] = useState(false);
+	const pick = (m: ReauthMethod) => {
+		setMethod(m);
+		setSent(false);
+		form.reset();
+	};
 	const send = useMutation({
 		mutationFn: () =>
 			api("/reauth/code", { method: "POST", body: { kind: current } }),
@@ -579,10 +864,7 @@ function Reauth({
 		mutationFn: (secret: string) =>
 			api("/reauth", {
 				method: "POST",
-				body:
-					current === "password"
-						? { password: secret }
-						: { kind: current, code: secret },
+				body: current && reauthMethods[current].body(secret),
 			}),
 		onSuccess: () => {
 			form.reset();
@@ -595,9 +877,7 @@ function Reauth({
 		validationLogic: revalidateLogic(),
 		validators: { onDynamic: reauthSchema(current ?? "password", sent) },
 		onSubmit: ({ value }) =>
-			current !== "password" && !sent
-				? send.mutate()
-				: verify.mutate(value.secret),
+			byCode && !sent ? send.mutate() : verify.mutate(value.secret),
 	});
 	const error = send.error ?? verify.error;
 	const target = me.identifiers.find((i) => i.kind === current)?.value;
@@ -606,7 +886,7 @@ function Reauth({
 			<DialogContent>
 				<DialogTitle>请重新验证身份</DialogTitle>
 				<DialogDescription>
-					换绑、解绑、导出和注销,须在 10 分钟内验证过身份。
+					换绑、解绑、两步验证、导出和注销,须在 10 分钟内验证过身份。
 				</DialogDescription>
 				{methods.length > 1 && (
 					<div className="flex gap-2">
@@ -615,13 +895,11 @@ function Reauth({
 								key={m}
 								size="sm"
 								variant={m === current ? "secondary" : "ghost"}
-								onClick={() => {
-									setMethod(m);
-									setSent(false);
-									form.reset();
-								}}
+								onClick={() => pick(m)}
 							>
-								{m === "password" ? "密码" : `${kindName[m]}验证码`}
+								{m === "phone" || m === "email"
+									? `${kindName[m]}验证码`
+									: "密码"}
 							</Button>
 						))}
 					</div>
@@ -637,40 +915,19 @@ function Reauth({
 							form.handleSubmit();
 						}}
 					>
-						{current === "password" ? (
+						{byCode && (
+							<p className="text-muted-foreground">验证码将发送到 {target}</p>
+						)}
+						{(!byCode || sent) && (
 							<form.Field name="secret">
 								{(field) => (
-									<FormField field={field} label="密码">
+									<FormField field={field} label={reauthMethods[current].label}>
 										{(control) => (
-											<Input
-												{...control}
-												type="password"
-												autoComplete="current-password"
-											/>
+											<Input {...control} {...reauthMethods[current].input} />
 										)}
 									</FormField>
 								)}
 							</form.Field>
-						) : (
-							<>
-								<p className="text-muted-foreground">验证码将发送到 {target}</p>
-								{sent && (
-									<form.Field name="secret">
-										{(field) => (
-											<FormField field={field} label="验证码">
-												{(control) => (
-													<Input
-														{...control}
-														inputMode="numeric"
-														autoComplete="one-time-code"
-														placeholder="6 位验证码"
-													/>
-												)}
-											</FormField>
-										)}
-									</form.Field>
-								)}
-							</>
 						)}
 						<FormError
 							error={
@@ -679,12 +936,21 @@ function Reauth({
 									: error
 							}
 						/>
-						<div className="flex justify-end">
+						<div className="flex justify-end gap-2">
+							{twoFactor && (
+								<Button
+									type="button"
+									variant="ghost"
+									onClick={() => pick(current === "totp" ? "recovery" : "totp")}
+								>
+									{current === "totp" ? "使用恢复码" : "使用验证器"}
+								</Button>
+							)}
 							<Button
 								type="submit"
 								disabled={send.isPending || verify.isPending}
 							>
-								{current !== "password" && !sent ? "发送验证码" : "验证"}
+								{byCode && !sent ? "发送验证码" : "验证"}
 							</Button>
 						</div>
 					</form>

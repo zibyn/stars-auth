@@ -10,9 +10,18 @@ SELECT u.created_at,
        EXISTS (SELECT 1 FROM passwords p WHERE p.user_id = u.id) AS has_password,
        -- The password login setting lets this User use a password.
        (s.password_login = 'all' OR s.password_login = 'admins' AND EXISTS (
-           SELECT 1 FROM user_roles r WHERE r.user_id = u.id AND r.api = 'urn:stars-auth:management-api'))::boolean AS password_allowed
+           SELECT 1 FROM user_roles r WHERE r.user_id = u.id AND r.api = 'urn:stars-auth:management-api'))::boolean AS password_allowed,
+       -- When 两步验证 was turned on; null while it is off.
+       (SELECT t.confirmed_at FROM totp_credentials t WHERE t.user_id = u.id) AS two_factor_since,
+       (SELECT count(*) FROM recovery_codes c WHERE c.user_id = u.id AND c.used_at IS NULL) AS recovery_codes_left
 FROM users u, settings s
 WHERE u.id = $1;
+
+-- name: MustKeepTwoFactor :one
+-- 管理员必须启用两步验证 is on and the User holds a Management API Role.
+SELECT (s.admins_need_two_factor AND EXISTS (
+    SELECT 1 FROM user_roles r WHERE r.user_id = $1 AND r.api = 'urn:stars-auth:management-api'))::boolean AS must
+FROM settings s;
 
 -- name: Reauthenticate :exec
 -- The User proved themselves again in this Session.

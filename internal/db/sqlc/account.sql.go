@@ -36,16 +36,21 @@ SELECT u.created_at,
        EXISTS (SELECT 1 FROM passwords p WHERE p.user_id = u.id) AS has_password,
        -- The password login setting lets this User use a password.
        (s.password_login = 'all' OR s.password_login = 'admins' AND EXISTS (
-           SELECT 1 FROM user_roles r WHERE r.user_id = u.id AND r.api = 'urn:stars-auth:management-api'))::boolean AS password_allowed
+           SELECT 1 FROM user_roles r WHERE r.user_id = u.id AND r.api = 'urn:stars-auth:management-api'))::boolean AS password_allowed,
+       -- When 两步验证 was turned on; null while it is off.
+       (SELECT t.confirmed_at FROM totp_credentials t WHERE t.user_id = u.id) AS two_factor_since,
+       (SELECT count(*) FROM recovery_codes c WHERE c.user_id = u.id AND c.used_at IS NULL) AS recovery_codes_left
 FROM users u, settings s
 WHERE u.id = $1
 `
 
 type AccountUserRow struct {
-	CreatedAt       pgtype.Timestamptz
-	Identifiers     []byte
-	HasPassword     bool
-	PasswordAllowed bool
+	CreatedAt         pgtype.Timestamptz
+	Identifiers       []byte
+	HasPassword       bool
+	PasswordAllowed   bool
+	TwoFactorSince    pgtype.Timestamptz
+	RecoveryCodesLeft int64
 }
 
 func (q *Queries) AccountUser(ctx context.Context, id string) (AccountUserRow, error) {
@@ -56,6 +61,8 @@ func (q *Queries) AccountUser(ctx context.Context, id string) (AccountUserRow, e
 		&i.Identifiers,
 		&i.HasPassword,
 		&i.PasswordAllowed,
+		&i.TwoFactorSince,
+		&i.RecoveryCodesLeft,
 	)
 	return i, err
 }
@@ -89,6 +96,20 @@ func (q *Queries) LoginPaths(ctx context.Context, userID string) (LoginPathsRow,
 	var i LoginPathsRow
 	err := row.Scan(&i.Identifiers, &i.HasPassword)
 	return i, err
+}
+
+const mustKeepTwoFactor = `-- name: MustKeepTwoFactor :one
+SELECT (s.admins_need_two_factor AND EXISTS (
+    SELECT 1 FROM user_roles r WHERE r.user_id = $1 AND r.api = 'urn:stars-auth:management-api'))::boolean AS must
+FROM settings s
+`
+
+// 管理员必须启用两步验证 is on and the User holds a Management API Role.
+func (q *Queries) MustKeepTwoFactor(ctx context.Context, userID string) (bool, error) {
+	row := q.db.QueryRow(ctx, mustKeepTwoFactor, userID)
+	var must bool
+	err := row.Scan(&must)
+	return must, err
 }
 
 const putPassword = `-- name: PutPassword :exec

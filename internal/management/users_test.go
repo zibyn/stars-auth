@@ -377,3 +377,56 @@ func TestSelfAuditedWrites(t *testing.T) {
 		t.Errorf("audited twice: %+v", got)
 	}
 }
+
+// twoFactorOn gives sub a confirmed TOTP and a 恢复码.
+func (e *env) twoFactorOn(sub string) {
+	e.t.Helper()
+	ctx := context.Background()
+	if _, err := e.pool.Exec(ctx, `INSERT INTO totp_credentials (user_id, secret, confirmed_at, last_step) VALUES ($1, 'x', now(), 0)`, sub); err != nil {
+		e.t.Fatal(err)
+	}
+	if _, err := e.pool.Exec(ctx, `INSERT INTO recovery_codes (user_id, mac) VALUES ($1, 'y')`, sub); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+func TestAdminResetsTwoFactor(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", nil, "username:alice")
+	e.user("RO", []string{"readonly"})
+	e.twoFactorOn("ALICE")
+	app := e.session("ALICE", "stars-auth-console", false)
+	owner, ro := e.token(e.owner, nil), e.token("RO", nil)
+
+	var detail struct{ TwoFactor bool }
+	if code := e.get(ro, "/users/ALICE", &detail); code != 200 || !detail.TwoFactor {
+		t.Fatalf("readonly sees 2FA on: %d %+v", code, detail)
+	}
+	if code := e.call("DELETE", ro, "/users/ALICE/2fa", nil, nil); code != 403 {
+		t.Errorf("readonly resets: %d", code)
+	}
+	if code := e.call("DELETE", owner, "/users/ALICE/2fa", nil, nil); code != 204 {
+		t.Fatalf("reset: %d", code)
+	}
+	if e.get(owner, "/users/ALICE", &detail); detail.TwoFactor {
+		t.Error("2FA still on after reset")
+	}
+	var left int
+	if err := e.pool.QueryRow(context.Background(), `SELECT count(*) FROM recovery_codes WHERE user_id = 'ALICE'`).Scan(&left); err != nil || left != 0 {
+		t.Errorf("恢复码 left: %d %v", left, err)
+	}
+	// The User's Sessions live on.
+	var list struct{ Sessions []session }
+	if e.get(owner, "/users/ALICE/sessions", &list); len(list.Sessions) != 1 || list.Sessions[0].ID != app || !list.Sessions[0].Active {
+		t.Errorf("Sessions after reset: %+v", list.Sessions)
+	}
+	if got := e.events(""); len(got) != 1 || got[0].Event != "mfa.reset" || got[0].Sub != "ALICE" || got[0].Detail["by"] != e.owner {
+		t.Errorf("audit: %+v", got)
+	}
+	if code := e.call("DELETE", owner, "/users/ALICE/2fa", nil, nil); code != 409 {
+		t.Errorf("reset while off: %d", code)
+	}
+	if code := e.call("DELETE", owner, "/users/NOBODY/2fa", nil, nil); code != 404 {
+		t.Errorf("unknown User: %d", code)
+	}
+}

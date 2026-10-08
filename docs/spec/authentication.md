@@ -36,10 +36,22 @@
 
 ## 2FA(二期)
 
-- **开启**:User 自愿开启;有一个开关"管理员必须启用 2FA 或 Passkey",默认关闭,只对持有 Management API Role 的 User 生效。
+- **开启**:User 自愿开启。
+- **管理员必须启用两步验证**:实例设置里的开关(设置组「登录方式」Tab),默认关闭,只对持有 Management API Role 的 User 生效。打开后:
+  - 持有 Role 但没开两步验证的 User 调用任何 Management API 接口,都返回 403,错误体带 `code: "two_factor_required"`;开启两步验证后立即恢复,不用等令牌过期。只看代表 User 的令牌,`client_credentials` 的服务账号不受影响。
+  - 持有 Role 的 User 不能在账号中心关闭两步验证(409),但可以重新生成恢复码;管理员仍可为别人重置两步验证。
+  - 当前管理员自己没开两步验证时,保存"打开"会被拒绝(422,「请先为自己开启两步验证」),免得把自己锁在外面。
+  - Passkey 上线后,含义扩大为"两步验证或 Passkey"。
 - **生效范围**:开启后,除 Passkey 外,任何第一因素登录都要再输一次 TOTP。不把短信或邮箱验证码当第二因素。
 - **TOTP 参数**:`otpauth://` 固定 SHA1 / 6 位 / 30 秒,同时显示可复制的 Base32 密钥。
 - **恢复码**:开启时生成 10 个一次性恢复码,只显示一次,可以重新生成。
+- **登录**:第一因素通过后进入两步验证这一步,输入一个 TOTP 或一个恢复码,两者效果相同。步骤顺序固定为 TOTP → 绑手机号 → 同意协议;TOTP 通过之前不建 Session,也不发授权码,"已通过第一因素"的状态只存在 AuthnSession 的 store(托管页)或 `auth_session`(直连 API)里。
+  - **托管页**:输入框标注 `autocomplete="one-time-code"`;可切换到「使用恢复码」。
+  - **直连 API**:返回 `next: "totp"`,在同一 `auth_session` 里提交 `totp` 或 `recovery_code`,见 [protocol.md](protocol.md#直连认证-api)。
+  - **输错**:每个待完成的登录最多输错 5 次,第 5 次后本次登录作废(托管页回到第一步,直连 API 的 `auth_session` 失效)。不按 User 锁定。
+  - **时钟偏差**:接受前后各一个 30 秒时间步。
+- **已有浏览器 Session**:静默登录不再要求 TOTP,那个 Session 建立时已经输过了。
+- **`amr`**:做过两步验证的登录为 `[第一因素, "otp", "mfa"]`,不重复:邮箱验证码登录为 `["otp", "mfa"]`。
 - **认证强度**:Application 需要更强认证时,用 `max_age` / `prompt=login`,并检查 `amr`。不支持 `acr_values`。
 
 ## Provider(二期)

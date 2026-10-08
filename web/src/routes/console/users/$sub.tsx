@@ -191,7 +191,12 @@ function useHeader(): Header | null {
 					who={who}
 					disabled={act.isPending}
 					onConfirm={() =>
-						act.mutate({ method: "DELETE", path: "", what: "删除用户失败" })
+						act.mutate({
+							method: "DELETE",
+							path: "",
+							what: "删除用户失败",
+							leave: true,
+						})
 					}
 				/>
 			</>
@@ -203,6 +208,7 @@ function UserPage() {
 	const { act, writable } = useUser();
 	const { sub } = Route.useParams();
 	const u = useSuspenseQuery(userQuery(sub)).data;
+	const name = primaryIdentifier(u.identifiers);
 	return (
 		<div className="space-y-10 pt-4">
 			<Section title="登录标识与密码">
@@ -235,6 +241,33 @@ function UserPage() {
 						</Row>
 					))}
 					<Row label="密码">{u.hasPassword ? "已设置" : "未设置"}</Row>
+				</ItemList>
+			</Section>
+			<Section title="两步验证">
+				<ItemList>
+					<Row label="状态">
+						{u.twoFactor ? "已开启" : "未开启"}
+						{writable && u.twoFactor && (
+							<ConfirmDialog
+								trigger={
+									<Button size="sm" variant="ghost" disabled={act.isPending}>
+										重置两步验证
+									</Button>
+								}
+								title={`重置${name ? `用户 ${name} ` : "这个用户"}的两步验证？`}
+								action="重置两步验证"
+								onConfirm={() =>
+									act.mutate({
+										method: "DELETE",
+										path: "/2fa",
+										what: "重置两步验证失败",
+									})
+								}
+							>
+								请先线下核实对方身份。重置会清除该用户的验证器和全部恢复码，之后只用验证码或密码就能登录，需要再到账号中心重新开启。已登录的设备不会下线。
+							</ConfirmDialog>
+						)}
+					</Row>
 				</ItemList>
 			</Section>
 			<Section title="会话">
@@ -298,7 +331,7 @@ function DeleteUser({
 
 // useUserAction calls a users:write operation on sub (path under
 // /users/{sub}) and refreshes what it changes; what names it in the toast
-// if it fails. The header and the page each hold one; both see whether a
+// if it fails; leave goes back to the Users list after it. The header and the page each hold one; both see whether a
 // call is running.
 function useUserAction(sub: string) {
 	const client = useQueryClient();
@@ -311,13 +344,14 @@ function useUserAction(sub: string) {
 			path: string;
 			body?: unknown;
 			what: string;
+			leave?: boolean;
 		}) =>
 			api(`/users/${encodeURIComponent(sub)}${a.path}`, {
 				method: a.method,
 				body: a.body,
 			}),
 		onSuccess: (_, a) => {
-			if (a.method === "DELETE") {
+			if (a.leave) {
 				navigate({ to: "/console/users" });
 			}
 			return client.invalidateQueries();

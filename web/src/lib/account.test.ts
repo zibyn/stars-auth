@@ -5,6 +5,8 @@ import {
 	deleteSchema,
 	passwordSchema,
 	reauthSchema,
+	recoveryCodesText,
+	totpSchema,
 } from "./account.ts";
 
 // fieldErrors is what a form shows under each field.
@@ -85,9 +87,43 @@ test("reauthentication needs the password, or the code once sent", () => {
 	);
 });
 
+test("with 两步验证 on, reauthentication takes a TOTP or a recovery code", () => {
+	assert.deepEqual(
+		fieldErrors(reauthSchema("totp", false).safeParse({ secret: "12345" })),
+		{ secret: "请输入验证器中的 6 位数字" },
+	);
+	for (const ok of ["abcd-2345", "ABCD2345", " abcd 2345 "]) {
+		assert.equal(
+			reauthSchema("recovery", false).safeParse({ secret: ok }).success,
+			true,
+			ok,
+		);
+	}
+	assert.deepEqual(
+		fieldErrors(
+			reauthSchema("recovery", false).safeParse({ secret: "abcd-234" }),
+		),
+		{ secret: "请输入恢复码,形如 xxxx-xxxx" },
+	);
+});
+
 test("deleting the account takes typing 注销", () => {
 	assert.equal(deleteSchema.safeParse({ confirm: "注销" }).success, true);
 	assert.deepEqual(fieldErrors(deleteSchema.safeParse({ confirm: "删除" })), {
 		confirm: "请输入「注销」确认",
 	});
+});
+
+test("confirming the TOTP takes the authenticator's 6 digits", () => {
+	assert.equal(totpSchema.safeParse({ code: " 123456 " }).success, true);
+	assert.deepEqual(fieldErrors(totpSchema.safeParse({ code: "12345" })), {
+		code: "请输入验证器中的 6 位数字",
+	});
+});
+
+test("recovery codes download as a text file, one per line", () => {
+	assert.equal(
+		recoveryCodesText("auth.example.com", ["abcd-efgh", "ijkl-mnop"]),
+		"auth.example.com 两步验证恢复码\n每个只能用一次。\n\nabcd-efgh\nijkl-mnop\n",
+	);
 });

@@ -14,13 +14,14 @@ import (
 
 // Policy is the login policy (docs/spec/consoles.md, 安全).
 type Policy struct {
-	PasswordLogin      string `json:"passwordLogin" enum:"off,admins,all" doc:"Who may sign in with a password"`
-	RequirePhone       bool   `json:"requirePhone" doc:"Every User must bind a phone number"`
-	DailySendLimit     int32  `json:"dailySendLimit" minimum:"0" doc:"Codes the instance sends a day at most"`
-	TermsURL           string `json:"termsUrl" doc:"用户协议; https"`
-	PrivacyURL         string `json:"privacyUrl" doc:"隐私政策; https"`
-	TermsVersion       string `json:"termsVersion" maxLength:"64" doc:"Users agree to this version on their next login after it changes; empty for no terms"`
-	AuditRetentionDays int32  `json:"auditRetentionDays" minimum:"1"`
+	PasswordLogin       string `json:"passwordLogin" enum:"off,admins,all" doc:"Who may sign in with a password"`
+	RequirePhone        bool   `json:"requirePhone" doc:"Every User must bind a phone number"`
+	DailySendLimit      int32  `json:"dailySendLimit" minimum:"0" doc:"Codes the instance sends a day at most"`
+	TermsURL            string `json:"termsUrl" doc:"用户协议; https"`
+	PrivacyURL          string `json:"privacyUrl" doc:"隐私政策; https"`
+	TermsVersion        string `json:"termsVersion" maxLength:"64" doc:"Users agree to this version on their next login after it changes; empty for no terms"`
+	AuditRetentionDays  int32  `json:"auditRetentionDays" minimum:"1"`
+	AdminsNeedTwoFactor bool   `json:"adminsNeedTwoFactor" doc:"管理员必须启用两步验证: Users holding a Management API Role can't use it without 两步验证; only an admin with 两步验证 turns it on"`
 }
 
 type policyBody struct{ Body Policy }
@@ -30,6 +31,7 @@ func (s *Service) getSettings(ctx context.Context, _ *struct{}) (*policyBody, er
 	return &policyBody{Body: Policy{
 		PasswordLogin: r.PasswordLogin, RequirePhone: r.RequirePhone, DailySendLimit: r.DailySendLimit,
 		TermsURL: r.TermsUrl, PrivacyURL: r.PrivacyUrl, TermsVersion: r.TermsVersion, AuditRetentionDays: r.AuditRetentionDays,
+		AdminsNeedTwoFactor: r.AdminsNeedTwoFactor,
 	}}, err
 }
 
@@ -44,9 +46,15 @@ func (s *Service) putSettings(ctx context.Context, in *policyBody) (*struct{}, e
 		}
 	}
 	c := ctx.Value(callerKey{}).(caller)
+	// With the switch on, an admin here has 两步验证 already; this stops one
+	// turning it on and locking themselves out.
+	if b.AdminsNeedTwoFactor && !c.twoFactor {
+		return nil, huma.Error422UnprocessableEntity("请先为自己开启两步验证")
+	}
 	return nil, s.q.UpdateSettings(ctx, sqlc.UpdateSettingsParams{
 		By: c.sub, PasswordLogin: b.PasswordLogin, RequirePhone: b.RequirePhone, DailySendLimit: b.DailySendLimit,
 		TermsUrl: b.TermsURL, PrivacyUrl: b.PrivacyURL, TermsVersion: b.TermsVersion, AuditRetentionDays: b.AuditRetentionDays,
+		AdminsNeedTwoFactor: b.AdminsNeedTwoFactor,
 	})
 }
 

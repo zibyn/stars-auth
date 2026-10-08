@@ -11,11 +11,13 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	altcha "github.com/altcha-org/altcha-lib-go/v2"
 
 	_ "github.com/zibyn/stars-auth/internal/channel/webhook"
 	"github.com/zibyn/stars-auth/internal/identity"
+	"github.com/zibyn/stars-auth/internal/login"
 	"github.com/zibyn/stars-auth/internal/otp"
 	"github.com/zibyn/stars-auth/internal/pow"
 )
@@ -160,10 +162,9 @@ func TestRequirePhoneMakesUserBindOne(t *testing.T) {
 	if resp.StatusCode != 200 || !strings.Contains(page, "绑定手机号") {
 		t.Fatalf("want the bind page, got %d %s", resp.StatusCode, page)
 	}
-	// Signing in again does not skip it.
-	resp, page = e.authorize("&scope=openid+phone")
-	if resp.StatusCode != 200 || !strings.Contains(page, "绑定手机号") {
-		t.Fatalf("second authorize: want the bind page, got %d", resp.StatusCode)
+	// Signing in again does not skip it: it starts over.
+	if resp, again := e.authorize("&scope=openid+phone"); resp.StatusCode != 200 || strings.Contains(again, "绑定手机号") {
+		t.Fatalf("second authorize: want the login page, got %d", resp.StatusCode)
 	}
 	// Only a phone number will do.
 	resp, body := e.post(page, url.Values{"op": {"send"}, "identifier": {"b@example.com"}, "altcha": {e.solve()}})
@@ -183,4 +184,44 @@ func TestRequirePhoneMakesUserBindOne(t *testing.T) {
 	if sub, _ := e.ids.SignIn(ctx, "email", "a@example.com"); sub != claims["sub"] {
 		t.Errorf("phone bound to %v, email belongs to %s", claims["sub"], sub)
 	}
+}
+
+// Until the steps after the first factor are done, the browser holds no
+// Session: no cookie, and no silent login into another Application. The
+// Session then carries the first factor's auth_time and amr.
+func TestNoSessionWhileBindingPhone(t *testing.T) {
+	e := start(t)
+	if _, err := e.pool.Exec(context.Background(), "UPDATE settings SET require_phone = true"); err != nil {
+		t.Fatal(err)
+	}
+
+	before := time.Now().Unix()
+	_, page := e.authorize("&scope=openid+phone")
+	resp, page := e.codeLogin(page, "a@example.com", "a@example.com")
+	if resp.StatusCode != 200 || !strings.Contains(page, "绑定手机号") {
+		t.Fatalf("want the bind page, got %d %s", resp.StatusCode, page)
+	}
+	issuer, _ := url.Parse(e.issuer)
+	for _, c := range e.client.Jar.Cookies(issuer) {
+		if c.Name == "__Host-session" {
+			t.Errorf("Session cookie set before binding: %v", c)
+		}
+	}
+	redirect := e.issuer + "/console/callback"
+	resp, _ = e.authorizeAs(login.ConsoleClientID, redirect, "&prompt=none")
+	if loc, _ := url.Parse(resp.Header.Get("Location")); loc.Query().Get("error") != "login_required" {
+		t.Errorf("silent login into another Application: %d %q", resp.StatusCode, loc)
+	}
+
+	time.Sleep(time.Second) // binding comes a second after the first factor
+	firstFactor := time.Now().Unix() - 1
+	resp, _ = e.codeLogin(page, "13900139000", "+8613900139000")
+	claims := e.idToken(e.code(resp))
+	at, _ := claims["auth_time"].(float64)
+	if !slices.Equal(claims["amr"].([]any), []any{"otp"}) || int64(at) < before || int64(at) > firstFactor {
+		t.Errorf("id token after binding: %v (first factor in [%d, %d])", claims, before, firstFactor)
+	}
+	// Now there is a Session: another Application signs in silently.
+	resp, _ = e.authorizeAs(login.ConsoleClientID, redirect, "&prompt=none")
+	e.code(resp)
 }

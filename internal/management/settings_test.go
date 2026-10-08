@@ -2,19 +2,73 @@ package management_test
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/zibyn/stars-auth/internal/management"
 )
 
 type settings struct {
-	PasswordLogin      string `json:"passwordLogin"`
-	RequirePhone       bool   `json:"requirePhone"`
-	DailySendLimit     int    `json:"dailySendLimit"`
-	TermsURL           string `json:"termsUrl"`
-	PrivacyURL         string `json:"privacyUrl"`
-	TermsVersion       string `json:"termsVersion"`
-	AuditRetentionDays int    `json:"auditRetentionDays"`
+	PasswordLogin       string `json:"passwordLogin"`
+	RequirePhone        bool   `json:"requirePhone"`
+	DailySendLimit      int    `json:"dailySendLimit"`
+	TermsURL            string `json:"termsUrl"`
+	PrivacyURL          string `json:"privacyUrl"`
+	TermsVersion        string `json:"termsVersion"`
+	AuditRetentionDays  int    `json:"auditRetentionDays"`
+	AdminsNeedTwoFactor bool   `json:"adminsNeedTwoFactor"`
+}
+
+// problem calls GET path and returns the status and the error's code.
+func (e *env) problem(token, path string) (int, string) {
+	e.t.Helper()
+	req, _ := http.NewRequest("GET", e.issuer+management.Prefix+path, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	var body struct{ Code string }
+	_ = json.NewDecoder(resp.Body).Decode(&body)
+	return resp.StatusCode, body.Code
+}
+
+// With 管理员必须启用两步验证 on, an admin without 两步验证 is turned away
+// from every endpoint, with a code the console knows, until they turn it on.
+// No admin turns the switch on without 两步验证 of their own.
+func TestAdminsMustUseTwoFactor(t *testing.T) {
+	e := start(t)
+	e.user("CAROL", []string{"readonly"})
+	owner, carol := e.token(e.owner, nil), e.token("CAROL", nil)
+	policy := settings{PasswordLogin: "admins", DailySendLimit: 1000, AuditRetentionDays: 180, AdminsNeedTwoFactor: true}
+
+	if code := e.call("PUT", owner, "/settings", policy, nil); code != 422 {
+		t.Fatalf("turn on without 两步验证 of one's own: %d, want 422", code)
+	}
+	e.twoFactorOn(e.owner)
+	if code := e.call("PUT", owner, "/settings", policy, nil); code != 204 {
+		t.Fatalf("turn on: %d", code)
+	}
+	var got settings
+	if code := e.get(owner, "/settings", &got); code != 200 || got != policy {
+		t.Errorf("after turning on: %d %+v", code, got)
+	}
+
+	for _, path := range []string{"/me", "/users", "/settings"} {
+		if code, err := e.problem(carol, path); code != 403 || err != "two_factor_required" {
+			t.Errorf("CAROL without 两步验证, %s: %d %q", path, code, err)
+		}
+	}
+	e.twoFactorOn("CAROL")
+	if code := e.get(carol, "/me", nil); code != 200 {
+		t.Errorf("CAROL with 两步验证: %d", code)
+	}
+	// Saving the policy again while the switch is on is fine.
+	if code := e.call("PUT", owner, "/settings", policy, nil); code != 204 {
+		t.Errorf("save while on: %d", code)
+	}
 }
 
 func TestAdminChangesLoginPolicy(t *testing.T) {

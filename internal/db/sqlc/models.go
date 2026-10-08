@@ -140,6 +140,12 @@ type PowSpent struct {
 	ExpiresAt pgtype.Timestamptz
 }
 
+type RecoveryCode struct {
+	UserID string
+	Mac    []byte
+	UsedAt pgtype.Timestamptz
+}
+
 type Role struct {
 	Api     string
 	Key     string
@@ -172,23 +178,31 @@ type Session struct {
 }
 
 type Setting struct {
-	ID                 bool
-	PasswordLogin      string
-	SetupToken         []byte
-	SetupDone          bool
-	DailySendLimit     int32
-	RequirePhone       bool
-	PowSecret          string
-	TermsUrl           string
-	PrivacyUrl         string
-	TermsVersion       string
-	AuditRetentionDays int32
+	ID                  bool
+	PasswordLogin       string
+	SetupToken          []byte
+	SetupDone           bool
+	DailySendLimit      int32
+	RequirePhone        bool
+	PowSecret           string
+	TermsUrl            string
+	PrivacyUrl          string
+	TermsVersion        string
+	AuditRetentionDays  int32
+	AdminsNeedTwoFactor bool
 }
 
 type SigningKey struct {
 	Kid       string
 	CreatedAt pgtype.Timestamptz
 	Sealed    []byte
+}
+
+type TotpCredential struct {
+	UserID      string
+	Secret      []byte
+	ConfirmedAt pgtype.Timestamptz
+	LastStep    int64
 }
 
 type User struct {

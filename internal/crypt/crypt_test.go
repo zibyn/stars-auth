@@ -87,3 +87,20 @@ func TestAADBindsLocation(t *testing.T) {
 		t.Fatal("opened ciphertext moved to another row")
 	}
 }
+
+// A MAC recognises its data under the key that made it, after rotation too.
+func TestMAC(t *testing.T) {
+	old, _ := NewKeyring(1, map[byte][]byte{1: key(1)})
+	mac := old.MAC([]byte("abcd2345"))
+	if bytes.Contains(mac, []byte("abcd2345")) || !old.MACEqual(mac, []byte("abcd2345")) || old.MACEqual(mac, []byte("abcd2346")) {
+		t.Fatal("MAC does not tell its data apart")
+	}
+	rotated, _ := NewKeyring(2, map[byte][]byte{1: key(1), 2: key(2)})
+	if !rotated.MACEqual(mac, []byte("abcd2345")) || bytes.Equal(rotated.MAC([]byte("abcd2345")), mac) {
+		t.Fatal("MAC across rotation")
+	}
+	other, _ := NewKeyring(1, map[byte][]byte{1: key(3)})
+	if other.MACEqual(mac, []byte("abcd2345")) || other.MACEqual(nil, nil) {
+		t.Fatal("MAC under another key")
+	}
+}
