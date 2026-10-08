@@ -44,7 +44,9 @@ const (
 	// Keys in the AuthnSession store, carried into the grant.
 	storeAuthTime = "auth_time"
 	storeAMR      = "amr"
-	// Set instead of a grant while a signed-in User must bind a phone number.
+	// Set instead of a grant while a User past the first factor must still
+	// bind a phone number or agree to the terms; with auth_time and amr, and
+	// the Session only if the browser already had one.
 	storeBindSub = "pending_sub"
 )
 
@@ -384,25 +386,22 @@ var (
 	errNoCode = identity.Invalid("该账号不能用验证码登录")
 )
 
-// login starts a browser Session for a User who just authenticated, having
-// agreed to the terms of version (if any).
+// login goes on with a User who just passed the first factor, having agreed
+// to the terms of version (if any).
 func (s *Service) login(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession, c *goidc.Client, sub string, amr goidc.AMR, version string) (goidc.Status, error) {
 	if version != "" {
 		if err := s.q.RecordConsent(r.Context(), sqlc.RecordConsentParams{UserID: sub, Version: version, ClientID: c.ID}); err != nil {
 			return goidc.StatusFailure, err
 		}
 	}
-	authTime, amrs := time.Now(), []string{string(amr)}
-	session, err := s.newSession(w, r, c.ID, sub, authTime, amrs)
-	if err != nil {
-		return goidc.StatusFailure, err
-	}
-	return s.complete(w, r, as, c, session, sub, authTime, amrs)
+	return s.complete(w, r, as, c, "", sub, time.Now(), []string{string(amr)})
 }
 
 // complete grants sub, unless sub has yet to agree to the current terms or
 // to bind the phone number the instance requires: then those pages come
-// first.
+// first. Until they are done, the login waits in the AuthnSession store and
+// the browser holds no Session; session is empty unless the browser already
+// had one, and the Session starts once nothing is left.
 func (s *Service) complete(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession, c *goidc.Client, session, sub string, authTime time.Time, amr []string) (goidc.Status, error) {
 	phone, err := s.q.NeedsPhone(r.Context(), sub)
 	if err != nil {
@@ -413,8 +412,16 @@ func (s *Service) complete(w http.ResponseWriter, r *http.Request, as *goidc.Aut
 		return goidc.StatusFailure, err
 	}
 	if phone || consent {
-		as.Store = map[string]any{storeBindSub: sub, oidcstore.SessionKey: session, storeAuthTime: authTime.Unix(), storeAMR: amr}
+		as.Store = map[string]any{storeBindSub: sub, storeAuthTime: authTime.Unix(), storeAMR: amr}
+		if session != "" {
+			as.Store[oidcstore.SessionKey] = session
+		}
 		return s.render(w, r, as, c, loginPage{})
+	}
+	if session == "" {
+		if session, err = s.newSession(w, r, c.ID, sub, authTime, amr); err != nil {
+			return goidc.StatusFailure, err
+		}
 	}
 	grant(as, session, sub, authTime, amr)
 	return goidc.StatusSuccess, nil
