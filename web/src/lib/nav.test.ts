@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { navGroups } from "./nav.ts";
+import { navGroups, needsTwoFactor } from "./nav.ts";
+import { APIError } from "./oidc.ts";
+
+test("only the 403 for want of 两步验证 sends the admin to set it up", () => {
+	assert.equal(
+		needsTwoFactor(
+			new APIError(403, "需要先开启两步验证", "two_factor_required"),
+		),
+		true,
+	);
+	assert.equal(needsTwoFactor(new APIError(403, "not an admin")), false);
+	assert.equal(needsTwoFactor(new Error("two_factor_required")), false);
+	assert.equal(needsTwoFactor(undefined), false);
+});
 
 const labels = (permissions: string[]) =>
 	navGroups(permissions).map((g) => g.label);

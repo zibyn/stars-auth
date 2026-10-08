@@ -17,11 +17,12 @@ const random = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
 const here = () => location.pathname + location.search;
 
 export class APIError extends Error {
-	constructor(
-		readonly status: number,
-		message: string,
-	) {
+	readonly status: number;
+	readonly code?: string; // what kind, when the API names it
+	constructor(status: number, message: string, code?: string) {
 		super(message);
+		this.status = status;
+		this.code = code;
 	}
 }
 
@@ -146,7 +147,7 @@ export function oidcClient({
 		}
 		if (!res.ok) {
 			const body = await res.json().catch(() => ({}));
-			throw new APIError(res.status, body.detail ?? res.statusText);
+			throw new APIError(res.status, body.detail ?? res.statusText, body.code);
 		}
 		return res.status === 204 ? (undefined as T) : res.json();
 	}

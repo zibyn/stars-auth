@@ -1,4 +1,9 @@
-import { queryOptions } from "@tanstack/react-query";
+import {
+	type Mutation,
+	type Query,
+	queryOptions,
+	useQueryClient,
+} from "@tanstack/react-query";
 import {
 	createFileRoute,
 	Link,
@@ -9,9 +14,21 @@ import {
 	useRouteContext,
 	useSearch,
 } from "@tanstack/react-router";
-import { type ComponentType, Fragment, type ReactNode } from "react";
+import {
+	type ComponentType,
+	Fragment,
+	type ReactNode,
+	useEffect,
+	useState,
+} from "react";
 import { FullPage, RouteError, RoutePending } from "#/components/route-states";
 import { Star } from "#/components/star";
+import {
+	Alert,
+	AlertAction,
+	AlertDescription,
+	AlertTitle,
+} from "#/components/ui/alert";
 import {
 	Breadcrumb,
 	BreadcrumbItem,
@@ -20,6 +37,7 @@ import {
 	BreadcrumbPage,
 	BreadcrumbSeparator,
 } from "#/components/ui/breadcrumb";
+import { Button } from "#/components/ui/button";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -29,7 +47,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { UserAvatar } from "#/components/user-avatar";
 import { APIError, api, logout, type Me } from "#/lib/console-api";
-import { navGroups } from "#/lib/nav";
+import { navGroups, needsTwoFactor } from "#/lib/nav";
 import { Panel } from "#/routes/console/-components/panel";
 
 export const meQuery = queryOptions({
@@ -54,7 +72,9 @@ export const Route = createFileRoute("/console")({
 	),
 	errorComponent: (props) => (
 		<FullPage>
-			{props.error instanceof APIError && props.error.status === 403 ? (
+			{needsTwoFactor(props.error) ? (
+				<TwoFactorFirst />
+			) : props.error instanceof APIError && props.error.status === 403 ? (
 				<p className="text-center">你不是管理员,无法使用管理端</p>
 			) : (
 				<RouteError {...props} />
@@ -63,6 +83,45 @@ export const Route = createFileRoute("/console")({
 	),
 	component: Console,
 });
+
+// TwoFactorFirst stands in for the console while 管理员必须启用两步验证
+// turns the admin away.
+function TwoFactorFirst() {
+	return (
+		<Alert>
+			<AlertTitle>需要先开启两步验证</AlertTitle>
+			<AlertDescription>
+				这个实例要求管理员开启两步验证。在账号中心开启后，回来就能继续使用管理端。
+			</AlertDescription>
+			<AlertAction>
+				<Button size="sm" render={<Link to="/account" />}>
+					去账号中心
+				</Button>
+			</AlertAction>
+		</Alert>
+	);
+}
+
+// useTwoFactorLock swaps the console for TwoFactorFirst as soon as any call
+// is turned away for want of 两步验证, as when the switch goes on mid-session.
+function useTwoFactorLock() {
+	const client = useQueryClient();
+	const [locked, setLocked] = useState(false);
+	useEffect(() => {
+		const check = (e: { query?: Query; mutation?: Mutation }) => {
+			const error = (e.query ?? e.mutation)?.state.error;
+			if (needsTwoFactor(error)) setLocked(true);
+		};
+		const unsubs = [
+			client.getQueryCache().subscribe(check),
+			client.getMutationCache().subscribe(check),
+		];
+		return () => {
+			for (const u of unsubs) u();
+		};
+	}, [client]);
+	return locked;
+}
 
 export type Header = {
 	title: ReactNode;
@@ -178,7 +237,15 @@ export function useCan() {
 function Console() {
 	const me = useMe();
 	const leaf = useMatches({ select: (m) => m[m.length - 1] });
+	const locked = useTwoFactorLock();
 	const groups = navGroups(me.permissions);
+	if (locked) {
+		return (
+			<FullPage>
+				<TwoFactorFirst />
+			</FullPage>
+		);
+	}
 	return (
 		<div className="flex min-h-svh bg-canvas p-2 text-sm">
 			<aside className="sticky top-2 flex h-[calc(100svh-1rem)] w-60 shrink-0 flex-col p-4">

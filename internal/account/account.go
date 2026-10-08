@@ -100,7 +100,7 @@ func (s *Service) Register(mux *http.ServeMux) {
 	op(api, http.MethodDelete, "remove-password", "/password", "Delete the User's password", s.removePassword, http.StatusForbidden)
 	op(api, http.MethodPost, "begin-totp", "/2fa/totp", "Begin turning 两步验证 on: a new TOTP to add to an authenticator, replacing one not yet confirmed", s.beginTOTP, http.StatusForbidden, http.StatusConflict)
 	op(api, http.MethodPost, "confirm-totp", "/2fa/totp/confirm", "Turn 两步验证 on with a code from the new TOTP; the recovery codes are shown this once", s.confirmTOTP, http.StatusForbidden, http.StatusConflict)
-	op(api, http.MethodDelete, "disable-2fa", "/2fa", "Turn 两步验证 off, deleting the TOTP and recovery codes", s.disableTwoFactor, http.StatusForbidden)
+	op(api, http.MethodDelete, "disable-2fa", "/2fa", "Turn 两步验证 off, deleting the TOTP and recovery codes; 409 for an admin while 管理员必须启用两步验证 is on", s.disableTwoFactor, http.StatusForbidden, http.StatusConflict)
 	op(api, http.MethodPost, "regenerate-recovery-codes", "/2fa/recovery-codes", "Replace the recovery codes with a new set", s.regenerateRecoveryCodes, http.StatusForbidden)
 }
 
@@ -506,6 +506,12 @@ func (s *Service) disableTwoFactor(ctx context.Context, _ *struct{}) (*struct{},
 		return nil, err
 	}
 	sub := callerOf(ctx).sub
+	// The switch would be pointless if admins could turn 两步验证 off.
+	if must, err := s.q.MustKeepTwoFactor(ctx, sub); err != nil {
+		return nil, err
+	} else if must {
+		return nil, huma.Error409Conflict("管理员必须启用两步验证,你持有管理员角色,不能关闭")
+	}
 	return nil, twoFactorErr(s.twoFA.Disable(ctx, sub, "mfa.disabled", sub))
 }
 
