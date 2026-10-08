@@ -1,4 +1,10 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	useIsMutating,
+	useMutation,
+	useMutationState,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
 import {
 	createFileRoute,
 	Link,
@@ -6,12 +12,6 @@ import {
 	useParams,
 } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
-import {
-	ConfirmDialog,
-	EmptyState,
-	PageHeader,
-	Section,
-} from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import {
@@ -27,11 +27,14 @@ import {
 	managementAPI,
 	primaryIdentifier,
 } from "#/lib/users";
-import { useCan } from "./console";
-import { Avatar, date, rolesQuery } from "./console.users.index";
+import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
+import { EmptyState } from "#/routes/console/-components/notice";
+import { Section } from "#/routes/console/-components/section";
+import { type Header, useCan } from "#/routes/console/route";
+import { Avatar, date, rolesQuery } from "#/routes/console/users/index";
 
 export const Route = createFileRoute("/console/users/$sub")({
-	staticData: { crumb: UserName },
+	staticData: { crumb: UserName, useHeader },
 	component: UserPage,
 });
 
@@ -48,11 +51,95 @@ function UserName(): ReactNode {
 	return u && (primaryIdentifier(u.identifiers) ?? "未绑定登录标识");
 }
 
-function UserPage() {
-	const { sub } = Route.useParams();
+// useUser is what the header and the page both read: the User, what the
+// admin may do to them, and the actions they share.
+function useUser() {
+	const { sub } = useParams({ from: "/console/users/$sub" });
 	const user = useQuery(userQuery(sub));
 	const can = useCan();
 	const act = useUserAction(sub);
+	const u = user.data;
+	// Acting on an admin takes admin-roles:assign too.
+	const writable =
+		!!u &&
+		can("users:write") &&
+		(can("admin-roles:assign") ||
+			!u.roles.some((r) => r.api === managementAPI));
+	return { user, can, act, writable };
+}
+
+function useHeader(): Header | null {
+	const { user, can, act, writable } = useUser();
+	const u = user.data;
+	if (user.error || !u) {
+		return null;
+	}
+	const name = primaryIdentifier(u.identifiers);
+	const who = name ? `用户 ${name}` : "这个用户";
+	return {
+		title: (
+			<>
+				<Avatar name={name} className="size-10 text-base" />
+				{name ?? "未绑定登录标识"}
+			</>
+		),
+		badges: (
+			<>
+				{u.disabledAt ? (
+					<Badge variant="destructive">已禁用 · {date(u.disabledAt)}</Badge>
+				) : (
+					<Badge className="bg-green-500/10 text-green-700">正常</Badge>
+				)}
+				{can("audit:read") && (
+					<Link
+						to="/console/audit"
+						search={{ sub: u.sub, q: name ?? u.sub }}
+						className="text-primary-ink text-sm hover:underline"
+					>
+						查看审计记录
+					</Link>
+				)}
+			</>
+		),
+		actions: writable && (
+			<>
+				{u.disabledAt ? (
+					<Button
+						variant="outline"
+						disabled={act.isPending}
+						onClick={() => act.mutate({ method: "POST", path: "/enable" })}
+					>
+						恢复
+					</Button>
+				) : (
+					<ConfirmDialog
+						trigger={
+							<Button variant="outline" disabled={act.isPending}>
+								禁用
+							</Button>
+						}
+						title={`禁用${who}？`}
+						action="禁用用户"
+						onConfirm={() => act.mutate({ method: "POST", path: "/disable" })}
+					>
+						禁用后该用户无法登录，所有会话立即下线；之后可以随时恢复。
+					</ConfirmDialog>
+				)}
+				<DeleteUser
+					who={who}
+					disabled={act.isPending}
+					onConfirm={() => act.mutate({ method: "DELETE", path: "" })}
+				/>
+			</>
+		),
+		details: act.error && (
+			<p className="text-destructive text-sm">{act.error.message}</p>
+		),
+	};
+}
+
+function UserPage() {
+	const { user, act, writable } = useUser();
 	if (user.error) {
 		return <p className="text-destructive text-sm">{user.error.message}</p>;
 	}
@@ -60,82 +147,8 @@ function UserPage() {
 	if (!u) {
 		return null;
 	}
-	// Acting on an admin takes admin-roles:assign too.
-	const writable =
-		can("users:write") &&
-		(can("admin-roles:assign") ||
-			!u.roles.some((r) => r.api === managementAPI));
-	const name = primaryIdentifier(u.identifiers);
-	const who = name ? `用户 ${name}` : "这个用户";
 	return (
-		<div className="space-y-10">
-			<PageHeader
-				title={
-					<>
-						<Avatar name={name} className="size-10 text-base" />
-						{name ?? "未绑定登录标识"}
-					</>
-				}
-				badges={
-					<>
-						{u.disabledAt ? (
-							<Badge variant="destructive">已禁用 · {date(u.disabledAt)}</Badge>
-						) : (
-							<Badge className="bg-green-500/10 text-green-700">正常</Badge>
-						)}
-						{can("audit:read") && (
-							<Link
-								to="/console/audit"
-								search={{ sub: u.sub, q: name ?? u.sub }}
-								className="text-primary-ink text-sm hover:underline"
-							>
-								查看审计记录
-							</Link>
-						)}
-					</>
-				}
-				actions={
-					writable && (
-						<>
-							{u.disabledAt ? (
-								<Button
-									variant="outline"
-									disabled={act.isPending}
-									onClick={() =>
-										act.mutate({ method: "POST", path: "/enable" })
-									}
-								>
-									恢复
-								</Button>
-							) : (
-								<ConfirmDialog
-									trigger={
-										<Button variant="outline" disabled={act.isPending}>
-											禁用
-										</Button>
-									}
-									title={`禁用${who}？`}
-									action="禁用用户"
-									onConfirm={() =>
-										act.mutate({ method: "POST", path: "/disable" })
-									}
-								>
-									禁用后该用户无法登录，所有会话立即下线；之后可以随时恢复。
-								</ConfirmDialog>
-							)}
-							<DeleteUser
-								who={who}
-								disabled={act.isPending}
-								onConfirm={() => act.mutate({ method: "DELETE", path: "" })}
-							/>
-						</>
-					)
-				}
-			>
-				{act.error && (
-					<p className="text-destructive text-sm">{act.error.message}</p>
-				)}
-			</PageHeader>
+		<div className="space-y-10 pt-4">
 			<Section title="登录标识与密码">
 				{identifierKinds.map((kind) => (
 					<Row key={kind} label={kindName[kind]}>
@@ -220,11 +233,15 @@ function DeleteUser({
 }
 
 // useUserAction calls a users:write operation on sub (path under
-// /users/{sub}) and refreshes what it changes.
+// /users/{sub}) and refreshes what it changes. The header and the page
+// each hold one; both see whether a call is running and how the latest
+// one since they mounted failed.
 function useUserAction(sub: string) {
 	const client = useQueryClient();
 	const navigate = useNavigate();
-	return useMutation({
+	const mutationKey = ["user-action", sub];
+	const { mutate } = useMutation({
+		mutationKey,
 		mutationFn: (a: {
 			method: "POST" | "PUT" | "DELETE";
 			path: string;
@@ -241,6 +258,13 @@ function useUserAction(sub: string) {
 			return client.invalidateQueries();
 		},
 	});
+	const [since] = useState(Date.now);
+	const isPending = useIsMutating({ mutationKey }) > 0;
+	const error = useMutationState({
+		filters: { mutationKey, predicate: (m) => m.state.submittedAt >= since },
+		select: (m) => m.state.error,
+	}).at(-1);
+	return { mutate, isPending, error };
 }
 
 function Sessions({ sub, writable }: { sub: string; writable: boolean }) {

@@ -6,7 +6,6 @@ import {
 } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { DangerZone, Panel, Section } from "#/components/console";
 import { Star } from "#/components/star";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
@@ -26,14 +25,11 @@ import {
 	type Session,
 } from "#/lib/account-api";
 import { avatarInitial, kindName, primaryIdentifier } from "#/lib/users";
+import { meQuery } from "#/routes/account/route";
+import { Panel } from "#/routes/console/-components/panel";
+import { DangerZone, Section } from "#/routes/console/-components/section";
 
-export const Route = createFileRoute("/account")({ component: Account });
-
-const meQuery = queryOptions({
-	queryKey: ["account", "me"],
-	queryFn: () => api<Me>("/me"),
-	retry: false,
-});
+export const Route = createFileRoute("/account/")({ component: Account });
 
 const sessionsQuery = queryOptions({
 	queryKey: ["account", "sessions"],
@@ -63,13 +59,6 @@ function Account() {
 				<p className="text-muted-foreground text-sm">
 					你的数据已全部删除。同一个手机号或邮箱再次登录,将是一个新账号。
 				</p>
-			</main>
-		);
-	}
-	if (me.error) {
-		return (
-			<main className="flex min-h-svh items-center justify-center bg-canvas">
-				<p>账号中心加载失败:{me.error.message}</p>
 			</main>
 		);
 	}

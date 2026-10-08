@@ -6,11 +6,6 @@ import {
 } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import {
-	ConfirmDialog,
-	InlineWarning,
-	SectionHeading,
-} from "#/components/console";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { Label } from "#/components/ui/label";
@@ -27,7 +22,10 @@ import {
 	type ChannelSettings,
 } from "#/lib/console-api";
 import { sendsNothing, smsLocked } from "#/lib/login";
-import { useCan } from "../console";
+import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
+import { InlineWarning } from "#/routes/console/-components/notice";
+import { SectionHeading } from "#/routes/console/-components/section";
+import { useCan } from "#/routes/console/route";
 import { PolicyNumber, usePolicy } from "./policy";
 
 export const channelsQuery = queryOptions({

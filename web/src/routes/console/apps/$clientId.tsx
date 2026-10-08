@@ -5,19 +5,11 @@ import {
 	useBlocker,
 	useNavigate,
 	useParams,
+	useSearch,
 } from "@tanstack/react-router";
 import { Check } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { z } from "zod";
-import {
-	ConfirmDialog,
-	DangerZone,
-	Field,
-	InlineWarning,
-	PageHeader,
-	SaveBar,
-	Section,
-} from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
@@ -29,7 +21,7 @@ import {
 	SelectValue,
 } from "#/components/ui/select";
 import { Switch } from "#/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
+import { TabsContent } from "#/components/ui/tabs";
 import { Textarea } from "#/components/ui/textarea";
 import { typeName, typeWhy, webhookError } from "#/lib/apps";
 import {
@@ -45,10 +37,18 @@ import {
 	platformKeys,
 	snippet,
 } from "#/lib/onboarding";
-import { useCan } from "./console";
-import { apisQuery } from "./console.apis.index";
-import { applicationsQuery } from "./console.apps.index";
-import { date } from "./console.users.index";
+import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
+import { InlineWarning } from "#/routes/console/-components/notice";
+import {
+	DangerZone,
+	Field,
+	SaveBar,
+	Section,
+} from "#/routes/console/-components/section";
+import { apisQuery } from "#/routes/console/apis/index";
+import { applicationsQuery } from "#/routes/console/apps/index";
+import { type Header, useCan } from "#/routes/console/route";
+import { date } from "#/routes/console/users/index";
 
 const tabs = [
 	["basic", "基本"],
@@ -63,7 +63,7 @@ const search = z.object({
 });
 
 export const Route = createFileRoute("/console/apps/$clientId")({
-	staticData: { crumb: ApplicationName },
+	staticData: { crumb: ApplicationName, useHeader },
 	validateSearch: search,
 	component: ApplicationPage,
 });
@@ -85,22 +85,26 @@ const currentSettings = (a: Application): ApplicationSettings => ({
 	androidApps: a.androidApps,
 });
 
+const useApplication = (clientId: string) =>
+	useQuery(applicationsQuery).data?.applications.find(
+		(a) => a.clientId === clientId,
+	);
+
 // ApplicationName is the Application's crumb, kept current by the query.
 function ApplicationName(): ReactNode {
 	const { clientId } = useParams({ from: "/console/apps/$clientId" });
-	return useQuery(applicationsQuery).data?.applications.find(
-		(a) => a.clientId === clientId,
-	)?.name;
+	return useApplication(clientId)?.name;
 }
 
-function ApplicationPage() {
-	const { clientId } = Route.useParams();
-	const search = Route.useSearch();
-	const { tab = "basic" } = search;
+// useHeader heads an Application's page: its name, type and tabs, why it
+// can't be edited, and the 接入清单 right after creating it.
+function useHeader(): Header | null {
+	const { clientId } = useParams({ from: "/console/apps/$clientId" });
+	const search = useSearch({ from: "/console/apps/$clientId" });
 	// The 接入清单 shows once: kept for this visit, gone from the URL so a
 	// reload or a copied link doesn't bring it back.
 	const [onboarding] = useState(search.onboarding);
-	const navigate = useNavigate({ from: Route.fullPath });
+	const navigate = useNavigate({ from: "/console/apps/$clientId" });
 	useEffect(() => {
 		if (search.onboarding) {
 			navigate({
@@ -109,6 +113,38 @@ function ApplicationPage() {
 			});
 		}
 	}, [search.onboarding, navigate]);
+	const app = useApplication(clientId);
+	const can = useCan();
+	if (!app) {
+		return null;
+	}
+	const editable = can("applications:write") && !app.builtin;
+	return {
+		title: app.name,
+		badges: (
+			<>
+				<Badge variant="secondary">{typeName[app.type]}</Badge>
+				{app.builtin && <Badge variant="outline">内置</Badge>}
+			</>
+		),
+		tabs,
+		details: (
+			<>
+				{!editable && (
+					<p className="text-muted-foreground text-sm">
+						{app.builtin
+							? "内置应用由认证服务自己使用，不能修改或删除。"
+							: "需要「管理员」角色才能修改。"}
+					</p>
+				)}
+				{onboarding && <Onboarding app={app} platform={onboarding} />}
+			</>
+		),
+	};
+}
+
+function ApplicationPage() {
+	const { clientId } = Route.useParams();
 	const apps = useQuery(applicationsQuery);
 	const can = useCan();
 	if (apps.error) {
@@ -130,40 +166,7 @@ function ApplicationPage() {
 	}
 	const editable = can("applications:write") && !app.builtin;
 	return (
-		<Tabs
-			value={tab}
-			onValueChange={(v) =>
-				navigate({ search: { tab: v === "basic" ? undefined : v } })
-			}
-			className="gap-6"
-		>
-			<PageHeader
-				title={app.name}
-				badges={
-					<>
-						<Badge variant="secondary">{typeName[app.type]}</Badge>
-						{app.builtin && <Badge variant="outline">内置</Badge>}
-					</>
-				}
-				tabs={
-					<TabsList variant="line">
-						{tabs.map(([key, label]) => (
-							<TabsTrigger key={key} value={key}>
-								{label}
-							</TabsTrigger>
-						))}
-					</TabsList>
-				}
-			>
-				{!editable && (
-					<p className="text-muted-foreground text-sm">
-						{app.builtin
-							? "内置应用由认证服务自己使用，不能修改或删除。"
-							: "需要「管理员」角色才能修改。"}
-					</p>
-				)}
-				{onboarding && <Onboarding app={app} platform={onboarding} />}
-			</PageHeader>
+		<>
 			<TabsContent value="basic">
 				<BasicTab app={app} editable={editable} />
 			</TabsContent>
@@ -173,7 +176,7 @@ function ApplicationPage() {
 			<TabsContent value="webhook">
 				<WebhookTab app={app} editable={editable} />
 			</TabsContent>
-		</Tabs>
+		</>
 	);
 }
 

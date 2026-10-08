@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ConfirmDialog, SectionHeading } from "#/components/console";
 import { Button } from "#/components/ui/button";
 import { api, type SigningKey } from "#/lib/console-api";
 import {
@@ -7,7 +6,9 @@ import {
 	lastRotation,
 	rotatedRecently,
 } from "#/lib/login";
-import { useCan } from "../console";
+import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
+import { SectionHeading } from "#/routes/console/-components/section";
+import { useCan } from "#/routes/console/route";
 import { PolicyNumber } from "./policy";
 
 const date = (s: string) => new Date(s).toLocaleString("zh-CN");

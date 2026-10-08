@@ -10,38 +10,41 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SplatRouteImport } from './routes/$'
-import { Route as AccountRouteImport } from './routes/account'
-import { Route as ConsoleRouteImport } from './routes/console'
-import { Route as AccountCallbackRouteImport } from './routes/account_.callback'
-import { Route as ConsoleIndexRouteImport } from './routes/console.index'
-import { Route as ConsoleApisRouteImport } from './routes/console.apis'
-import { Route as ConsoleAppsRouteImport } from './routes/console.apps'
-import { Route as ConsoleAuditRouteImport } from './routes/console.audit'
-import { Route as ConsoleSettingsRouteImport } from './routes/console.settings'
-import { Route as ConsoleUsersRouteImport } from './routes/console.users'
-import { Route as ConsoleCallbackRouteImport } from './routes/console_.callback'
-import { Route as ConsoleApisIndexRouteImport } from './routes/console.apis.index'
-import { Route as ConsoleApisApiRouteImport } from './routes/console.apis.$api'
-import { Route as ConsoleAppsIndexRouteImport } from './routes/console.apps.index'
-import { Route as ConsoleAppsClientIdRouteImport } from './routes/console.apps.$clientId'
-import { Route as ConsoleAppsNewRouteImport } from './routes/console.apps.new'
-import { Route as ConsoleUsersIndexRouteImport } from './routes/console.users.index'
-import { Route as ConsoleUsersSubRouteImport } from './routes/console.users.$sub'
+import { Route as AccountRouteRouteImport } from './routes/account/route'
+import { Route as ConsoleRouteRouteImport } from './routes/console/route'
+import { Route as AccountIndexRouteImport } from './routes/account/index'
+import { Route as AccountCallbackRouteImport } from './routes/account_/callback'
+import { Route as ConsoleIndexRouteImport } from './routes/console/index'
+import { Route as ConsoleAuditRouteImport } from './routes/console/audit'
+import { Route as ConsoleSettingsRouteImport } from './routes/console/settings'
+import { Route as ConsoleCallbackRouteImport } from './routes/console_/callback'
+import { Route as ConsoleApisIndexRouteImport } from './routes/console/apis/index'
+import { Route as ConsoleApisApiRouteImport } from './routes/console/apis/$api'
+import { Route as ConsoleAppsIndexRouteImport } from './routes/console/apps/index'
+import { Route as ConsoleAppsClientIdRouteImport } from './routes/console/apps/$clientId'
+import { Route as ConsoleAppsNewRouteImport } from './routes/console/apps/new'
+import { Route as ConsoleUsersIndexRouteImport } from './routes/console/users/index'
+import { Route as ConsoleUsersSubRouteImport } from './routes/console/users/$sub'
 
 const SplatRoute = SplatRouteImport.update({
   id: '/$',
   path: '/$',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AccountRoute = AccountRouteImport.update({
+const AccountRouteRoute = AccountRouteRouteImport.update({
   id: '/account',
   path: '/account',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ConsoleRoute = ConsoleRouteImport.update({
+const ConsoleRouteRoute = ConsoleRouteRouteImport.update({
   id: '/console',
   path: '/console',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AccountIndexRoute = AccountIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AccountRouteRoute,
 } as any)
 const AccountCallbackRoute = AccountCallbackRouteImport.update({
   id: '/account_/callback',
@@ -51,32 +54,17 @@ const AccountCallbackRoute = AccountCallbackRouteImport.update({
 const ConsoleIndexRoute = ConsoleIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => ConsoleRoute,
-} as any)
-const ConsoleApisRoute = ConsoleApisRouteImport.update({
-  id: '/apis',
-  path: '/apis',
-  getParentRoute: () => ConsoleRoute,
-} as any)
-const ConsoleAppsRoute = ConsoleAppsRouteImport.update({
-  id: '/apps',
-  path: '/apps',
-  getParentRoute: () => ConsoleRoute,
+  getParentRoute: () => ConsoleRouteRoute,
 } as any)
 const ConsoleAuditRoute = ConsoleAuditRouteImport.update({
   id: '/audit',
   path: '/audit',
-  getParentRoute: () => ConsoleRoute,
+  getParentRoute: () => ConsoleRouteRoute,
 } as any)
 const ConsoleSettingsRoute = ConsoleSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
-  getParentRoute: () => ConsoleRoute,
-} as any)
-const ConsoleUsersRoute = ConsoleUsersRouteImport.update({
-  id: '/users',
-  path: '/users',
-  getParentRoute: () => ConsoleRoute,
+  getParentRoute: () => ConsoleRouteRoute,
 } as any)
 const ConsoleCallbackRoute = ConsoleCallbackRouteImport.update({
   id: '/console_/callback',
@@ -84,52 +72,50 @@ const ConsoleCallbackRoute = ConsoleCallbackRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const ConsoleApisIndexRoute = ConsoleApisIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => ConsoleApisRoute,
+  id: '/apis/',
+  path: '/apis/',
+  getParentRoute: () => ConsoleRouteRoute,
 } as any)
 const ConsoleApisApiRoute = ConsoleApisApiRouteImport.update({
-  id: '/$api',
-  path: '/$api',
-  getParentRoute: () => ConsoleApisRoute,
+  id: '/apis/$api',
+  path: '/apis/$api',
+  getParentRoute: () => ConsoleRouteRoute,
 } as any)
 const ConsoleAppsIndexRoute = ConsoleAppsIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => ConsoleAppsRoute,
+  id: '/apps/',
+  path: '/apps/',
+  getParentRoute: () => ConsoleRouteRoute,
 } as any)
 const ConsoleAppsClientIdRoute = ConsoleAppsClientIdRouteImport.update({
-  id: '/$clientId',
-  path: '/$clientId',
-  getParentRoute: () => ConsoleAppsRoute,
+  id: '/apps/$clientId',
+  path: '/apps/$clientId',
+  getParentRoute: () => ConsoleRouteRoute,
 } as any)
 const ConsoleAppsNewRoute = ConsoleAppsNewRouteImport.update({
-  id: '/new',
-  path: '/new',
-  getParentRoute: () => ConsoleAppsRoute,
+  id: '/apps/new',
+  path: '/apps/new',
+  getParentRoute: () => ConsoleRouteRoute,
 } as any)
 const ConsoleUsersIndexRoute = ConsoleUsersIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => ConsoleUsersRoute,
+  id: '/users/',
+  path: '/users/',
+  getParentRoute: () => ConsoleRouteRoute,
 } as any)
 const ConsoleUsersSubRoute = ConsoleUsersSubRouteImport.update({
-  id: '/$sub',
-  path: '/$sub',
-  getParentRoute: () => ConsoleUsersRoute,
+  id: '/users/$sub',
+  path: '/users/$sub',
+  getParentRoute: () => ConsoleRouteRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
+  '/account': typeof AccountRouteRouteWithChildren
+  '/console': typeof ConsoleRouteRouteWithChildren
   '/$': typeof SplatRoute
-  '/account': typeof AccountRoute
-  '/console': typeof ConsoleRouteWithChildren
   '/account/callback': typeof AccountCallbackRoute
-  '/console/apis': typeof ConsoleApisRouteWithChildren
-  '/console/apps': typeof ConsoleAppsRouteWithChildren
   '/console/audit': typeof ConsoleAuditRoute
   '/console/settings': typeof ConsoleSettingsRoute
-  '/console/users': typeof ConsoleUsersRouteWithChildren
   '/console/callback': typeof ConsoleCallbackRoute
+  '/account/': typeof AccountIndexRoute
   '/console/': typeof ConsoleIndexRoute
   '/console/apis/$api': typeof ConsoleApisApiRoute
   '/console/apps/$clientId': typeof ConsoleAppsClientIdRoute
@@ -141,11 +127,11 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/$': typeof SplatRoute
-  '/account': typeof AccountRoute
   '/account/callback': typeof AccountCallbackRoute
   '/console/audit': typeof ConsoleAuditRoute
   '/console/settings': typeof ConsoleSettingsRoute
   '/console/callback': typeof ConsoleCallbackRoute
+  '/account': typeof AccountIndexRoute
   '/console': typeof ConsoleIndexRoute
   '/console/apis/$api': typeof ConsoleApisApiRoute
   '/console/apps/$clientId': typeof ConsoleAppsClientIdRoute
@@ -157,16 +143,14 @@ export interface FileRoutesByTo {
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
+  '/account': typeof AccountRouteRouteWithChildren
+  '/console': typeof ConsoleRouteRouteWithChildren
   '/$': typeof SplatRoute
-  '/account': typeof AccountRoute
-  '/console': typeof ConsoleRouteWithChildren
   '/account_/callback': typeof AccountCallbackRoute
-  '/console/apis': typeof ConsoleApisRouteWithChildren
-  '/console/apps': typeof ConsoleAppsRouteWithChildren
   '/console/audit': typeof ConsoleAuditRoute
   '/console/settings': typeof ConsoleSettingsRoute
-  '/console/users': typeof ConsoleUsersRouteWithChildren
   '/console_/callback': typeof ConsoleCallbackRoute
+  '/account/': typeof AccountIndexRoute
   '/console/': typeof ConsoleIndexRoute
   '/console/apis/$api': typeof ConsoleApisApiRoute
   '/console/apps/$clientId': typeof ConsoleAppsClientIdRoute
@@ -179,16 +163,14 @@ export interface FileRoutesById {
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    | '/$'
     | '/account'
     | '/console'
+    | '/$'
     | '/account/callback'
-    | '/console/apis'
-    | '/console/apps'
     | '/console/audit'
     | '/console/settings'
-    | '/console/users'
     | '/console/callback'
+    | '/account/'
     | '/console/'
     | '/console/apis/$api'
     | '/console/apps/$clientId'
@@ -200,11 +182,11 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/$'
-    | '/account'
     | '/account/callback'
     | '/console/audit'
     | '/console/settings'
     | '/console/callback'
+    | '/account'
     | '/console'
     | '/console/apis/$api'
     | '/console/apps/$clientId'
@@ -215,16 +197,14 @@ export interface FileRouteTypes {
     | '/console/users'
   id:
     | '__root__'
-    | '/$'
     | '/account'
     | '/console'
+    | '/$'
     | '/account_/callback'
-    | '/console/apis'
-    | '/console/apps'
     | '/console/audit'
     | '/console/settings'
-    | '/console/users'
     | '/console_/callback'
+    | '/account/'
     | '/console/'
     | '/console/apis/$api'
     | '/console/apps/$clientId'
@@ -236,9 +216,9 @@ export interface FileRouteTypes {
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
+  AccountRouteRoute: typeof AccountRouteRouteWithChildren
+  ConsoleRouteRoute: typeof ConsoleRouteRouteWithChildren
   SplatRoute: typeof SplatRoute
-  AccountRoute: typeof AccountRoute
-  ConsoleRoute: typeof ConsoleRouteWithChildren
   AccountCallbackRoute: typeof AccountCallbackRoute
   ConsoleCallbackRoute: typeof ConsoleCallbackRoute
 }
@@ -256,15 +236,22 @@ declare module '@tanstack/react-router' {
       id: '/account'
       path: '/account'
       fullPath: '/account'
-      preLoaderRoute: typeof AccountRouteImport
+      preLoaderRoute: typeof AccountRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/console': {
       id: '/console'
       path: '/console'
       fullPath: '/console'
-      preLoaderRoute: typeof ConsoleRouteImport
+      preLoaderRoute: typeof ConsoleRouteRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/account/': {
+      id: '/account/'
+      path: '/'
+      fullPath: '/account/'
+      preLoaderRoute: typeof AccountIndexRouteImport
+      parentRoute: typeof AccountRouteRoute
     }
     '/account_/callback': {
       id: '/account_/callback'
@@ -278,42 +265,21 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/console/'
       preLoaderRoute: typeof ConsoleIndexRouteImport
-      parentRoute: typeof ConsoleRoute
-    }
-    '/console/apis': {
-      id: '/console/apis'
-      path: '/apis'
-      fullPath: '/console/apis'
-      preLoaderRoute: typeof ConsoleApisRouteImport
-      parentRoute: typeof ConsoleRoute
-    }
-    '/console/apps': {
-      id: '/console/apps'
-      path: '/apps'
-      fullPath: '/console/apps'
-      preLoaderRoute: typeof ConsoleAppsRouteImport
-      parentRoute: typeof ConsoleRoute
+      parentRoute: typeof ConsoleRouteRoute
     }
     '/console/audit': {
       id: '/console/audit'
       path: '/audit'
       fullPath: '/console/audit'
       preLoaderRoute: typeof ConsoleAuditRouteImport
-      parentRoute: typeof ConsoleRoute
+      parentRoute: typeof ConsoleRouteRoute
     }
     '/console/settings': {
       id: '/console/settings'
       path: '/settings'
       fullPath: '/console/settings'
       preLoaderRoute: typeof ConsoleSettingsRouteImport
-      parentRoute: typeof ConsoleRoute
-    }
-    '/console/users': {
-      id: '/console/users'
-      path: '/users'
-      fullPath: '/console/users'
-      preLoaderRoute: typeof ConsoleUsersRouteImport
-      parentRoute: typeof ConsoleRoute
+      parentRoute: typeof ConsoleRouteRoute
     }
     '/console_/callback': {
       id: '/console_/callback'
@@ -324,125 +290,102 @@ declare module '@tanstack/react-router' {
     }
     '/console/apis/': {
       id: '/console/apis/'
-      path: '/'
+      path: '/apis'
       fullPath: '/console/apis/'
       preLoaderRoute: typeof ConsoleApisIndexRouteImport
-      parentRoute: typeof ConsoleApisRoute
+      parentRoute: typeof ConsoleRouteRoute
     }
     '/console/apis/$api': {
       id: '/console/apis/$api'
-      path: '/$api'
+      path: '/apis/$api'
       fullPath: '/console/apis/$api'
       preLoaderRoute: typeof ConsoleApisApiRouteImport
-      parentRoute: typeof ConsoleApisRoute
+      parentRoute: typeof ConsoleRouteRoute
     }
     '/console/apps/': {
       id: '/console/apps/'
-      path: '/'
+      path: '/apps'
       fullPath: '/console/apps/'
       preLoaderRoute: typeof ConsoleAppsIndexRouteImport
-      parentRoute: typeof ConsoleAppsRoute
+      parentRoute: typeof ConsoleRouteRoute
     }
     '/console/apps/$clientId': {
       id: '/console/apps/$clientId'
-      path: '/$clientId'
+      path: '/apps/$clientId'
       fullPath: '/console/apps/$clientId'
       preLoaderRoute: typeof ConsoleAppsClientIdRouteImport
-      parentRoute: typeof ConsoleAppsRoute
+      parentRoute: typeof ConsoleRouteRoute
     }
     '/console/apps/new': {
       id: '/console/apps/new'
-      path: '/new'
+      path: '/apps/new'
       fullPath: '/console/apps/new'
       preLoaderRoute: typeof ConsoleAppsNewRouteImport
-      parentRoute: typeof ConsoleAppsRoute
+      parentRoute: typeof ConsoleRouteRoute
     }
     '/console/users/': {
       id: '/console/users/'
-      path: '/'
+      path: '/users'
       fullPath: '/console/users/'
       preLoaderRoute: typeof ConsoleUsersIndexRouteImport
-      parentRoute: typeof ConsoleUsersRoute
+      parentRoute: typeof ConsoleRouteRoute
     }
     '/console/users/$sub': {
       id: '/console/users/$sub'
-      path: '/$sub'
+      path: '/users/$sub'
       fullPath: '/console/users/$sub'
       preLoaderRoute: typeof ConsoleUsersSubRouteImport
-      parentRoute: typeof ConsoleUsersRoute
+      parentRoute: typeof ConsoleRouteRoute
     }
   }
 }
 
-interface ConsoleApisRouteChildren {
-  ConsoleApisApiRoute: typeof ConsoleApisApiRoute
-  ConsoleApisIndexRoute: typeof ConsoleApisIndexRoute
+interface AccountRouteRouteChildren {
+  AccountIndexRoute: typeof AccountIndexRoute
 }
 
-const ConsoleApisRouteChildren: ConsoleApisRouteChildren = {
-  ConsoleApisApiRoute: ConsoleApisApiRoute,
-  ConsoleApisIndexRoute: ConsoleApisIndexRoute,
+const AccountRouteRouteChildren: AccountRouteRouteChildren = {
+  AccountIndexRoute: AccountIndexRoute,
 }
 
-const ConsoleApisRouteWithChildren = ConsoleApisRoute._addFileChildren(
-  ConsoleApisRouteChildren,
+const AccountRouteRouteWithChildren = AccountRouteRoute._addFileChildren(
+  AccountRouteRouteChildren,
 )
 
-interface ConsoleAppsRouteChildren {
+interface ConsoleRouteRouteChildren {
+  ConsoleAuditRoute: typeof ConsoleAuditRoute
+  ConsoleSettingsRoute: typeof ConsoleSettingsRoute
+  ConsoleIndexRoute: typeof ConsoleIndexRoute
+  ConsoleApisApiRoute: typeof ConsoleApisApiRoute
   ConsoleAppsClientIdRoute: typeof ConsoleAppsClientIdRoute
   ConsoleAppsNewRoute: typeof ConsoleAppsNewRoute
-  ConsoleAppsIndexRoute: typeof ConsoleAppsIndexRoute
-}
-
-const ConsoleAppsRouteChildren: ConsoleAppsRouteChildren = {
-  ConsoleAppsClientIdRoute: ConsoleAppsClientIdRoute,
-  ConsoleAppsNewRoute: ConsoleAppsNewRoute,
-  ConsoleAppsIndexRoute: ConsoleAppsIndexRoute,
-}
-
-const ConsoleAppsRouteWithChildren = ConsoleAppsRoute._addFileChildren(
-  ConsoleAppsRouteChildren,
-)
-
-interface ConsoleUsersRouteChildren {
   ConsoleUsersSubRoute: typeof ConsoleUsersSubRoute
+  ConsoleApisIndexRoute: typeof ConsoleApisIndexRoute
+  ConsoleAppsIndexRoute: typeof ConsoleAppsIndexRoute
   ConsoleUsersIndexRoute: typeof ConsoleUsersIndexRoute
 }
 
-const ConsoleUsersRouteChildren: ConsoleUsersRouteChildren = {
+const ConsoleRouteRouteChildren: ConsoleRouteRouteChildren = {
+  ConsoleAuditRoute: ConsoleAuditRoute,
+  ConsoleSettingsRoute: ConsoleSettingsRoute,
+  ConsoleIndexRoute: ConsoleIndexRoute,
+  ConsoleApisApiRoute: ConsoleApisApiRoute,
+  ConsoleAppsClientIdRoute: ConsoleAppsClientIdRoute,
+  ConsoleAppsNewRoute: ConsoleAppsNewRoute,
   ConsoleUsersSubRoute: ConsoleUsersSubRoute,
+  ConsoleApisIndexRoute: ConsoleApisIndexRoute,
+  ConsoleAppsIndexRoute: ConsoleAppsIndexRoute,
   ConsoleUsersIndexRoute: ConsoleUsersIndexRoute,
 }
 
-const ConsoleUsersRouteWithChildren = ConsoleUsersRoute._addFileChildren(
-  ConsoleUsersRouteChildren,
+const ConsoleRouteRouteWithChildren = ConsoleRouteRoute._addFileChildren(
+  ConsoleRouteRouteChildren,
 )
 
-interface ConsoleRouteChildren {
-  ConsoleApisRoute: typeof ConsoleApisRouteWithChildren
-  ConsoleAppsRoute: typeof ConsoleAppsRouteWithChildren
-  ConsoleAuditRoute: typeof ConsoleAuditRoute
-  ConsoleSettingsRoute: typeof ConsoleSettingsRoute
-  ConsoleUsersRoute: typeof ConsoleUsersRouteWithChildren
-  ConsoleIndexRoute: typeof ConsoleIndexRoute
-}
-
-const ConsoleRouteChildren: ConsoleRouteChildren = {
-  ConsoleApisRoute: ConsoleApisRouteWithChildren,
-  ConsoleAppsRoute: ConsoleAppsRouteWithChildren,
-  ConsoleAuditRoute: ConsoleAuditRoute,
-  ConsoleSettingsRoute: ConsoleSettingsRoute,
-  ConsoleUsersRoute: ConsoleUsersRouteWithChildren,
-  ConsoleIndexRoute: ConsoleIndexRoute,
-}
-
-const ConsoleRouteWithChildren =
-  ConsoleRoute._addFileChildren(ConsoleRouteChildren)
-
 const rootRouteChildren: RootRouteChildren = {
+  AccountRouteRoute: AccountRouteRouteWithChildren,
+  ConsoleRouteRoute: ConsoleRouteRouteWithChildren,
   SplatRoute: SplatRoute,
-  AccountRoute: AccountRoute,
-  ConsoleRoute: ConsoleRouteWithChildren,
   AccountCallbackRoute: AccountCallbackRoute,
   ConsoleCallbackRoute: ConsoleCallbackRoute,
 }

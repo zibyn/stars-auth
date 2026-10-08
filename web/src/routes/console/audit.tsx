@@ -3,7 +3,6 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { UserRound } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { z } from "zod";
-import { PageHeader } from "#/components/console";
 import { Star } from "#/components/star";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
@@ -35,9 +34,9 @@ import {
 } from "#/lib/audit";
 import { type AuditEvent, api, type User } from "#/lib/console-api";
 import { primaryIdentifier } from "#/lib/users";
-import { useCan } from "./console";
-import { apisQuery } from "./console.apis.index";
-import { applicationsQuery } from "./console.apps.index";
+import { apisQuery } from "#/routes/console/apis/index";
+import { applicationsQuery } from "#/routes/console/apps/index";
+import { useCan } from "#/routes/console/route";
 
 const search = z.object({
 	event: z.string().optional(),
@@ -48,7 +47,7 @@ const search = z.object({
 });
 
 export const Route = createFileRoute("/console/audit")({
-	staticData: { crumb: "审计" },
+	staticData: { useHeader: () => ({ title: "审计日志" }) },
 	validateSearch: search,
 	component: Audit,
 });
@@ -124,7 +123,6 @@ function Audit() {
 
 	return (
 		<div className="space-y-6">
-			<PageHeader title="审计日志" />
 			<div className="flex flex-wrap gap-2">
 				<Select value={event} onValueChange={(v) => set("event", `${v ?? ""}`)}>
 					<SelectTrigger className="w-56">

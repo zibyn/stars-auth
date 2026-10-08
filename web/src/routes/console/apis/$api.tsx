@@ -7,17 +7,10 @@ import {
 } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { z } from "zod";
-import {
-	ConfirmDialog,
-	DangerZone,
-	EmptyState,
-	InlineWarning,
-	PageHeader,
-} from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
+import { TabsContent } from "#/components/ui/tabs";
 import { defaultFor, rolesWith } from "#/lib/apis";
 import {
 	type APIDef,
@@ -26,16 +19,19 @@ import {
 	apiPath,
 	type RoleDef,
 } from "#/lib/console-api";
-import { useCan } from "./console";
-import { apisQuery } from "./console.apis.index";
-import { applicationsQuery } from "./console.apps.index";
+import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
+import { EmptyState, InlineWarning } from "#/routes/console/-components/notice";
+import { DangerZone } from "#/routes/console/-components/section";
+import { apisQuery } from "#/routes/console/apis/index";
+import { applicationsQuery } from "#/routes/console/apps/index";
+import { type Header, useCan } from "#/routes/console/route";
 
 const search = z.object({
 	tab: z.enum(["permissions", "roles"]).optional().catch(undefined),
 });
 
 export const Route = createFileRoute("/console/apis/$api")({
-	staticData: { crumb: APIName },
+	staticData: { crumb: APIName, useHeader },
 	validateSearch: search,
 	component: APIPage,
 });
@@ -54,17 +50,59 @@ function useAPIMutation<T>(fn: (v: T) => Promise<unknown>) {
 	});
 }
 
+// useAPI finds the API resource and the Applications defaulting to it,
+// once both lists are in.
+function useAPI(identifier: string) {
+	const apis = useQuery(apisQuery).data;
+	const apps = useQuery(applicationsQuery).data;
+	const def = apis?.apis.find((a) => a.identifier === identifier);
+	return {
+		def,
+		defaulting:
+			def && apps ? defaultFor(apps.applications, def.identifier) : undefined,
+	};
+}
+
 // APIName is the API resource's crumb, kept current by the query.
 function APIName(): ReactNode {
 	const { api: identifier } = useParams({ from: "/console/apis/$api" });
-	return useQuery(apisQuery).data?.apis.find((a) => a.identifier === identifier)
-		?.name;
+	return useAPI(identifier).def?.name;
+}
+
+function useHeader(): Header | null {
+	const { api: identifier } = useParams({ from: "/console/apis/$api" });
+	const { def, defaulting } = useAPI(identifier);
+	if (!def || !defaulting) {
+		return null;
+	}
+	return {
+		title: def.name,
+		badges: def.builtin && <Badge variant="secondary">内置</Badge>,
+		tabs,
+		details: (
+			<dl className="grid gap-1 text-sm sm:grid-cols-[10rem_1fr]">
+				<dt className="text-muted-foreground">API 资源标识符</dt>
+				<dd>
+					<span className="font-mono">{def.identifier}</span>
+					<p className="text-[13px] text-muted-foreground">
+						你的后端校验令牌时认的名字，即 access token 的 aud。
+					</p>
+				</dd>
+				<dt className="text-muted-foreground">用作默认 API 资源</dt>
+				<dd>
+					{defaulting.length ? (
+						<AppLinks apps={defaulting} />
+					) : (
+						<span className="text-muted-foreground">没有应用</span>
+					)}
+				</dd>
+			</dl>
+		),
+	};
 }
 
 function APIPage() {
 	const { api: identifier } = Route.useParams();
-	const { tab = "permissions" } = Route.useSearch();
-	const navigate = useNavigate({ from: Route.fullPath });
 	const apis = useQuery(apisQuery);
 	const apps = useQuery(applicationsQuery);
 	const error = apis.error ?? apps.error;
@@ -87,54 +125,15 @@ function APIPage() {
 	}
 	const defaulting = defaultFor(apps.data.applications, def.identifier);
 	return (
-		<Tabs
-			value={tab}
-			onValueChange={(v) =>
-				navigate({ search: { tab: v === "permissions" ? undefined : v } })
-			}
-			className="gap-6"
-		>
-			<PageHeader
-				title={def.name}
-				badges={def.builtin && <Badge variant="secondary">内置</Badge>}
-				tabs={
-					<TabsList variant="line">
-						{tabs.map(([key, label]) => (
-							<TabsTrigger key={key} value={key}>
-								{label}
-							</TabsTrigger>
-						))}
-					</TabsList>
-				}
-			>
-				<dl className="grid gap-1 text-sm sm:grid-cols-[10rem_1fr]">
-					<dt className="text-muted-foreground">API 资源标识符</dt>
-					<dd>
-						<span className="font-mono">{def.identifier}</span>
-						<p className="text-[13px] text-muted-foreground">
-							你的后端校验令牌时认的名字，即 access token 的 aud。
-						</p>
-					</dd>
-					<dt className="text-muted-foreground">用作默认 API 资源</dt>
-					<dd>
-						{defaulting.length ? (
-							<AppLinks apps={defaulting} />
-						) : (
-							<span className="text-muted-foreground">没有应用</span>
-						)}
-					</dd>
-				</dl>
-			</PageHeader>
-			<div className="space-y-10">
-				<TabsContent value="permissions">
-					<Permissions def={def} />
-				</TabsContent>
-				<TabsContent value="roles">
-					<Roles def={def} noDefaultApps={defaulting.length === 0} />
-				</TabsContent>
-				<DeleteAPI def={def} defaulting={defaulting} />
-			</div>
-		</Tabs>
+		<div className="space-y-10">
+			<TabsContent value="permissions">
+				<Permissions def={def} />
+			</TabsContent>
+			<TabsContent value="roles">
+				<Roles def={def} noDefaultApps={defaulting.length === 0} />
+			</TabsContent>
+			<DeleteAPI def={def} defaulting={defaulting} />
+		</div>
 	);
 }
 

@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { EmptyState, PageHeader, SectionHeading } from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
@@ -14,9 +13,20 @@ import {
 } from "#/components/ui/table";
 import { onlyBuiltin } from "#/lib/apps";
 import { type APIDef, api, apiPath } from "#/lib/console-api";
-import { useCan } from "./console";
+import { EmptyState } from "#/routes/console/-components/notice";
+import { SectionHeading } from "#/routes/console/-components/section";
+import { useCan } from "#/routes/console/route";
 
-export const Route = createFileRoute("/console/apis/")({ component: APIs });
+export const Route = createFileRoute("/console/apis/")({
+	staticData: {
+		useHeader: () => ({
+			title: "API 资源",
+			description:
+				"在这里登记你的后端服务，再为它定义权限和角色。用户登录某个应用后，拿到的令牌只带这个应用默认 API 资源上的角色和权限。",
+		}),
+	},
+	component: APIs,
+});
 
 export const apisQuery = {
 	queryKey: ["apis"],
@@ -30,10 +40,6 @@ function APIs() {
 	return (
 		<div className="space-y-10">
 			<div className="space-y-6">
-				<PageHeader
-					title="API 资源"
-					description="在这里登记你的后端服务，再为它定义权限和角色。用户登录某个应用后，拿到的令牌只带这个应用默认 API 资源上的角色和权限。"
-				/>
 				{apis.data && onlyBuiltin(apis.data.apis) && (
 					<EmptyState
 						title="还没有你自己的 API 资源"

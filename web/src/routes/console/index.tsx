@@ -2,19 +2,20 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { EmptyState, PageHeader, SectionHeading } from "#/components/console";
 import { Button, buttonVariants } from "#/components/ui/button";
 import { ownCount } from "#/lib/apps";
 import { type AuditEvent, api, type Overview } from "#/lib/console-api";
 import { checklist, checklistDone, checklistSummary } from "#/lib/overview";
+import { EmptyState } from "#/routes/console/-components/notice";
+import { SectionHeading } from "#/routes/console/-components/section";
+import { apisQuery } from "#/routes/console/apis/index";
+import { applicationsQuery } from "#/routes/console/apps/index";
+import { EventList } from "#/routes/console/audit";
+import { meQuery, useCan } from "#/routes/console/route";
 import { channelsQuery } from "./-settings/channels";
-import { meQuery, useCan } from "./console";
-import { apisQuery } from "./console.apis.index";
-import { applicationsQuery } from "./console.apps.index";
-import { EventList } from "./console.audit";
 
 export const Route = createFileRoute("/console/")({
-	staticData: { crumb: "概览" },
+	staticData: { useHeader: () => ({ title: "概览" }) },
 	component: Home,
 });
 
@@ -47,8 +48,7 @@ function Home() {
 		stats.push({ label: "应用", value: apps && ownCount(apps.applications) });
 	}
 	return (
-		<div className="space-y-10">
-			<PageHeader title="概览" />
+		<div className="space-y-10 pt-4">
 			{o && o.sendsLastDay >= o.dailySendLimit && (
 				<p className="rounded-xl bg-destructive/10 px-6 py-6 text-destructive">
 					过去 24 小时已发送 {o.sendsLastDay} 条验证码,达到每日上限{" "}

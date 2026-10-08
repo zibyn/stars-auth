@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
-import { ConfirmDialog, Field, SaveBar, Section } from "#/components/console";
 import { Input } from "#/components/ui/input";
 import { api, type Policy } from "#/lib/console-api";
-import { useCan } from "../console";
+import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
+import { Field, SaveBar, Section } from "#/routes/console/-components/section";
+import { useCan } from "#/routes/console/route";
 
 const settingsKey = ["settings"];
 

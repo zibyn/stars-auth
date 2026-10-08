@@ -1,12 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import {
-	ConfirmDialog,
-	Field,
-	InlineWarning,
-	SaveBar,
-	Section,
-} from "#/components/console";
 import { Input } from "#/components/ui/input";
 import {
 	Select,
@@ -24,6 +17,9 @@ import {
 	passwordLocksOut,
 	termsError,
 } from "#/lib/login";
+import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
+import { InlineWarning } from "#/routes/console/-components/notice";
+import { Field, SaveBar, Section } from "#/routes/console/-components/section";
 import { channelsQuery, toChannels } from "./channels";
 import { usePolicy, useSavePolicy } from "./policy";
 

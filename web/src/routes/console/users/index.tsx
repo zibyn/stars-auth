@@ -2,7 +2,6 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { UserRound } from "lucide-react";
 import { z } from "zod";
-import { PageHeader } from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
@@ -36,6 +35,7 @@ export const rolesQuery = {
 };
 
 export const Route = createFileRoute("/console/users/")({
+	staticData: { useHeader: () => ({ title: "用户" }) },
 	validateSearch: search,
 	component: Users,
 });
@@ -91,7 +91,6 @@ function Users() {
 
 	return (
 		<div className="space-y-6">
-			<PageHeader title="用户" />
 			<div className="flex gap-2">
 				<form
 					className="flex-1"
