@@ -58,6 +58,8 @@ public sealed interface SignInStep {
   public class CodeSent(public val session: AuthSession) : SignInStep
   /** The instance wants a phone number the User has not bound: [StarsAuth.sendCode] to one with this session. */
   public class PhoneRequired(public val session: AuthSession) : SignInStep
+  /** The User has 两步验证 on: ask for a code from their authenticator ([StarsAuth.verifyTotp]) or a 恢复码 ([StarsAuth.verifyRecoveryCode]). */
+  public class TotpRequired(public val session: AuthSession) : SignInStep
 }
 
 /**
@@ -125,6 +127,16 @@ public class StarsAuth(
   public suspend fun verifyCode(session: AuthSession, code: String): SignInStep =
     challenge(session, session.termsVersion) { append("code", code) }
 
+  /** Enters a code from the User's authenticator, after [SignInStep.TotpRequired]. */
+  @Throws(Exception::class)
+  public suspend fun verifyTotp(session: AuthSession, code: String): SignInStep =
+    challenge(session, session.termsVersion) { append("totp", code) }
+
+  /** Enters one of the User's 恢复码 instead of a TOTP code, after [SignInStep.TotpRequired]. */
+  @Throws(Exception::class)
+  public suspend fun verifyRecoveryCode(session: AuthSession, code: String): SignInStep =
+    challenge(session, session.termsVersion) { append("recovery_code", code) }
+
   /** Signs in with an Identifier (username, phone number or email) and its password. */
   @Throws(Exception::class)
   public suspend fun signInWithPassword(identifier: String, password: String, termsVersion: String): SignInStep {
@@ -169,6 +181,7 @@ public class StarsAuth(
         return when (e.next) {
           "code" -> SignInStep.CodeSent(next)
           "phone" -> SignInStep.PhoneRequired(next)
+          "totp" -> SignInStep.TotpRequired(next)
           else -> throw StarsAuthException(StarsAuthException.UNSUPPORTED_STEP, "next step not supported by this SDK version: ${e.next}")
         }
       }

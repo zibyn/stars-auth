@@ -38,6 +38,8 @@ when (val step = auth.verifyCode(sent.session, code)) {
     val phoneSent = auth.sendCode(phone, step.session)
     auth.verifyCode(phoneSent.session, phoneCode)
   }
+  is SignInStep.TotpRequired ->                  // User 开了两步验证;之后可能还要绑手机号
+    auth.verifyTotp(step.session, totp)          // 或 auth.verifyRecoveryCode(step.session, 恢复码)
   is SignInStep.CodeSent -> Unit                 // 不会出现
 }
 ```
