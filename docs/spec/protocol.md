@@ -26,7 +26,7 @@ Web / RP ──(OIDC: /authorize + 托管登录页)──┘
 - **challenge 输入**:
   - 一期:手机号或邮箱(请求发码)、验证码、Identifier + 密码;
   - 二期起:WebAuthn 断言、TOTP、Provider ID + 客户端令牌(Apple 为 `authorization_code`,见 ADR 0011)。
-- **多步认证**:用草案中的 `auth_session` 串联各步。
+- **多步认证**:用草案中的 `auth_session` 串联各步。`403 insufficient_authorization` 多带一个非标准字段 `next`,指明下一步:`code`(输入刚发出的验证码)、`phone`(先绑定手机号)。以后只新增取值,不改名、不删除;客户端遇到不认识的取值按失败处理。(ADR 0010)
 - **每个请求必须携带**:
   - 所同意的协议版本号,见 [security-compliance.md](security-compliance.md#协议同意);
   - 发码请求和密码登录请求还要附带 PoW 解答。
