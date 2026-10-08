@@ -44,22 +44,55 @@ const recoveryCode = z
 		"请输入恢复码,形如 xxxx-xxxx",
 	);
 
-export type ReauthMethod = "phone" | "email" | "password" | "totp" | "recovery";
+// reauthMethods is, per way of reauthenticating, how its secret is checked,
+// sent to POST /reauth and typed in.
+const codeMethod = (kind: "phone" | "email") =>
+	({
+		schema: code,
+		body: (secret: string) => ({ kind, code: secret }),
+		label: "验证码",
+		input: {
+			inputMode: "numeric",
+			autoComplete: "one-time-code",
+			placeholder: "6 位验证码",
+		},
+	}) as const;
+export const reauthMethods = {
+	phone: codeMethod("phone"),
+	email: codeMethod("email"),
+	password: {
+		schema: z.string().min(1, "请输入密码"),
+		body: (secret: string) => ({ password: secret }),
+		label: "密码",
+		input: { type: "password", autoComplete: "current-password" },
+	},
+	totp: {
+		schema: totp,
+		body: (secret: string) => ({ totp: secret.trim() }),
+		label: "验证器中的验证码",
+		input: {
+			inputMode: "numeric",
+			autoComplete: "one-time-code",
+			placeholder: "6 位数字",
+		},
+	},
+	recovery: {
+		schema: recoveryCode,
+		body: (secret: string) => ({ recoveryCode: secret }),
+		label: "恢复码",
+		input: { autoComplete: "off", placeholder: "xxxx-xxxx" },
+	},
+} as const;
 
-// reauthSchema checks the password, the code once it is sent, a TOTP code
-// or a recovery code.
+export type ReauthMethod = keyof typeof reauthMethods;
+
+// reauthSchema checks the secret of method; a code only once it is sent.
 export const reauthSchema = (method: ReauthMethod, sent: boolean) =>
 	z.object({
 		secret:
-			method === "password"
-				? z.string().min(1, "请输入密码")
-				: method === "totp"
-					? totp
-					: method === "recovery"
-						? recoveryCode
-						: sent
-							? code
-							: z.string(),
+			(method === "phone" || method === "email") && !sent
+				? z.string()
+				: reauthMethods[method].schema,
 	});
 
 // totpSchema checks a code from the authenticator, confirming the TOTP.

@@ -35,6 +35,7 @@ import {
 	deleteSchema,
 	passwordSchema,
 	type ReauthMethod,
+	reauthMethods,
 	reauthSchema,
 	recoveryCodesText,
 	totpSchema,
@@ -863,14 +864,7 @@ function Reauth({
 		mutationFn: (secret: string) =>
 			api("/reauth", {
 				method: "POST",
-				body:
-					current === "password"
-						? { password: secret }
-						: current === "totp"
-							? { totp: secret.trim() }
-							: current === "recovery"
-								? { recoveryCode: secret }
-								: { kind: current, code: secret },
+				body: current && reauthMethods[current].body(secret),
 			}),
 		onSuccess: () => {
 			form.reset();
@@ -921,67 +915,19 @@ function Reauth({
 							form.handleSubmit();
 						}}
 					>
-						{current === "password" ? (
+						{byCode && (
+							<p className="text-muted-foreground">验证码将发送到 {target}</p>
+						)}
+						{(!byCode || sent) && (
 							<form.Field name="secret">
 								{(field) => (
-									<FormField field={field} label="密码">
+									<FormField field={field} label={reauthMethods[current].label}>
 										{(control) => (
-											<Input
-												{...control}
-												type="password"
-												autoComplete="current-password"
-											/>
+											<Input {...control} {...reauthMethods[current].input} />
 										)}
 									</FormField>
 								)}
 							</form.Field>
-						) : current === "totp" || current === "recovery" ? (
-							<form.Field name="secret">
-								{(field) =>
-									current === "totp" ? (
-										<FormField field={field} label="验证器中的验证码">
-											{(control) => (
-												<Input
-													{...control}
-													inputMode="numeric"
-													autoComplete="one-time-code"
-													placeholder="6 位数字"
-												/>
-											)}
-										</FormField>
-									) : (
-										<FormField field={field} label="恢复码">
-											{(control) => (
-												<Input
-													{...control}
-													autoComplete="off"
-													placeholder="xxxx-xxxx"
-												/>
-											)}
-										</FormField>
-									)
-								}
-							</form.Field>
-						) : (
-							<>
-								<p className="text-muted-foreground">验证码将发送到 {target}</p>
-								{sent && (
-									<form.Field name="secret">
-										{(field) => (
-											<FormField field={field} label="验证码">
-												{(control) => (
-													<Input
-														{...control}
-														inputMode="numeric"
-														autoComplete="one-time-code"
-														placeholder="6 位验证码"
-													/>
-												)}
-											</FormField>
-										)}
-									</form.Field>
-								)}
-							</>
 						)}
 						<FormError
 							error={
