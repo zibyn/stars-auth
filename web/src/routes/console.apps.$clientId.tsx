@@ -121,7 +121,9 @@ function ApplicationPage() {
 	return (
 		<Tabs
 			value={tab}
-			onValueChange={(v) => navigate({ search: { tab: v } })}
+			onValueChange={(v) =>
+				navigate({ search: { tab: v === "basic" ? undefined : v } })
+			}
 			className="gap-6"
 		>
 			<div className="space-y-3">

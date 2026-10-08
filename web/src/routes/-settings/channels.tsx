@@ -36,7 +36,7 @@ export const channelsQuery = queryOptions({
 		api<{ plugins: ChannelPlugin[]; channels: ChannelSettings[] }>("/channels"),
 });
 
-// toChannels links to the 通道 page from a hint that needs a channel.
+// toChannels links to the 通道 Tab from a hint that needs a channel.
 export const toChannels = {
 	label: "去设置通道",
 	to: "/console/settings",

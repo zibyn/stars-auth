@@ -22,7 +22,9 @@ function Settings() {
 			<h1 className="font-semibold text-2xl tracking-tight">设置</h1>
 			<Tabs
 				value={tab}
-				onValueChange={(v) => navigate({ search: { tab: v } })}
+				onValueChange={(v) =>
+					navigate({ search: { tab: v === "login" ? undefined : v } })
+				}
 				className="gap-6"
 			>
 				<TabsList variant="line">
