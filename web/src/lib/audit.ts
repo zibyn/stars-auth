@@ -34,6 +34,11 @@ export const eventGroups: [string, [string, string][]][] = [
 			["identifier.removed", "移除登录标识"],
 			["password.changed", "设置密码"],
 			["password.removed", "移除密码"],
+			["mfa.enabled", "开启两步验证"],
+			["mfa.disabled", "关闭两步验证"],
+			["mfa.reset", "重置两步验证"],
+			["recovery_codes.regenerated", "重新生成恢复码"],
+			["recovery_code.used", "使用恢复码"],
 			["session.ended", "下线会话"],
 			["roles.assigned", "设置角色"],
 		],
@@ -154,6 +159,16 @@ export function describe(
 			return { parts: ["设置了", ...user, " 的密码"] };
 		case "password.removed":
 			return { parts: ["移除了", ...user, " 的密码"] };
+		case "mfa.enabled":
+			return { parts: ["开启了", ...user, " 的两步验证"] };
+		case "mfa.disabled":
+			return { parts: ["关闭了", ...user, " 的两步验证"] };
+		case "mfa.reset":
+			return { parts: ["重置了", ...user, " 的两步验证"] };
+		case "recovery_codes.regenerated":
+			return { parts: ["重新生成了", ...user, " 的恢复码"] };
+		case "recovery_code.used":
+			return { parts: [...user, " 用了一个恢复码"] };
 		case "session.ended":
 			return { parts: ["下线了", ...user, " 的一个会话"] };
 		case "roles.assigned": {
