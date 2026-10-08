@@ -1,11 +1,12 @@
 import {
 	queryOptions,
 	useMutation,
-	useQuery,
 	useQueryClient,
+	useSuspenseQuery,
 } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { ItemList } from "#/components/item-list";
 import { Star } from "#/components/star";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
@@ -17,6 +18,14 @@ import {
 } from "#/components/ui/dialog";
 import { Input } from "#/components/ui/input";
 import {
+	Item,
+	ItemActions,
+	ItemContent,
+	ItemDescription,
+	ItemTitle,
+} from "#/components/ui/item";
+import { UserAvatar } from "#/components/user-avatar";
+import {
 	APIError,
 	api,
 	forget,
@@ -24,12 +33,15 @@ import {
 	type Me,
 	type Session,
 } from "#/lib/account-api";
-import { avatarInitial, kindName, primaryIdentifier } from "#/lib/users";
+import { kindName, primaryIdentifier } from "#/lib/users";
 import { meQuery } from "#/routes/account/route";
 import { Panel } from "#/routes/console/-components/panel";
 import { DangerZone, Section } from "#/routes/console/-components/section";
 
-export const Route = createFileRoute("/account/")({ component: Account });
+export const Route = createFileRoute("/account/")({
+	loader: ({ context }) => context.queryClient.ensureQueryData(sessionsQuery),
+	component: Account,
+});
 
 const sessionsQuery = queryOptions({
 	queryKey: ["account", "sessions"],
@@ -46,7 +58,8 @@ const message = (e: unknown) =>
 type Guard = (action: () => void) => void;
 
 function Account() {
-	const me = useQuery(meQuery);
+	// The page's own data: bindings and passwords change it in place.
+	const user = useSuspenseQuery(meQuery).data;
 	const queryClient = useQueryClient();
 	const [pending, setPending] = useState<(() => void) | null>(null);
 	const [deleted, setDeleted] = useState(false);
@@ -62,10 +75,6 @@ function Account() {
 			</main>
 		);
 	}
-	if (!me.data) {
-		return null;
-	}
-	const user = me.data;
 	const guard: Guard = (action) => {
 		if (new Date(user.recentAuthUntil).getTime() - 5_000 > Date.now()) {
 			action();
@@ -83,9 +92,7 @@ function Account() {
 					Stars
 				</div>
 				<header className="flex items-center gap-4">
-					<div className="flex size-14 shrink-0 items-center justify-center rounded-full bg-primary-soft font-semibold text-primary-ink text-xl">
-						{main ? avatarInitial(main) : <Star className="size-6" />}
-					</div>
+					<UserAvatar name={main} size="lg" />
 					<div className="min-w-0">
 						<h1 className="truncate font-semibold text-2xl tracking-tight">
 							{main ?? user.sub}
@@ -105,25 +112,27 @@ function Account() {
 					{exportError && (
 						<p className="text-[13px] text-destructive">{exportError}</p>
 					)}
-					<Row
-						label="导出我的数据"
-						hint="登录方式、设备与会话、同意记录和与你相关的安全事件,JSON 格式"
-					>
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={() =>
-								guard(() =>
-									exportData(user.sub).then(
-										() => setExportError(""),
-										(e) => setExportError(message(e)),
-									),
-								)
-							}
+					<ItemList>
+						<Row
+							label="导出我的数据"
+							hint="登录方式、设备与会话、同意记录和与你相关的安全事件,JSON 格式"
 						>
-							导出
-						</Button>
-					</Row>
+							<Button
+								variant="outline"
+								size="sm"
+								onClick={() =>
+									guard(() =>
+										exportData(user.sub).then(
+											() => setExportError(""),
+											(e) => setExportError(message(e)),
+										),
+									)
+								}
+							>
+								导出
+							</Button>
+						</Row>
+					</ItemList>
 				</Section>
 				<DangerZone title="危险操作">
 					<DeleteAccount guard={guard} onDeleted={() => setDeleted(true)} />
@@ -169,45 +178,47 @@ function LoginMethods({ me, guard }: { me: Me; guard: Guard }) {
 			{unbind.error && (
 				<p className="text-[13px] text-destructive">{message(unbind.error)}</p>
 			)}
-			{(["phone", "email"] as const).map((kind) => {
-				const id = me.identifiers.find((i) => i.kind === kind);
-				return (
-					<Row key={kind} label={kindName[kind]} hint={id?.value ?? "未绑定"}>
-						{id ? (
-							<>
+			<ItemList>
+				{(["phone", "email"] as const).map((kind) => {
+					const id = me.identifiers.find((i) => i.kind === kind);
+					return (
+						<Row key={kind} label={kindName[kind]} hint={id?.value ?? "未绑定"}>
+							{id ? (
+								<>
+									<Button
+										variant="ghost"
+										size="sm"
+										onClick={() => guard(() => setEditing(kind))}
+									>
+										更换
+									</Button>
+									<Button
+										variant="ghost"
+										size="sm"
+										disabled={unbind.isPending}
+										onClick={() => guard(() => unbind.mutate(kind))}
+									>
+										解绑
+									</Button>
+								</>
+							) : (
 								<Button
-									variant="ghost"
+									variant="outline"
 									size="sm"
 									onClick={() => guard(() => setEditing(kind))}
 								>
-									更换
+									绑定
 								</Button>
-								<Button
-									variant="ghost"
-									size="sm"
-									disabled={unbind.isPending}
-									onClick={() => guard(() => unbind.mutate(kind))}
-								>
-									解绑
-								</Button>
-							</>
-						) : (
-							<Button
-								variant="outline"
-								size="sm"
-								onClick={() => guard(() => setEditing(kind))}
-							>
-								绑定
-							</Button>
-						)}
+							)}
+						</Row>
+					);
+				})}
+				{username && (
+					<Row label="用户名" hint={username.value}>
+						{null}
 					</Row>
-				);
-			})}
-			{username && (
-				<Row label="用户名" hint={username.value}>
-					{null}
-				</Row>
-			)}
+				)}
+			</ItemList>
 			{editing && (
 				<BindIdentifier kind={editing} onClose={() => setEditing(null)} />
 			)}
@@ -311,32 +322,34 @@ function Security({ me, guard }: { me: Me; guard: Guard }) {
 			{remove.error && (
 				<p className="text-[13px] text-destructive">{message(remove.error)}</p>
 			)}
-			<Row
-				label="密码"
-				hint={
-					me.hasPassword
-						? "已设置,可配合手机号、邮箱或用户名登录"
-						: "未设置;忘记密码时用验证码登录后在这里修改"
-				}
-			>
-				{me.hasPassword && (
-					<Button
-						variant="ghost"
-						size="sm"
-						disabled={remove.isPending}
-						onClick={() => guard(() => remove.mutate())}
-					>
-						删除
-					</Button>
-				)}
-				<Button
-					variant="outline"
-					size="sm"
-					onClick={() => guard(() => setEditing(true))}
+			<ItemList>
+				<Row
+					label="密码"
+					hint={
+						me.hasPassword
+							? "已设置,可配合手机号、邮箱或用户名登录"
+							: "未设置;忘记密码时用验证码登录后在这里修改"
+					}
 				>
-					{me.hasPassword ? "修改" : "设置"}
-				</Button>
-			</Row>
+					{me.hasPassword && (
+						<Button
+							variant="ghost"
+							size="sm"
+							disabled={remove.isPending}
+							onClick={() => guard(() => remove.mutate())}
+						>
+							删除
+						</Button>
+					)}
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={() => guard(() => setEditing(true))}
+					>
+						{me.hasPassword ? "修改" : "设置"}
+					</Button>
+				</Row>
+			</ItemList>
 			{editing && <SetPassword onClose={() => setEditing(false)} />}
 		</Section>
 	);
@@ -388,7 +401,7 @@ function SetPassword({ onClose }: { onClose: () => void }) {
 
 function Sessions() {
 	const queryClient = useQueryClient();
-	const sessions = useQuery(sessionsQuery);
+	const { sessions } = useSuspenseQuery(sessionsQuery).data;
 	const end = useMutation({
 		mutationFn: (id: string) => api(`/sessions/${id}`, { method: "DELETE" }),
 		onSuccess: () => queryClient.invalidateQueries(sessionsQuery),
@@ -398,30 +411,32 @@ function Sessions() {
 			title="设备与会话"
 			intro="不限设备数,可逐个下线;已结束的保留 30 天"
 		>
-			{sessions.data?.sessions.map((s) => (
-				<Row
-					key={s.id}
-					label={
-						<span className="flex items-center gap-2">
-							{s.kind === "app" ? "App" : "浏览器"} · {s.application}
-							{s.current && <Badge>本设备</Badge>}
-							{!s.active && <Badge variant="secondary">已结束</Badge>}
-						</span>
-					}
-					hint={`登录于 ${date(s.authTime)} · 最近活动 ${date(s.lastSeenAt)}`}
-				>
-					{s.active && !s.current && (
-						<Button
-							variant="ghost"
-							size="sm"
-							disabled={end.isPending}
-							onClick={() => end.mutate(s.id)}
-						>
-							下线
-						</Button>
-					)}
-				</Row>
-			))}
+			<ItemList>
+				{sessions.map((s) => (
+					<Row
+						key={s.id}
+						label={
+							<span className="flex items-center gap-2">
+								{s.kind === "app" ? "App" : "浏览器"} · {s.application}
+								{s.current && <Badge>本设备</Badge>}
+								{!s.active && <Badge variant="secondary">已结束</Badge>}
+							</span>
+						}
+						hint={`登录于 ${date(s.authTime)} · 最近活动 ${date(s.lastSeenAt)}`}
+					>
+						{s.active && !s.current && (
+							<Button
+								variant="ghost"
+								size="sm"
+								disabled={end.isPending}
+								onClick={() => end.mutate(s.id)}
+							>
+								下线
+							</Button>
+						)}
+					</Row>
+				))}
+			</ItemList>
 		</Section>
 	);
 }
@@ -634,16 +649,16 @@ function Row({
 	children: React.ReactNode;
 }) {
 	return (
-		<div className="flex items-center justify-between gap-4 border-b py-3 text-sm last:border-0">
-			<div className="min-w-0">
-				<div>{label}</div>
+		<Item>
+			<ItemContent className="min-w-0">
+				<ItemTitle className="font-normal">{label}</ItemTitle>
 				{hint && (
-					<div className="truncate text-[13px] text-muted-foreground">
+					<ItemDescription className="truncate text-[13px]">
 						{hint}
-					</div>
+					</ItemDescription>
 				)}
-			</div>
-			<div className="flex shrink-0 items-center gap-1">{children}</div>
-		</div>
+			</ItemContent>
+			<ItemActions className="shrink-0 gap-1">{children}</ItemActions>
+		</Item>
 	);
 }

@@ -1,4 +1,4 @@
-import { queryOptions, useQuery } from "@tanstack/react-query";
+import { queryOptions } from "@tanstack/react-query";
 import {
 	createFileRoute,
 	Link,
@@ -6,10 +6,11 @@ import {
 	useLocation,
 	useMatches,
 	useNavigate,
+	useRouteContext,
 	useSearch,
 } from "@tanstack/react-router";
-import { UserRound } from "lucide-react";
 import { type ComponentType, Fragment, type ReactNode } from "react";
+import { FullPage, RouteError, RoutePending } from "#/components/route-states";
 import { Star } from "#/components/star";
 import {
 	Breadcrumb,
@@ -26,12 +27,42 @@ import {
 	DropdownMenuTrigger,
 } from "#/components/ui/dropdown-menu";
 import { Tabs, TabsList, TabsTrigger } from "#/components/ui/tabs";
+import { UserAvatar } from "#/components/user-avatar";
 import { APIError, api, logout, type Me } from "#/lib/console-api";
 import { navGroups } from "#/lib/nav";
-import { avatarInitial } from "#/lib/users";
 import { Panel } from "#/routes/console/-components/panel";
 
-export const Route = createFileRoute("/console")({ component: Console });
+export const meQuery = queryOptions({
+	queryKey: ["me"],
+	queryFn: () => api<Me>("/me"),
+	retry: false,
+});
+
+// Signing in is api's job: without a token it leaves for the login page
+// and never returns, so nothing below renders until there's an admin.
+export const Route = createFileRoute("/console")({
+	beforeLoad: async ({ context }) => ({
+		me: await context.queryClient.ensureQueryData({
+			...meQuery,
+			revalidateIfStale: true,
+		}),
+	}),
+	pendingComponent: () => (
+		<FullPage>
+			<RoutePending />
+		</FullPage>
+	),
+	errorComponent: (props) => (
+		<FullPage>
+			{props.error instanceof APIError && props.error.status === 403 ? (
+				<p className="text-center">你不是管理员,无法使用管理端</p>
+			) : (
+				<RouteError {...props} />
+			)}
+		</FullPage>
+	),
+	component: Console,
+});
 
 export type Header = {
 	title: ReactNode;
@@ -125,9 +156,7 @@ function Page({ useHeader }: { useHeader: () => Header | null }) {
 	return (
 		<Tabs
 			value={tab ?? first}
-			onValueChange={(v) =>
-				navigate({ to: ".", search: { tab: v === first ? undefined : v } })
-			}
+			onValueChange={(v) => navigate({ to: ".", search: { tab: v } })}
 			className="gap-6"
 		>
 			<PageHeader {...header} />
@@ -136,37 +165,20 @@ function Page({ useHeader }: { useHeader: () => Header | null }) {
 	);
 }
 
-export const meQuery = queryOptions({
-	queryKey: ["me"],
-	queryFn: () => api<Me>("/me"),
-	retry: false,
-});
+// useMe is the signed-in admin, as the layout's beforeLoad found them.
+export const useMe = () => useRouteContext({ from: "/console" }).me;
 
 // useCan reports whether the signed-in admin holds a Permission; actions
 // they lack are not shown.
 export function useCan() {
-	const { data } = useQuery(meQuery);
-	return (permission: string) => !!data?.permissions.includes(permission);
+	const me = useMe();
+	return (permission: string) => me.permissions.includes(permission);
 }
 
 function Console() {
-	const me = useQuery(meQuery);
+	const me = useMe();
 	const leaf = useMatches({ select: (m) => m[m.length - 1] });
-	if (me.error) {
-		return (
-			<main className="flex min-h-svh items-center justify-center">
-				<p>
-					{me.error instanceof APIError && me.error.status === 403
-						? "你不是管理员,无法使用管理端"
-						: `管理端加载失败:${me.error.message}`}
-				</p>
-			</main>
-		);
-	}
-	if (!me.data) {
-		return null;
-	}
-	const groups = navGroups(me.data.permissions);
+	const groups = navGroups(me.permissions);
 	return (
 		<div className="flex min-h-svh bg-canvas p-2 text-sm">
 			<aside className="sticky top-2 flex h-[calc(100svh-1rem)] w-60 shrink-0 flex-col p-4">
@@ -200,15 +212,9 @@ function Console() {
 				</nav>
 				<DropdownMenu>
 					<DropdownMenuTrigger className="mt-auto flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-card">
-						<span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary-soft font-semibold text-primary-ink text-xs">
-							{me.data.identifier ? (
-								avatarInitial(me.data.identifier)
-							) : (
-								<UserRound className="size-3.5" />
-							)}
-						</span>
-						<span className="truncate" title={me.data.identifier}>
-							{me.data.identifier}
+						<UserAvatar name={me.identifier} />
+						<span className="truncate" title={me.identifier}>
+							{me.identifier}
 						</span>
 					</DropdownMenuTrigger>
 					<DropdownMenuContent side="top">

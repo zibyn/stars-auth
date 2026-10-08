@@ -1,21 +1,37 @@
-import { useQuery } from "@tanstack/react-query";
+import {
+	queryOptions,
+	useQuery,
+	useSuspenseQuery,
+} from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Alert, AlertDescription } from "#/components/ui/alert";
 import { Button, buttonVariants } from "#/components/ui/button";
+import {
+	Empty,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyTitle,
+} from "#/components/ui/empty";
 import { ownCount } from "#/lib/apps";
 import { type AuditEvent, api, type Overview } from "#/lib/console-api";
 import { checklist, checklistDone, checklistSummary } from "#/lib/overview";
-import { EmptyState } from "#/routes/console/-components/notice";
 import { SectionHeading } from "#/routes/console/-components/section";
 import { apisQuery } from "#/routes/console/apis/index";
 import { applicationsQuery } from "#/routes/console/apps/index";
 import { EventList } from "#/routes/console/audit";
-import { meQuery, useCan } from "#/routes/console/route";
+import { useCan, useMe } from "#/routes/console/route";
 import { channelsQuery } from "./-settings/channels";
+
+const overviewQuery = queryOptions({
+	queryKey: ["overview"],
+	queryFn: () => api<Overview>("/overview"),
+});
 
 export const Route = createFileRoute("/console/")({
 	staticData: { useHeader: () => ({ title: "概览" }) },
+	loader: ({ context }) => context.queryClient.ensureQueryData(overviewQuery),
 	component: Home,
 });
 
@@ -23,54 +39,47 @@ type Stat = { label: string; value?: number; hint?: string };
 
 function Home() {
 	const can = useCan();
-	const o = useQuery({
-		queryKey: ["overview"],
-		queryFn: () => api<Overview>("/overview"),
-	}).data;
+	const o = useSuspenseQuery(overviewQuery).data;
 	const apps = useQuery({
 		...applicationsQuery,
 		enabled: can("applications:read"),
 	}).data;
 	// 应用 counts only your own, so it needs the list; without
 	// applications:read the figure isn't shown.
-	const stats: Stat[] = o
-		? [
-				{ label: "用户", value: o.users },
-				{
-					label: "今日新登录",
-					value: o.loginsToday,
-					hint: "今天新建的会话数",
-				},
-				{ label: "活跃会话", value: o.liveSessions },
-			]
-		: [];
-	if (o && can("applications:read")) {
+	const stats: Stat[] = [
+		{ label: "用户", value: o.users },
+		{
+			label: "今日新登录",
+			value: o.loginsToday,
+			hint: "今天新建的会话数",
+		},
+		{ label: "活跃会话", value: o.liveSessions },
+	];
+	if (can("applications:read")) {
 		stats.push({ label: "应用", value: apps && ownCount(apps.applications) });
 	}
 	return (
 		<div className="space-y-10 pt-4">
-			{o && o.sendsLastDay >= o.dailySendLimit && (
-				<p className="rounded-xl bg-destructive/10 px-6 py-6 text-destructive">
-					过去 24 小时已发送 {o.sendsLastDay} 条验证码,达到每日上限{" "}
-					{o.dailySendLimit},已停发。可在「通道」中调整上限。
-				</p>
+			{o.sendsLastDay >= o.dailySendLimit && (
+				<Alert variant="destructive">
+					<AlertDescription>
+						过去 24 小时已发送 {o.sendsLastDay} 条验证码,达到每日上限{" "}
+						{o.dailySendLimit},已停发。可在「通道」中调整上限。
+					</AlertDescription>
+				</Alert>
 			)}
 			<Checklist />
-			{stats.length > 0 && (
-				<section className="flex divide-x divide-border">
-					{stats.map(({ label, value, hint }) => (
-						<div key={label} className="flex-1 px-6 first:pl-0 last:pr-0">
-							<div className="text-[13px] text-muted-foreground">{label}</div>
-							<div className="mt-2 font-semibold text-3xl tabular-nums tracking-tight">
-								{value ?? "–"}
-							</div>
-							{hint && (
-								<div className="mt-1 text-[13px] text-faint">{hint}</div>
-							)}
+			<section className="flex divide-x divide-border">
+				{stats.map(({ label, value, hint }) => (
+					<div key={label} className="flex-1 px-6 first:pl-0 last:pr-0">
+						<div className="text-[13px] text-muted-foreground">{label}</div>
+						<div className="mt-2 font-semibold text-3xl tabular-nums tracking-tight">
+							{value ?? "–"}
 						</div>
-					))}
-				</section>
-			)}
+						{hint && <div className="mt-1 text-[13px] text-faint">{hint}</div>}
+					</div>
+				))}
+			</section>
 			{can("audit:read") && <Recent />}
 		</div>
 	);
@@ -94,7 +103,7 @@ const rememberClosed = () => {
 
 function Checklist() {
 	const can = useCan();
-	const me = useQuery(meQuery).data;
+	const me = useMe();
 	const [closed, setClosed] = useState(readClosed);
 	const channels = useQuery({
 		...channelsQuery,
@@ -108,7 +117,7 @@ function Checklist() {
 		...apisQuery,
 		enabled: can("applications:read"),
 	}).data;
-	const steps = checklist(me?.permissions ?? [], {
+	const steps = checklist(me.permissions, {
 		channels: channels?.channels,
 		apps: apps?.applications,
 		apis: apis?.apis,
@@ -202,9 +211,14 @@ function Recent() {
 			</div>
 			<div className="mt-3">
 				{events.isSuccess && events.data.events.length === 0 ? (
-					<EmptyState title="最近没有事件">
-						超过审计保留期的记录已经删除。
-					</EmptyState>
+					<Empty className="border">
+						<EmptyHeader>
+							<EmptyTitle>最近没有事件</EmptyTitle>
+							<EmptyDescription>
+								超过审计保留期的记录已经删除。
+							</EmptyDescription>
+						</EmptyHeader>
+					</Empty>
 				) : (
 					<EventList events={events.data?.events ?? []} />
 				)}

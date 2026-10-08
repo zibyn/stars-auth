@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	queryOptions,
+	useMutation,
+	useQueryClient,
+	useSuspenseQuery,
+} from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { Input } from "#/components/ui/input";
 import { api, type Policy } from "#/lib/console-api";
@@ -8,12 +13,14 @@ import { useCan } from "#/routes/console/route";
 
 const settingsKey = ["settings"];
 
+export const policyQuery = queryOptions({
+	queryKey: settingsKey,
+	queryFn: () => api<Policy>("/settings"),
+});
+
 export function usePolicy() {
 	const can = useCan();
-	const policy = useQuery({
-		queryKey: settingsKey,
-		queryFn: () => api<Policy>("/settings"),
-	});
+	const policy = useSuspenseQuery(policyQuery).data;
 	return { policy, editable: can("config:write") };
 }
 
@@ -57,18 +64,8 @@ type PolicyNumberProps = {
 
 export function PolicyNumber(props: PolicyNumberProps) {
 	const { policy, editable } = usePolicy();
-	if (policy.error) {
-		return <p className="text-destructive text-sm">{policy.error.message}</p>;
-	}
-	if (!policy.data) {
-		return null;
-	}
 	return (
-		<NumberForm
-			{...props}
-			current={policy.data[props.field]}
-			editable={editable}
-		/>
+		<NumberForm {...props} current={policy[props.field]} editable={editable} />
 	);
 }
 

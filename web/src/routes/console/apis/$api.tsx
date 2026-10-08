@@ -1,15 +1,40 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	useMutation,
+	useQuery,
+	useQueryClient,
+	useSuspenseQuery,
+} from "@tanstack/react-query";
 import {
 	createFileRoute,
 	Link,
+	notFound,
+	stripSearchParams,
 	useNavigate,
 	useParams,
 } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { z } from "zod";
+import { ItemList } from "#/components/item-list";
+import { Alert, AlertDescription } from "#/components/ui/alert";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
+import { Checkbox } from "#/components/ui/checkbox";
+import {
+	Empty,
+	EmptyContent,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyTitle,
+} from "#/components/ui/empty";
 import { Input } from "#/components/ui/input";
+import {
+	Item,
+	ItemActions,
+	ItemContent,
+	ItemDescription,
+	ItemTitle,
+} from "#/components/ui/item";
+import { Label } from "#/components/ui/label";
 import { TabsContent } from "#/components/ui/tabs";
 import { defaultFor, rolesWith } from "#/lib/apis";
 import {
@@ -20,19 +45,40 @@ import {
 	type RoleDef,
 } from "#/lib/console-api";
 import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
-import { EmptyState, InlineWarning } from "#/routes/console/-components/notice";
 import { DangerZone } from "#/routes/console/-components/section";
 import { apisQuery } from "#/routes/console/apis/index";
 import { applicationsQuery } from "#/routes/console/apps/index";
 import { type Header, useCan } from "#/routes/console/route";
 
+const defaults = { tab: "permissions" } as const;
 const search = z.object({
-	tab: z.enum(["permissions", "roles"]).optional().catch(undefined),
+	tab: z
+		.enum(["permissions", "roles"])
+		.default(defaults.tab)
+		.catch(defaults.tab),
 });
 
 export const Route = createFileRoute("/console/apis/$api")({
 	staticData: { crumb: APIName, useHeader },
 	validateSearch: search,
+	search: { middlewares: [stripSearchParams(defaults)] },
+	loader: async ({ context: { queryClient }, params }) => {
+		const [apis] = await Promise.all([
+			queryClient.ensureQueryData(apisQuery),
+			queryClient.ensureQueryData(applicationsQuery),
+		]);
+		if (!apis.apis.some((a) => a.identifier === params.api)) {
+			throw notFound();
+		}
+	},
+	notFoundComponent: () => (
+		<p className="text-sm">
+			没有这个 API 资源，它可能已经被删除。
+			<Link to="/console/apis" className="underline">
+				返回 API 资源列表
+			</Link>
+		</p>
+	),
 	component: APIPage,
 });
 
@@ -103,27 +149,14 @@ function useHeader(): Header | null {
 
 function APIPage() {
 	const { api: identifier } = Route.useParams();
-	const apis = useQuery(apisQuery);
-	const apps = useQuery(applicationsQuery);
-	const error = apis.error ?? apps.error;
-	if (error) {
-		return <p className="text-destructive text-sm">{error.message}</p>;
-	}
-	if (!apis.data || !apps.data) {
-		return null;
-	}
-	const def = apis.data.apis.find((a) => a.identifier === identifier);
+	const { apis } = useSuspenseQuery(apisQuery).data;
+	const { applications } = useSuspenseQuery(applicationsQuery).data;
+	const def = apis.find((a) => a.identifier === identifier);
+	// The loader checked; this covers it going in a later refetch.
 	if (!def) {
-		return (
-			<p className="text-sm">
-				没有这个 API 资源，它可能已经被删除。
-				<Link to="/console/apis" className="underline">
-					返回 API 资源列表
-				</Link>
-			</p>
-		);
+		throw notFound();
 	}
-	const defaulting = defaultFor(apps.data.applications, def.identifier);
+	const defaulting = defaultFor(applications, def.identifier);
 	return (
 		<div className="space-y-10">
 			<TabsContent value="permissions">
@@ -183,44 +216,55 @@ function Permissions({ def }: { def: APIDef }) {
 				</p>
 			)}
 			{def.permissions.length === 0 && !def.builtin && !adding && (
-				<EmptyState title="还没有权限" action={add}>
-					权限是你的后端检查的最小单位，比如“导出订单”。先定义权限，再把它们组合成角色。
-				</EmptyState>
+				<Empty className="border">
+					<EmptyHeader>
+						<EmptyTitle>还没有权限</EmptyTitle>
+						<EmptyDescription>
+							权限是你的后端检查的最小单位，比如“导出订单”。先定义权限，再把它们组合成角色。
+						</EmptyDescription>
+					</EmptyHeader>
+					<EmptyContent>{add}</EmptyContent>
+				</Empty>
 			)}
-			<div className="divide-y divide-border">
+			<ItemList>
 				{def.permissions.map((p) => {
 					const n = rolesWith(def.roles, p.key);
 					return (
-						<div key={p.key} className="flex items-center gap-2 py-3 text-sm">
-							<span className="font-medium">{p.name}</span>
-							<span className="font-mono text-muted-foreground text-xs">
-								{p.key}
-							</span>
+						<Item key={p.key}>
+							<ItemContent>
+								<ItemTitle>
+									{p.name}
+									<span className="font-mono font-normal text-muted-foreground text-xs">
+										{p.key}
+									</span>
+								</ItemTitle>
+							</ItemContent>
 							{editable && (
-								<ConfirmDialog
-									trigger={
-										<Button
-											size="sm"
-											variant="ghost"
-											className="ml-auto"
-											disabled={remove.isPending}
-										>
-											删除
-										</Button>
-									}
-									title={`删除权限「${p.name}」？`}
-									action="删除权限"
-									onConfirm={() => remove.mutate(p.key)}
-								>
-									{n
-										? `它会从 ${n} 个角色中移除，持有这些角色的用户随即失去这项权限。此操作无法撤销。`
-										: "没有角色用到它。此操作无法撤销。"}
-								</ConfirmDialog>
+								<ItemActions>
+									<ConfirmDialog
+										trigger={
+											<Button
+												size="sm"
+												variant="ghost"
+												disabled={remove.isPending}
+											>
+												删除
+											</Button>
+										}
+										title={`删除权限「${p.name}」？`}
+										action="删除权限"
+										onConfirm={() => remove.mutate(p.key)}
+									>
+										{n
+											? `它会从 ${n} 个角色中移除，持有这些角色的用户随即失去这项权限。此操作无法撤销。`
+											: "没有角色用到它。此操作无法撤销。"}
+									</ConfirmDialog>
+								</ItemActions>
 							)}
-						</div>
+						</Item>
 					);
 				})}
-			</div>
+			</ItemList>
 			{adding ? (
 				<KeyNameForm
 					keyLabel="权限 key"
@@ -325,20 +369,30 @@ function Roles({
 	return (
 		<div className="space-y-3">
 			{noDefaultApps && (
-				<InlineWarning link={{ label: "去「应用」", to: "/console/apps" }}>
-					还没有应用以它为默认 API 资源，给用户分配的角色不会出现在任何令牌里。
-				</InlineWarning>
+				<Alert variant="warning">
+					<AlertDescription>
+						还没有应用以它为默认 API
+						资源，给用户分配的角色不会出现在任何令牌里。{" "}
+						<Link to="/console/apps">去「应用」</Link>
+					</AlertDescription>
+				</Alert>
 			)}
 			{def.roles.length === 0 && !adding && (
-				<EmptyState title="还没有角色" action={add}>
-					角色是一组权限，分给用户后，他们登录拿到的令牌里就带着这些权限。
-				</EmptyState>
+				<Empty className="border">
+					<EmptyHeader>
+						<EmptyTitle>还没有角色</EmptyTitle>
+						<EmptyDescription>
+							角色是一组权限，分给用户后，他们登录拿到的令牌里就带着这些权限。
+						</EmptyDescription>
+					</EmptyHeader>
+					<EmptyContent>{add}</EmptyContent>
+				</Empty>
 			)}
-			<div className="divide-y divide-border">
+			<ItemList>
 				{def.roles.map((r) => (
 					<RoleRow key={r.key} def={def} role={r} editable={editable} />
 				))}
-			</div>
+			</ItemList>
 			{adding ? (
 				<RoleForm def={def} onDone={() => setAdding(false)} />
 			) : (
@@ -367,27 +421,34 @@ function RoleRow({
 		),
 	);
 	if (editing) {
-		return <RoleForm def={def} role={role} onDone={() => setEditing(false)} />;
+		return (
+			<Item>
+				<RoleForm def={def} role={role} onDone={() => setEditing(false)} />
+			</Item>
+		);
 	}
 	return (
-		<div className="flex flex-wrap items-center gap-2 py-3 text-sm">
-			<span className="font-medium">{role.name}</span>
-			<span className="font-mono text-muted-foreground text-xs">
-				{role.key}
-			</span>
-			{role.builtin && <Badge variant="secondary">内置</Badge>}
-			<span className="text-muted-foreground text-xs">
-				{role.permissions.length} 项权限 ·{" "}
-				<Link
-					to="/console/users"
-					search={{ api: def.identifier, role: role.key }}
-					className="underline"
-				>
-					{role.users} 个用户
-				</Link>
-			</span>
+		<Item>
+			<ItemContent>
+				<ItemTitle>
+					{role.name}
+					<span className="font-mono font-normal text-muted-foreground text-xs">
+						{role.key}
+					</span>
+					{role.builtin && <Badge variant="secondary">内置</Badge>}
+				</ItemTitle>
+				<ItemDescription className="text-xs">
+					{role.permissions.length} 项权限 ·{" "}
+					<Link
+						to="/console/users"
+						search={{ api: def.identifier, role: role.key }}
+					>
+						{role.users} 个用户
+					</Link>
+				</ItemDescription>
+			</ItemContent>
 			{editable && (
-				<span className="ml-auto flex gap-1">
+				<ItemActions>
 					<Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
 						编辑
 					</Button>
@@ -405,12 +466,12 @@ function RoleRow({
 							? `它仍分配给 ${role.users} 个用户，删除后这些用户随即失去它。此操作无法撤销。`
 							: "没有用户持有它。此操作无法撤销。"}
 					</ConfirmDialog>
-				</span>
+				</ItemActions>
 			)}
 			{remove.error && (
-				<span className="text-destructive">{remove.error.message}</span>
+				<p className="basis-full text-destructive">{remove.error.message}</p>
 			)}
-		</div>
+		</Item>
 	);
 }
 
@@ -433,7 +494,7 @@ function RoleForm({
 	);
 	return (
 		<form
-			className="space-y-3 py-3"
+			className="w-full space-y-3"
 			onSubmit={(e) => {
 				e.preventDefault();
 				const f = new FormData(e.currentTarget);
@@ -468,15 +529,14 @@ function RoleForm({
 			</div>
 			<div className="flex flex-wrap gap-x-4 gap-y-1">
 				{def.permissions.map((p) => (
-					<label key={p.key} className="flex items-center gap-1 text-sm">
-						<input
-							type="checkbox"
+					<Label key={p.key} className="font-normal">
+						<Checkbox
 							name="permissions"
 							value={p.key}
 							defaultChecked={role?.permissions.includes(p.key)}
 						/>
 						{p.name}
-					</label>
+					</Label>
 				))}
 			</div>
 			{put.error && (

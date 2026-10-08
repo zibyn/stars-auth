@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { Alert, AlertDescription } from "#/components/ui/alert";
 import { Input } from "#/components/ui/input";
 import {
 	Select,
@@ -18,9 +19,8 @@ import {
 	termsError,
 } from "#/lib/login";
 import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
-import { InlineWarning } from "#/routes/console/-components/notice";
 import { Field, SaveBar, Section } from "#/routes/console/-components/section";
-import { channelsQuery, toChannels } from "./channels";
+import { ChannelsLink, channelsQuery } from "./channels";
 import { usePolicy, useSavePolicy } from "./policy";
 
 const passwordModes = { off: "关闭", admins: "仅管理员", all: "所有用户" };
@@ -32,19 +32,12 @@ const codeKinds = [
 
 export function LoginTab() {
 	const { policy, editable } = usePolicy();
-	const channels = useQuery(channelsQuery);
-	const error = policy.error ?? channels.error;
-	if (error) {
-		return <p className="text-destructive text-sm">{error.message}</p>;
-	}
-	if (!policy.data || !channels.data) {
-		return null;
-	}
-	const p = policy.data;
-	const sms = hasChannel(channels.data.channels, "phone");
+	const { channels } = useSuspenseQuery(channelsQuery).data;
+	const p = policy;
+	const sms = hasChannel(channels, "phone");
 	return (
 		<div className="space-y-10">
-			<CodeLogin channels={channels.data.channels} />
+			<CodeLogin channels={channels} />
 			<PasswordLogin current={p} editable={editable} />
 			<RequirePhone current={p} editable={editable} sms={sms} />
 			<Terms current={p} editable={editable} />
@@ -65,9 +58,12 @@ function CodeLogin({ channels }: { channels: ChannelSettings[] }) {
 							用户可以用{k.label}收验证码登录。
 						</p>
 					) : (
-						<InlineWarning key={k.kind} link={toChannels}>
-							没有启用{k.channel}通道，用户不能用{k.label}收验证码登录。
-						</InlineWarning>
+						<Alert key={k.kind} variant="warning">
+							<AlertDescription>
+								没有启用{k.channel}通道，用户不能用{k.label}收验证码登录。{" "}
+								<ChannelsLink />
+							</AlertDescription>
+						</Alert>
 					),
 				)}
 			</div>
@@ -108,9 +104,11 @@ function PasswordLogin({ current, editable }: SectionProps) {
 					</SelectContent>
 				</Select>
 				{passwordLocksOut(mode) && (
-					<InlineWarning>
-						只用用户名登录的用户将无法登录，账号中心也不能设置密码。
-					</InlineWarning>
+					<Alert variant="warning">
+						<AlertDescription>
+							只用用户名登录的用户将无法登录，账号中心也不能设置密码。
+						</AlertDescription>
+					</Alert>
 				)}
 			</Field>
 		</Section>
@@ -149,9 +147,12 @@ function RequirePhone({
 					onCheckedChange={setOn}
 				/>
 				{!sms && (
-					<InlineWarning link={{ ...toChannels, label: "去启用短信通道" }}>
-						先启用短信通道。没有短信通道，用户收不到绑定手机号的验证码。
-					</InlineWarning>
+					<Alert variant="warning">
+						<AlertDescription>
+							先启用短信通道。没有短信通道，用户收不到绑定手机号的验证码。{" "}
+							<ChannelsLink>去启用短信通道</ChannelsLink>
+						</AlertDescription>
+					</Alert>
 				)}
 			</Field>
 			<ConfirmDialog

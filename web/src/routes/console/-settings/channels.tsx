@@ -1,13 +1,21 @@
 import {
 	queryOptions,
 	useMutation,
-	useQuery,
 	useQueryClient,
+	useSuspenseQuery,
 } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
+import { ItemList } from "#/components/item-list";
+import { Alert, AlertDescription } from "#/components/ui/alert";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
+import {
+	Item,
+	ItemContent,
+	ItemDescription,
+	ItemTitle,
+} from "#/components/ui/item";
 import { Label } from "#/components/ui/label";
 import {
 	Select,
@@ -23,7 +31,6 @@ import {
 } from "#/lib/console-api";
 import { sendsNothing, smsLocked } from "#/lib/login";
 import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
-import { InlineWarning } from "#/routes/console/-components/notice";
 import { SectionHeading } from "#/routes/console/-components/section";
 import { useCan } from "#/routes/console/route";
 import { PolicyNumber, usePolicy } from "./policy";
@@ -34,12 +41,18 @@ export const channelsQuery = queryOptions({
 		api<{ plugins: ChannelPlugin[]; channels: ChannelSettings[] }>("/channels"),
 });
 
-// toChannels links to the 通道 Tab from a hint that needs a channel.
-export const toChannels = {
-	label: "去设置通道",
-	to: "/console/settings",
-	search: { tab: "channels" },
-} as const;
+// ChannelsLink leads to the 通道 Tab from a hint that needs a channel.
+export function ChannelsLink({
+	children = "去设置通道",
+}: {
+	children?: ReactNode;
+}) {
+	return (
+		<Link to="/console/settings" search={{ tab: "channels" }}>
+			{children}
+		</Link>
+	);
+}
 
 // lose is what users can't do while the kind has no channel.
 const kinds = [
@@ -72,9 +85,11 @@ export function ChannelsTab() {
 				min={0}
 				warning={(n) =>
 					sendsNothing(n) && (
-						<InlineWarning>
-							设为 0 后所有验证码都不再发送，包括登录和绑定手机号。
-						</InlineWarning>
+						<Alert variant="warning">
+							<AlertDescription>
+								设为 0 后所有验证码都不再发送，包括登录和绑定手机号。
+							</AlertDescription>
+						</Alert>
 					)
 				}
 			/>
@@ -83,28 +98,24 @@ export function ChannelsTab() {
 }
 
 function Channels() {
-	const channels = useQuery(channelsQuery);
+	const { plugins, channels } = useSuspenseQuery(channelsQuery).data;
 	return (
 		<section>
 			<SectionHeading
 				title="验证码通道"
 				intro="认证服务通过它们把验证码发到手机号或邮箱。短信和邮件各启用一个服务商。"
 			/>
-			<div className="mt-4 divide-y divide-border">
-				{channels.error && (
-					<p className="text-destructive text-sm">{channels.error.message}</p>
-				)}
-				{channels.data &&
-					kinds.map((k) => (
+			<div className="mt-4">
+				<ItemList>
+					{kinds.map((k) => (
 						<Channel
 							key={k.kind}
 							{...k}
-							plugins={channels.data.plugins.filter((p) =>
-								p.kinds.includes(k.kind),
-							)}
-							current={channels.data.channels.find((c) => c.kind === k.kind)}
+							plugins={plugins.filter((p) => p.kinds.includes(k.kind))}
+							current={channels.find((c) => c.kind === k.kind)}
 						/>
 					))}
+				</ItemList>
 			</div>
 		</section>
 	);
@@ -129,7 +140,7 @@ function Channel({
 	const editable = can("config:write");
 	const { policy } = usePolicy();
 	// Until the policy loads, assume the lock so SMS can't slip out.
-	const needed = smsLocked(kind, policy.data?.requirePhone ?? true);
+	const needed = smsLocked(kind, policy.requirePhone);
 	const client = useQueryClient();
 	const [pluginKey, setPluginKey] = useState(current?.plugin ?? "");
 	const plugin = plugins.find((p) => p.key === pluginKey);
@@ -166,14 +177,18 @@ function Channel({
 		</Button>
 	);
 	return (
-		<div className="space-y-4 py-6 first:pt-0 last:pb-0">
-			<div className="flex items-center gap-3">
-				<h3 className="font-medium text-sm">{label}</h3>
-				<span className="text-muted-foreground text-xs">
-					{current ? `已启用 · 更新于 ${date(current.updatedAt)}` : "未启用"}
-				</span>
-			</div>
-			<p className="text-[13px] text-muted-foreground">没开启时，{lose}</p>
+		<Item className="flex-col items-stretch gap-4 py-6">
+			<ItemContent>
+				<ItemTitle>
+					{label}
+					<span className="font-normal text-muted-foreground text-xs">
+						{current ? `已启用 · 更新于 ${date(current.updatedAt)}` : "未启用"}
+					</span>
+				</ItemTitle>
+				<ItemDescription className="text-[13px]">
+					没开启时，{lose}
+				</ItemDescription>
+			</ItemContent>
 			<div>
 				<Select
 					value={pluginKey}
@@ -307,6 +322,6 @@ function Channel({
 					)}
 				</form>
 			)}
-		</div>
+		</Item>
 	);
 }

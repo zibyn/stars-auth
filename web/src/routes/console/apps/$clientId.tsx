@@ -1,18 +1,33 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	useMutation,
+	useQuery,
+	useQueryClient,
+	useSuspenseQuery,
+} from "@tanstack/react-query";
 import {
 	createFileRoute,
 	Link,
+	notFound,
+	stripSearchParams,
 	useBlocker,
 	useNavigate,
 	useParams,
 	useSearch,
 } from "@tanstack/react-router";
-import { Check } from "lucide-react";
+import { Check, ChevronRight } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { z } from "zod";
+import { Alert, AlertDescription } from "#/components/ui/alert";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
+import { Checkbox } from "#/components/ui/checkbox";
+import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "#/components/ui/collapsible";
 import { Input } from "#/components/ui/input";
+import { Label } from "#/components/ui/label";
 import {
 	Select,
 	SelectContent,
@@ -38,7 +53,6 @@ import {
 	snippet,
 } from "#/lib/onboarding";
 import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
-import { InlineWarning } from "#/routes/console/-components/notice";
 import {
 	DangerZone,
 	Field,
@@ -56,8 +70,12 @@ const tabs = [
 	["webhook", "用户删除通知"],
 ] as const;
 
+const defaults = { tab: "basic" } as const;
 const search = z.object({
-	tab: z.enum(["basic", "login", "webhook"]).optional().catch(undefined),
+	tab: z
+		.enum(["basic", "login", "webhook"])
+		.default(defaults.tab)
+		.catch(defaults.tab),
 	// set once, by the create page: show the 接入清单 for this platform
 	onboarding: z.enum(platformKeys).optional().catch(undefined),
 });
@@ -65,6 +83,24 @@ const search = z.object({
 export const Route = createFileRoute("/console/apps/$clientId")({
 	staticData: { crumb: ApplicationName, useHeader },
 	validateSearch: search,
+	search: { middlewares: [stripSearchParams(defaults)] },
+	loader: async ({ context: { queryClient }, params }) => {
+		const [apps] = await Promise.all([
+			queryClient.ensureQueryData(applicationsQuery),
+			queryClient.ensureQueryData(apisQuery),
+		]);
+		if (!apps.applications.some((a) => a.clientId === params.clientId)) {
+			throw notFound();
+		}
+	},
+	notFoundComponent: () => (
+		<p className="text-sm">
+			没有这个应用，它可能已经被删除。
+			<Link to="/console/apps" className="underline">
+				返回应用列表
+			</Link>
+		</p>
+	),
 	component: ApplicationPage,
 });
 
@@ -145,24 +181,12 @@ function useHeader(): Header | null {
 
 function ApplicationPage() {
 	const { clientId } = Route.useParams();
-	const apps = useQuery(applicationsQuery);
+	const { applications } = useSuspenseQuery(applicationsQuery).data;
 	const can = useCan();
-	if (apps.error) {
-		return <p className="text-destructive text-sm">{apps.error.message}</p>;
-	}
-	if (!apps.data) {
-		return null;
-	}
-	const app = apps.data.applications.find((a) => a.clientId === clientId);
+	const app = applications.find((a) => a.clientId === clientId);
+	// The loader checked; this covers it going in a later refetch.
 	if (!app) {
-		return (
-			<p className="text-sm">
-				没有这个应用，它可能已经被删除。
-				<Link to="/console/apps" className="underline">
-					返回应用列表
-				</Link>
-			</p>
-		);
+		throw notFound();
 	}
 	const editable = can("applications:write") && !app.builtin;
 	return (
@@ -206,8 +230,9 @@ type TabProps = { app: Application; editable: boolean };
 function BasicTab({ app, editable }: TabProps) {
 	const save = useSave(app);
 	const saveApi = useSave(app);
-	const apis = useQuery(apisQuery);
-	const registered = apis.data?.apis.filter((a) => !a.builtin) ?? [];
+	const registered = useSuspenseQuery(apisQuery).data.apis.filter(
+		(a) => !a.builtin,
+	);
 	const [defaultApi, setDefaultApi] = useState(app.defaultApi ?? "");
 	return (
 		<div className="space-y-10">
@@ -255,12 +280,13 @@ function BasicTab({ app, editable }: TabProps) {
 					label="默认 API 资源"
 					help="用户登录后拿到的 access token 用于调用它，并带上用户在其中的角色。不选，token 里没有角色。"
 				>
-					{apis.data && registered.length === 0 ? (
-						<InlineWarning
-							link={{ label: "去登记 API 资源", to: "/console/apis" }}
-						>
-							还没有登记 API 资源。
-						</InlineWarning>
+					{registered.length === 0 ? (
+						<Alert variant="warning">
+							<AlertDescription>
+								还没有登记 API 资源。
+								<Link to="/console/apis">去登记 API 资源</Link>
+							</AlertDescription>
+						</Alert>
 					) : (
 						<div className="flex items-center gap-3">
 							<Select
@@ -318,12 +344,14 @@ function ClientSecret({ app, editable }: TabProps) {
 			help="你的后端换取令牌时用的密码。只在生成时显示一次，请立即保存到服务器配置里。"
 		>
 			{rotate.data ? (
-				<p className="rounded-xl bg-amber-500/10 p-4 text-sm">
-					新的 client secret 只显示这一次：
-					<span className="block break-all font-mono">
-						{rotate.data.secret}
-					</span>
-				</p>
+				<Alert variant="warning">
+					<AlertDescription>
+						新的 client secret 只显示这一次：
+						<span className="block break-all font-mono">
+							{rotate.data.secret}
+						</span>
+					</AlertDescription>
+				</Alert>
 			) : (
 				<div className="flex gap-2">
 					<Input readOnly value="••••••••••••••••" className="font-mono" />
@@ -424,11 +452,13 @@ function LoginTab({ app, editable }: TabProps) {
 					placeholder="每行一个，如 https://shop.example.com/callback"
 				/>
 			</Field>
-			<details className="space-y-6">
-				<summary className="cursor-pointer font-medium text-[13px]">
+			{/* keepMounted: folded fields still go with the form. */}
+			<Collapsible>
+				<CollapsibleTrigger className="flex items-center gap-1 font-medium text-[13px] [&[data-panel-open]>svg]:rotate-90">
+					<ChevronRight className="size-4 transition-transform" />
 					高级
-				</summary>
-				<div className="mt-6 space-y-6">
+				</CollapsibleTrigger>
+				<CollapsibleContent keepMounted className="mt-6 space-y-6">
 					<Field
 						label="退出后跳转地址"
 						en="post-logout redirect URI"
@@ -471,8 +501,8 @@ function LoginTab({ app, editable }: TabProps) {
 							<span className="text-sm">天</span>
 						</div>
 					</Field>
-				</div>
-			</details>
+				</CollapsibleContent>
+			</Collapsible>
 		</Section>
 	);
 }
@@ -510,7 +540,9 @@ function WebhookTab({ app, editable }: TabProps) {
 				/>
 			</Field>
 			{!url && secretSet && (
-				<InlineWarning>保存后 Webhook 密钥会一并清除。</InlineWarning>
+				<Alert variant="warning">
+					<AlertDescription>保存后 Webhook 密钥会一并清除。</AlertDescription>
+				</Alert>
 			)}
 			<Field
 				label="Webhook 密钥"
@@ -601,15 +633,10 @@ function Onboarding({
 				<p className="text-[13px] text-muted-foreground">
 					它只显示这一次，请现在保存到你服务器的配置里。丢了只能在下面重新生成，旧的会立即失效。
 				</p>
-				<label className="flex items-center gap-2 text-sm">
-					<input
-						type="checkbox"
-						className="accent-primary"
-						checked={saved}
-						onChange={(e) => setSaved(e.target.checked)}
-					/>
+				<Label className="font-normal">
+					<Checkbox checked={saved} onCheckedChange={setSaved} />
 					我已保存 client secret
-				</label>
+				</Label>
 			</div>
 		) : (
 			<p className="text-[13px] text-muted-foreground">
@@ -639,48 +666,51 @@ function Onboarding({
 		),
 	};
 	return (
-		<details open className="rounded-xl bg-primary-soft p-6">
-			<summary className="cursor-pointer font-semibold text-[15px]">
-				接入清单{" "}
-				<span className="font-normal text-faint text-xs tabular-nums">
+		<Collapsible defaultOpen className="rounded-xl bg-primary-soft p-6">
+			<CollapsibleTrigger className="flex items-center gap-1 font-semibold text-[15px] [&[data-panel-open]>svg]:rotate-90">
+				<ChevronRight className="size-4 transition-transform" />
+				接入清单
+				<span className="ml-1 font-normal text-faint text-xs tabular-nums">
 					{tracked.filter((i) => i.done).length} / {tracked.length}
 				</span>
-			</summary>
-			<ol className="mt-4 space-y-4">
-				{items.map((item, n) => (
-					<li key={item.key} className="flex gap-3">
-						<span
-							className={`grid size-5 shrink-0 place-items-center rounded-full text-xs ${item.done ? "bg-primary text-primary-foreground" : "bg-card text-primary-ink ring-1 ring-border"}`}
+			</CollapsibleTrigger>
+			<CollapsibleContent>
+				<ol className="mt-4 space-y-4">
+					{items.map((item, n) => (
+						<li key={item.key} className="flex gap-3">
+							<span
+								className={`grid size-5 shrink-0 place-items-center rounded-full text-xs ${item.done ? "bg-primary text-primary-foreground" : "bg-card text-primary-ink ring-1 ring-border"}`}
+							>
+								{item.done ? <Check className="size-3" /> : n + 1}
+							</span>
+							<div className="flex-1 space-y-1">
+								<p className="font-medium text-sm">{steps[item.key]}</p>
+								{body[item.key]}
+							</div>
+						</li>
+					))}
+				</ol>
+				<div className="mt-4 space-y-1 text-muted-foreground text-sm">
+					<p>
+						用户能用哪些方式登录，去
+						<Link to="/console/settings" className="underline">
+							「登录方式」
+						</Link>
+						检查。
+					</p>
+					<p>
+						需要在用户注销时清理数据，就配置
+						<Link
+							from={Route.fullPath}
+							search={{ tab: "webhook" }}
+							className="underline"
 						>
-							{item.done ? <Check className="size-3" /> : n + 1}
-						</span>
-						<div className="flex-1 space-y-1">
-							<p className="font-medium text-sm">{steps[item.key]}</p>
-							{body[item.key]}
-						</div>
-					</li>
-				))}
-			</ol>
-			<div className="mt-4 space-y-1 text-muted-foreground text-sm">
-				<p>
-					用户能用哪些方式登录，去
-					<Link to="/console/settings" className="underline">
-						「登录方式」
-					</Link>
-					检查。
-				</p>
-				<p>
-					需要在用户注销时清理数据，就配置
-					<Link
-						from={Route.fullPath}
-						search={{ tab: "webhook" }}
-						className="underline"
-					>
-						「用户删除通知」
-					</Link>
-					。
-				</p>
-			</div>
+							「用户删除通知」
+						</Link>
+						。
+					</p>
+				</div>
+			</CollapsibleContent>
 			<ConfirmDialog
 				open={blocker.status === "blocked"}
 				onOpenChange={(open) => !open && blocker.reset?.()}
@@ -689,6 +719,6 @@ function Onboarding({
 				client secret
 				只显示这一次，离开后就再也看不到了。请先保存到服务器配置里，勾选「我已保存」后再离开。
 			</ConfirmDialog>
-		</details>
+		</Collapsible>
 	);
 }

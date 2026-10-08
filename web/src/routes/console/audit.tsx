@@ -1,11 +1,22 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { UserRound } from "lucide-react";
+import {
+	infiniteQueryOptions,
+	useQuery,
+	useSuspenseInfiniteQuery,
+} from "@tanstack/react-query";
+import {
+	createFileRoute,
+	Link,
+	stripSearchParams,
+	useNavigate,
+} from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { z } from "zod";
+import { ItemList } from "#/components/item-list";
 import { Star } from "#/components/star";
+import { Avatar, AvatarFallback } from "#/components/ui/avatar";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
+import { Item, ItemContent, ItemMedia } from "#/components/ui/item";
 import {
 	Select,
 	SelectContent,
@@ -23,6 +34,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "#/components/ui/table";
+import { UserAvatar } from "#/components/user-avatar";
 import {
 	actor,
 	describe,
@@ -38,17 +50,24 @@ import { apisQuery } from "#/routes/console/apis/index";
 import { applicationsQuery } from "#/routes/console/apps/index";
 import { useCan } from "#/routes/console/route";
 
+const text = z.string().default("").catch("");
 const search = z.object({
-	event: z.string().optional(),
-	sub: z.string().optional(),
-	q: z.string().optional(), // what was typed to find sub, shown back
-	since: z.string().optional(), // yyyy-mm-dd, local
-	until: z.string().optional(), // yyyy-mm-dd, local, inclusive
+	event: text,
+	sub: text,
+	q: text, // what was typed to find sub, shown back
+	since: text, // yyyy-mm-dd, local
+	until: text, // yyyy-mm-dd, local, inclusive
 });
+const defaults = { event: "", sub: "", q: "", since: "", until: "" };
 
 export const Route = createFileRoute("/console/audit")({
 	staticData: { useHeader: () => ({ title: "审计日志" }) },
 	validateSearch: search,
+	search: { middlewares: [stripSearchParams(defaults)] },
+	// q only echoes what was typed: it doesn't change the events.
+	loaderDeps: ({ search: { q, ...deps } }) => deps,
+	loader: ({ context, deps }) =>
+		context.queryClient.ensureInfiniteQueryData(eventsQuery(deps)),
 	component: Audit,
 });
 
@@ -61,14 +80,13 @@ const day = (s: string, days = 0) => {
 	return d.toISOString();
 };
 
-function Audit() {
-	const filters = Route.useSearch();
-	const { event = "", sub = "", since = "", until = "" } = filters;
-	const navigate = useNavigate({ from: Route.fullPath });
-	const can = useCan();
-	const [choices, setChoices] = useState<User[]>();
-	const [finding, setFinding] = useState(false);
-	const events = useInfiniteQuery({
+const eventsQuery = ({
+	event,
+	sub,
+	since,
+	until,
+}: Omit<z.infer<typeof search>, "q">) =>
+	infiniteQueryOptions({
 		queryKey: ["audit", event, sub, since, until],
 		initialPageParam: 0,
 		queryFn: ({ pageParam }) =>
@@ -85,7 +103,16 @@ function Audit() {
 		getNextPageParam: (last) =>
 			last.events.length === pageSize ? last.events.at(-1)?.id : undefined,
 	});
-	const rows = events.data?.pages.flatMap((p) => p.events) ?? [];
+
+function Audit() {
+	const filters = Route.useSearch();
+	const { event, sub, since, until } = filters;
+	const navigate = useNavigate({ from: Route.fullPath });
+	const can = useCan();
+	const [choices, setChoices] = useState<User[]>();
+	const [finding, setFinding] = useState(false);
+	const events = useSuspenseInfiniteQuery(eventsQuery(filters));
+	const rows = events.data.pages.flatMap((p) => p.events);
 	const set = (k: keyof z.infer<typeof search>, v: string) =>
 		navigate({ search: (s) => ({ ...s, [k]: v || undefined }) });
 	const filterBy = (q: string, sub: string) => {
@@ -201,7 +228,6 @@ function Audit() {
 			<EventTable
 				events={rows}
 				empty={
-					events.isSuccess &&
 					filtered && (
 						<>
 							<span>没有符合条件的事件</span>
@@ -219,8 +245,8 @@ function Audit() {
 					)
 				}
 			/>
-			{events.error && (
-				<p className="text-destructive text-sm">{events.error.message}</p>
+			{events.isFetchNextPageError && (
+				<p className="text-destructive text-sm">{events.error?.message}</p>
 			)}
 			{events.hasNextPage && (
 				<Button
@@ -348,36 +374,38 @@ function useNames() {
 export function EventList({ events }: { events: AuditEvent[] }) {
 	const { names, naming } = useNames();
 	return (
-		<ul className="divide-y divide-border">
+		<ItemList>
 			{(naming ? [] : events).map((ev) => {
 				const { parts, title } = describe(ev, names);
 				const who = actor(ev);
 				const [first] = who;
 				return (
-					<li key={ev.id} className="flex items-center gap-3 py-3">
-						{!doneBy(ev) ? (
-							<span className="grid size-6 shrink-0 place-items-center rounded-full bg-canvas text-faint">
-								<Star className="size-3" />
-							</span>
-						) : (
-							<span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary-soft font-medium text-primary-ink text-xs uppercase">
-								{typeof first === "string" ? (
-									<UserRound className="size-3.5" />
-								) : (
-									first.text[0]
-								)}
-							</span>
-						)}
-						<span className="min-w-0 flex-1" title={title}>
-							<span className="font-medium">
-								<Sentence parts={who} />
-							</span>{" "}
-							<Sentence parts={parts} />
-						</span>
+					<Item key={ev.id}>
+						<ItemMedia>
+							{!doneBy(ev) ? (
+								<Avatar size="sm">
+									<AvatarFallback className="bg-canvas text-faint">
+										<Star className="size-3" />
+									</AvatarFallback>
+								</Avatar>
+							) : (
+								<UserAvatar
+									name={typeof first === "string" ? undefined : first.text}
+								/>
+							)}
+						</ItemMedia>
+						<ItemContent className="min-w-0" title={title}>
+							<p>
+								<span className="font-medium">
+									<Sentence parts={who} />
+								</span>{" "}
+								<Sentence parts={parts} />
+							</p>
+						</ItemContent>
 						<span className="shrink-0 text-faint text-xs">{date(ev.at)}</span>
-					</li>
+					</Item>
 				);
 			})}
-		</ul>
+		</ItemList>
 	);
 }

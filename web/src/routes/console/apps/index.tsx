@@ -1,7 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Badge } from "#/components/ui/badge";
 import { buttonVariants } from "#/components/ui/button";
+import {
+	Empty,
+	EmptyContent,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyTitle,
+} from "#/components/ui/empty";
 import {
 	Table,
 	TableBody,
@@ -12,12 +19,16 @@ import {
 } from "#/components/ui/table";
 import { onlyBuiltin, typeName } from "#/lib/apps";
 import { type Application, api } from "#/lib/console-api";
-import { EmptyState } from "#/routes/console/-components/notice";
 import { apisQuery } from "#/routes/console/apis/index";
 import { type Header, useCan } from "#/routes/console/route";
 
 export const Route = createFileRoute("/console/apps/")({
 	staticData: { useHeader },
+	loader: ({ context: { queryClient } }) =>
+		Promise.all([
+			queryClient.ensureQueryData(applicationsQuery),
+			queryClient.ensureQueryData(apisQuery),
+		]),
 	component: Applications,
 });
 
@@ -29,45 +40,49 @@ export const applicationsQuery = {
 // useCreate is the one create button, or false without the Permission.
 // When there are no apps of your own, the empty state carries it instead
 // of the header.
-function useCreate() {
+function useCreate(applications?: Application[]) {
 	const can = useCan();
-	const apps = useQuery(applicationsQuery);
 	const create = can("applications:write") && (
 		<Link to="/console/apps/new" className={buttonVariants()}>
 			创建应用
 		</Link>
 	);
-	const empty = apps.data && onlyBuiltin(apps.data.applications);
+	const empty = !!applications && onlyBuiltin(applications);
 	return { create, empty };
 }
 
 function useHeader(): Header | null {
-	const { create, empty } = useCreate();
+	// The header draws in the layout, around the page's loading and
+	// errors, so it reads without suspending.
+	const apps = useQuery(applicationsQuery).data;
+	const { create, empty } = useCreate(apps?.applications);
 	return { title: "应用", actions: !empty && create };
 }
 
 function Applications() {
-	const apps = useQuery(applicationsQuery);
-	const apis = useQuery(apisQuery);
+	const { applications } = useSuspenseQuery(applicationsQuery).data;
+	const { apis } = useSuspenseQuery(apisQuery).data;
 	const apiName = (identifier?: string) =>
-		apis.data?.apis.find((a) => a.identifier === identifier)?.name ??
-		identifier;
-	const { create, empty } = useCreate();
+		apis.find((a) => a.identifier === identifier)?.name ?? identifier;
+	const { create, empty } = useCreate(applications);
 	return (
 		<div className="space-y-6">
 			{empty && (
-				<EmptyState
-					title="还没有接入你的应用"
-					action={
-						create || (
+				<Empty className="border">
+					<EmptyHeader>
+						<EmptyTitle>还没有接入你的应用</EmptyTitle>
+						<EmptyDescription>
+							你的 App、网站或小程序要先在这里创建，才能让用户用认证服务登录。
+						</EmptyDescription>
+					</EmptyHeader>
+					<EmptyContent>
+						{create || (
 							<span className="text-muted-foreground">
 								需要「管理员」角色才能创建。
 							</span>
-						)
-					}
-				>
-					你的 App、网站或小程序要先在这里创建，才能让用户用认证服务登录。
-				</EmptyState>
+						)}
+					</EmptyContent>
+				</Empty>
 			)}
 			<Table>
 				<TableHeader>
@@ -79,7 +94,7 @@ function Applications() {
 					</TableRow>
 				</TableHeader>
 				<TableBody>
-					{apps.data?.applications.map((a) => (
+					{applications.map((a) => (
 						<TableRow key={a.clientId}>
 							<TableCell>
 								<Link
@@ -100,9 +115,6 @@ function Applications() {
 					))}
 				</TableBody>
 			</Table>
-			{apps.error && (
-				<p className="text-destructive text-sm">{apps.error.message}</p>
-			)}
 		</div>
 	);
 }

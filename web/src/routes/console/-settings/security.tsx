@@ -1,5 +1,17 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	queryOptions,
+	useMutation,
+	useQueryClient,
+	useSuspenseQuery,
+} from "@tanstack/react-query";
+import { ItemList } from "#/components/item-list";
 import { Button } from "#/components/ui/button";
+import {
+	Item,
+	ItemContent,
+	ItemDescription,
+	ItemTitle,
+} from "#/components/ui/item";
 import { api, type SigningKey } from "#/lib/console-api";
 import {
 	asksShorterRetention,
@@ -12,6 +24,11 @@ import { useCan } from "#/routes/console/route";
 import { PolicyNumber } from "./policy";
 
 const date = (s: string) => new Date(s).toLocaleString("zh-CN");
+
+export const signingKeysQuery = queryOptions({
+	queryKey: ["signing-keys"],
+	queryFn: () => api<{ keys: SigningKey[] }>("/signing-keys"),
+});
 
 export function SecurityTab() {
 	return (
@@ -38,15 +55,11 @@ export function SecurityTab() {
 function SigningKeys() {
 	const can = useCan();
 	const client = useQueryClient();
-	const keys = useQuery({
-		queryKey: ["signing-keys"],
-		queryFn: () => api<{ keys: SigningKey[] }>("/signing-keys"),
-	});
+	const list = useSuspenseQuery(signingKeysQuery).data.keys;
 	const rotate = useMutation({
 		mutationFn: () => api("/signing-keys/rotate", { method: "POST" }),
-		onSuccess: () => client.invalidateQueries({ queryKey: ["signing-keys"] }),
+		onSuccess: () => client.invalidateQueries(signingKeysQuery),
 	});
-	const list = keys.data?.keys ?? [];
 	const current = list.find((k) => k.current);
 	const rotated = lastRotation(list);
 	const recent = !!rotated && rotatedRecently(rotated);
@@ -57,9 +70,6 @@ function SigningKeys() {
 				intro="认证服务用当前密钥给令牌签名。轮换后，上一把密钥只用来验证它签过的令牌。"
 			/>
 			<div className="mt-4 space-y-4">
-				{keys.error && (
-					<p className="text-destructive text-sm">{keys.error.message}</p>
-				)}
 				{current && (
 					<p className="text-sm">
 						{rotated
@@ -67,16 +77,18 @@ function SigningKeys() {
 							: `还没有轮换过，当前密钥创建于 ${date(current.createdAt)}`}
 					</p>
 				)}
-				<ul className="divide-y divide-border text-sm">
+				<ItemList>
 					{list.map((k) => (
-						<li key={k.kid} className="flex items-center gap-3 py-3">
-							<span className="font-mono">{k.kid}</span>
-							<span className="text-faint text-xs">
-								{k.current ? "当前" : "上一把"} · 创建于 {date(k.createdAt)}
-							</span>
-						</li>
+						<Item key={k.kid}>
+							<ItemContent>
+								<ItemTitle className="font-mono font-normal">{k.kid}</ItemTitle>
+								<ItemDescription className="text-xs">
+									{k.current ? "当前" : "上一把"} · 创建于 {date(k.createdAt)}
+								</ItemDescription>
+							</ItemContent>
+						</Item>
 					))}
-				</ul>
+				</ItemList>
 				{rotate.error && (
 					<p className="text-destructive text-sm">{rotate.error.message}</p>
 				)}

@@ -1,7 +1,18 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	useMutation,
+	useQueryClient,
+	useSuspenseQuery,
+} from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
+import {
+	Empty,
+	EmptyContent,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyTitle,
+} from "#/components/ui/empty";
 import { Input } from "#/components/ui/input";
 import {
 	Table,
@@ -13,7 +24,6 @@ import {
 } from "#/components/ui/table";
 import { onlyBuiltin } from "#/lib/apps";
 import { type APIDef, api, apiPath } from "#/lib/console-api";
-import { EmptyState } from "#/routes/console/-components/notice";
 import { SectionHeading } from "#/routes/console/-components/section";
 import { useCan } from "#/routes/console/route";
 
@@ -25,6 +35,7 @@ export const Route = createFileRoute("/console/apis/")({
 				"在这里登记你的后端服务，再为它定义权限和角色。用户登录某个应用后，拿到的令牌只带这个应用默认 API 资源上的角色和权限。",
 		}),
 	},
+	loader: ({ context }) => context.queryClient.ensureQueryData(apisQuery),
 	component: APIs,
 });
 
@@ -35,16 +46,21 @@ export const apisQuery = {
 
 function APIs() {
 	const can = useCan();
-	const apis = useQuery(apisQuery);
+	const { apis } = useSuspenseQuery(apisQuery).data;
 	const writable = can("applications:write");
 	return (
 		<div className="space-y-10">
 			<div className="space-y-6">
-				{apis.data && onlyBuiltin(apis.data.apis) && (
-					<EmptyState
-						title="还没有你自己的 API 资源"
-						action={
-							writable ? (
+				{onlyBuiltin(apis) && (
+					<Empty className="border">
+						<EmptyHeader>
+							<EmptyTitle>还没有你自己的 API 资源</EmptyTitle>
+							<EmptyDescription>
+								如果你的后端要校验用户能做什么，在这里登记它，再定义权限和角色。只用登录、不需要权限控制的话，可以不建。
+							</EmptyDescription>
+						</EmptyHeader>
+						<EmptyContent>
+							{writable ? (
 								<Button
 									onClick={() =>
 										document
@@ -58,11 +74,9 @@ function APIs() {
 								<span className="text-muted-foreground">
 									需要「管理员」角色才能创建。
 								</span>
-							)
-						}
-					>
-						如果你的后端要校验用户能做什么，在这里登记它，再定义权限和角色。只用登录、不需要权限控制的话，可以不建。
-					</EmptyState>
+							)}
+						</EmptyContent>
+					</Empty>
 				)}
 				<Table>
 					<TableHeader>
@@ -74,7 +88,7 @@ function APIs() {
 						</TableRow>
 					</TableHeader>
 					<TableBody>
-						{apis.data?.apis.map((a) => (
+						{apis.map((a) => (
 							<TableRow key={a.identifier}>
 								<TableCell>
 									<Link
@@ -97,9 +111,6 @@ function APIs() {
 						))}
 					</TableBody>
 				</Table>
-				{apis.error && (
-					<p className="text-destructive text-sm">{apis.error.message}</p>
-				)}
 			</div>
 			{writable && <CreateForm />}
 		</div>

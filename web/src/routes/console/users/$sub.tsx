@@ -1,20 +1,47 @@
 import {
+	queryOptions,
 	useIsMutating,
 	useMutation,
 	useMutationState,
 	useQuery,
 	useQueryClient,
+	useSuspenseQuery,
 } from "@tanstack/react-query";
 import {
 	createFileRoute,
 	Link,
+	notFound,
 	useNavigate,
 	useParams,
 } from "@tanstack/react-router";
+import { ChevronRight } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { ItemList } from "#/components/item-list";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
+import { Checkbox } from "#/components/ui/checkbox";
 import {
+	Collapsible,
+	CollapsibleContent,
+	CollapsibleTrigger,
+} from "#/components/ui/collapsible";
+import {
+	Empty,
+	EmptyContent,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyTitle,
+} from "#/components/ui/empty";
+import {
+	Item,
+	ItemActions,
+	ItemContent,
+	ItemDescription,
+} from "#/components/ui/item";
+import { Label } from "#/components/ui/label";
+import { UserAvatar } from "#/components/user-avatar";
+import {
+	APIError,
 	type Application,
 	api,
 	type RoleInfo,
@@ -28,20 +55,45 @@ import {
 	primaryIdentifier,
 } from "#/lib/users";
 import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
-import { EmptyState } from "#/routes/console/-components/notice";
 import { Section } from "#/routes/console/-components/section";
 import { type Header, useCan } from "#/routes/console/route";
-import { Avatar, date, rolesQuery } from "#/routes/console/users/index";
+import { date, rolesQuery } from "#/routes/console/users/index";
 
 export const Route = createFileRoute("/console/users/$sub")({
 	staticData: { crumb: UserName, useHeader },
+	loader: ({ context: { queryClient }, params: { sub } }) =>
+		Promise.all([
+			queryClient.ensureQueryData(userQuery(sub)),
+			queryClient.ensureQueryData(sessionsQuery(sub)),
+			queryClient.ensureQueryData(rolesQuery),
+		]).catch((e) => {
+			throw e instanceof APIError && e.status === 404 ? notFound() : e;
+		}),
+	notFoundComponent: () => (
+		<p className="text-sm">
+			没有这个用户，可能已经被删除。
+			<Link to="/console/users" className="underline">
+				返回用户列表
+			</Link>
+		</p>
+	),
 	component: UserPage,
 });
 
-const userQuery = (sub: string) => ({
-	queryKey: ["user", sub],
-	queryFn: () => api<UserDetail>(`/users/${encodeURIComponent(sub)}`),
-});
+const userQuery = (sub: string) =>
+	queryOptions({
+		queryKey: ["user", sub],
+		queryFn: () => api<UserDetail>(`/users/${encodeURIComponent(sub)}`),
+	});
+
+const sessionsQuery = (sub: string) =>
+	queryOptions({
+		queryKey: ["sessions", sub],
+		queryFn: () =>
+			api<{ sessions: Session[] }>(
+				`/users/${encodeURIComponent(sub)}/sessions`,
+			),
+	});
 
 // UserName is the User's crumb: their primary Identifier, kept current by
 // the query.
@@ -52,7 +104,8 @@ function UserName(): ReactNode {
 }
 
 // useUser is what the header and the page both read: the User, what the
-// admin may do to them, and the actions they share.
+// admin may do to them, and the actions they share. The header draws in
+// the layout, around the page's loading and errors, so it doesn't suspend.
 function useUser() {
 	const { sub } = useParams({ from: "/console/users/$sub" });
 	const user = useQuery(userQuery(sub));
@@ -79,7 +132,7 @@ function useHeader(): Header | null {
 	return {
 		title: (
 			<>
-				<Avatar name={name} className="size-10 text-base" />
+				<UserAvatar name={name} size="lg" />
 				{name ?? "未绑定登录标识"}
 			</>
 		),
@@ -88,7 +141,7 @@ function useHeader(): Header | null {
 				{u.disabledAt ? (
 					<Badge variant="destructive">已禁用 · {date(u.disabledAt)}</Badge>
 				) : (
-					<Badge className="bg-green-500/10 text-green-700">正常</Badge>
+					<Badge variant="success">正常</Badge>
 				)}
 				{can("audit:read") && (
 					<Link
@@ -139,44 +192,41 @@ function useHeader(): Header | null {
 }
 
 function UserPage() {
-	const { user, act, writable } = useUser();
-	if (user.error) {
-		return <p className="text-destructive text-sm">{user.error.message}</p>;
-	}
-	const u = user.data;
-	if (!u) {
-		return null;
-	}
+	const { act, writable } = useUser();
+	const { sub } = Route.useParams();
+	const u = useSuspenseQuery(userQuery(sub)).data;
 	return (
 		<div className="space-y-10 pt-4">
 			<Section title="登录标识与密码">
-				{identifierKinds.map((kind) => (
-					<Row key={kind} label={kindName[kind]}>
-						{u.identifiers.find((i) => i.kind === kind)?.value ?? (
-							<span className="text-muted-foreground">未绑定</span>
-						)}
-						{writable && (
-							<Button
-								size="sm"
-								variant="ghost"
-								disabled={act.isPending}
-								onClick={() => {
-									const value = prompt(`新的${kindName[kind]}`);
-									if (value) {
-										act.mutate({
-											method: "PUT",
-											path: `/identifiers/${kind}`,
-											body: { value },
-										});
-									}
-								}}
-							>
-								更换
-							</Button>
-						)}
-					</Row>
-				))}
-				<Row label="密码">{u.hasPassword ? "已设置" : "未设置"}</Row>
+				<ItemList>
+					{identifierKinds.map((kind) => (
+						<Row key={kind} label={kindName[kind]}>
+							{u.identifiers.find((i) => i.kind === kind)?.value ?? (
+								<span className="text-muted-foreground">未绑定</span>
+							)}
+							{writable && (
+								<Button
+									size="sm"
+									variant="ghost"
+									disabled={act.isPending}
+									onClick={() => {
+										const value = prompt(`新的${kindName[kind]}`);
+										if (value) {
+											act.mutate({
+												method: "PUT",
+												path: `/identifiers/${kind}`,
+												body: { value },
+											});
+										}
+									}}
+								>
+									更换
+								</Button>
+							)}
+						</Row>
+					))}
+					<Row label="密码">{u.hasPassword ? "已设置" : "未设置"}</Row>
+				</ItemList>
 			</Section>
 			<Section title="会话">
 				<Sessions sub={u.sub} writable={writable} />
@@ -184,15 +234,20 @@ function UserPage() {
 			<Section title="角色">
 				<RoleAssignment user={u} />
 			</Section>
-			<details className="text-sm">
-				<summary className="cursor-pointer text-[13px] text-muted-foreground">
+			<Collapsible>
+				<CollapsibleTrigger className="flex items-center gap-1 text-[13px] text-muted-foreground [&[data-panel-open]>svg]:rotate-90">
+					<ChevronRight className="size-4 transition-transform" />
 					更多信息
-				</summary>
-				<Row label="用户 ID">
-					<span className="font-mono text-xs">{u.sub}</span>
-				</Row>
-				<Row label="注册时间">{date(u.createdAt)}</Row>
-			</details>
+				</CollapsibleTrigger>
+				<CollapsibleContent>
+					<ItemList>
+						<Row label="用户 ID">
+							<span className="font-mono text-xs">{u.sub}</span>
+						</Row>
+						<Row label="注册时间">{date(u.createdAt)}</Row>
+					</ItemList>
+				</CollapsibleContent>
+			</Collapsible>
 		</div>
 	);
 }
@@ -269,13 +324,7 @@ function useUserAction(sub: string) {
 
 function Sessions({ sub, writable }: { sub: string; writable: boolean }) {
 	const client = useQueryClient();
-	const sessions = useQuery({
-		queryKey: ["sessions", sub],
-		queryFn: () =>
-			api<{ sessions: Session[] }>(
-				`/users/${encodeURIComponent(sub)}/sessions`,
-			),
-	});
+	const list = useSuspenseQuery(sessionsQuery(sub)).data.sessions;
 	const end = useMutation({
 		mutationFn: (id: string) =>
 			api(
@@ -284,36 +333,42 @@ function Sessions({ sub, writable }: { sub: string; writable: boolean }) {
 			),
 		onSuccess: () => client.invalidateQueries({ queryKey: ["sessions", sub] }),
 	});
-	const list = sessions.data?.sessions ?? [];
 	return (
 		<>
-			{list.map((s) => (
-				<Row
-					key={s.id}
-					label={`${s.kind === "app" ? "App" : "浏览器"} · ${s.application}`}
-				>
-					<span className="text-muted-foreground text-xs">
-						{s.active
-							? `活跃于 ${date(s.lastSeenAt)}`
-							: `已结束 ${date(s.endedAt ?? s.expiresAt)}`}
-					</span>
-					{writable && s.active && (
-						<Button
-							size="sm"
-							variant="ghost"
-							disabled={end.isPending}
-							onClick={() => end.mutate(s.id)}
-						>
-							下线
-						</Button>
-					)}
-				</Row>
-			))}
-			{sessions.isSuccess && !list.some((s) => s.active) && (
+			<ItemList>
+				{list.map((s) => (
+					<Row
+						key={s.id}
+						label={`${s.kind === "app" ? "App" : "浏览器"} · ${s.application}`}
+					>
+						<span className="text-muted-foreground text-xs">
+							{s.active
+								? `活跃于 ${date(s.lastSeenAt)}`
+								: `已结束 ${date(s.endedAt ?? s.expiresAt)}`}
+						</span>
+						{writable && s.active && (
+							<Button
+								size="sm"
+								variant="ghost"
+								disabled={end.isPending}
+								onClick={() => end.mutate(s.id)}
+							>
+								下线
+							</Button>
+						)}
+					</Row>
+				))}
+			</ItemList>
+			{!list.some((s) => s.active) && (
 				<div className="py-3">
-					<EmptyState title="没有登录中的设备">
-						这个用户目前在任何设备上都没有保持登录。
-					</EmptyState>
+					<Empty className="border">
+						<EmptyHeader>
+							<EmptyTitle>没有登录中的设备</EmptyTitle>
+							<EmptyDescription>
+								这个用户目前在任何设备上都没有保持登录。
+							</EmptyDescription>
+						</EmptyHeader>
+					</Empty>
 				</div>
 			)}
 			{end.error && (
@@ -327,17 +382,14 @@ function Sessions({ sub, writable }: { sub: string; writable: boolean }) {
 // each saves on its own. Management API Roles need admin-roles:assign.
 function RoleAssignment({ user }: { user: UserDetail }) {
 	const can = useCan();
-	const roles = useQuery(rolesQuery);
+	const { roles } = useSuspenseQuery(rolesQuery).data;
 	const [assigning, setAssigning] = useState(false);
-	if (!roles.data) {
-		return null;
-	}
 	const byAPI = new Map<string, RoleInfo[]>();
-	for (const r of roles.data.roles) {
+	for (const r of roles) {
 		byAPI.set(r.api, [...(byAPI.get(r.api) ?? []), r]);
 	}
 	// Only the built-in Management API Roles: nothing of the reader's own.
-	const noOwnRoles = roles.data.roles.every((r) => r.api === managementAPI);
+	const noOwnRoles = roles.every((r) => r.api === managementAPI);
 	const toAPIs = noOwnRoles && can("applications:read") && (
 		<Link to="/console/apis" className="underline">
 			去「API 资源」添加角色
@@ -349,10 +401,15 @@ function RoleAssignment({ user }: { user: UserDetail }) {
 	if (user.roles.length === 0 && !assigning) {
 		return (
 			<div className="py-3">
-				<EmptyState
-					title="没有角色"
-					action={
-						can("roles:assign") ? (
+				<Empty className="border">
+					<EmptyHeader>
+						<EmptyTitle>没有角色</EmptyTitle>
+						<EmptyDescription>
+							这个用户目前只能登录，不带任何权限。
+						</EmptyDescription>
+					</EmptyHeader>
+					<EmptyContent>
+						{can("roles:assign") ? (
 							<>
 								{assignable && (
 									<Button size="sm" onClick={() => setAssigning(true)}>
@@ -365,23 +422,23 @@ function RoleAssignment({ user }: { user: UserDetail }) {
 							<span className="text-muted-foreground">
 								需要「管理员」角色才能分配角色。
 							</span>
-						)
-					}
-				>
-					这个用户目前只能登录，不带任何权限。
-				</EmptyState>
+						)}
+					</EmptyContent>
+				</Empty>
 			</div>
 		);
 	}
 	return (
-		<div className="divide-y divide-border">
-			{[...byAPI].map(([apiID, list]) => (
-				<APIRoles key={apiID} user={user} apiID={apiID} roles={list} />
-			))}
+		<>
+			<ItemList>
+				{[...byAPI].map(([apiID, list]) => (
+					<APIRoles key={apiID} user={user} apiID={apiID} roles={list} />
+				))}
+			</ItemList>
 			{can("roles:assign") && toAPIs && (
 				<p className="py-3 text-sm">{toAPIs}</p>
 			)}
-		</div>
+		</>
 	);
 }
 
@@ -409,30 +466,34 @@ function APIRoles({
 		onSuccess: () => client.invalidateQueries(),
 	});
 	return (
-		<form
+		<Item
 			key={held.join()}
-			className="space-y-2 py-3"
-			onSubmit={(e) => {
-				e.preventDefault();
-				save.mutate(new FormData(e.currentTarget).getAll("roles").map(String));
-			}}
+			className="flex-col items-start gap-2"
+			render={
+				<form
+					onSubmit={(e) => {
+						e.preventDefault();
+						save.mutate(
+							new FormData(e.currentTarget).getAll("roles").map(String),
+						);
+					}}
+				/>
+			}
 		>
-			<div className="text-[13px] text-muted-foreground">
+			<ItemDescription className="text-[13px]">
 				{roles[0].apiName}
-			</div>
-			<div className="flex flex-wrap gap-x-4 gap-y-1">
+			</ItemDescription>
+			<div className="flex flex-wrap gap-x-4 gap-y-2">
 				{roles.map((r) => (
-					<label key={r.key} className="flex items-center gap-1 text-sm">
-						<input
-							type="checkbox"
-							className="accent-primary"
+					<Label key={r.key} className="font-normal">
+						<Checkbox
 							name="roles"
 							value={r.key}
 							disabled={!editable}
 							defaultChecked={held.includes(r.key)}
 						/>
 						{r.name}
-					</label>
+					</Label>
 				))}
 			</div>
 			{save.error && (
@@ -448,7 +509,7 @@ function APIRoles({
 					保存
 				</Button>
 			)}
-		</form>
+		</Item>
 	);
 }
 
@@ -460,9 +521,9 @@ function Row({
 	children: React.ReactNode;
 }) {
 	return (
-		<div className="flex items-center justify-between gap-4 border-b py-3 text-sm last:border-0">
-			<span className="text-muted-foreground">{label}</span>
-			<span className="flex items-center gap-2">{children}</span>
-		</div>
+		<Item>
+			<ItemContent className="text-muted-foreground">{label}</ItemContent>
+			<ItemActions>{children}</ItemActions>
+		</Item>
 	);
 }

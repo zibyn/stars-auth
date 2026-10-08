@@ -1,6 +1,13 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { UserRound } from "lucide-react";
+import {
+	infiniteQueryOptions,
+	useSuspenseInfiniteQuery,
+	useSuspenseQuery,
+} from "@tanstack/react-query";
+import {
+	createFileRoute,
+	stripSearchParams,
+	useNavigate,
+} from "@tanstack/react-router";
 import { z } from "zod";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
@@ -20,13 +27,15 @@ import {
 	TableHeader,
 	TableRow,
 } from "#/components/ui/table";
+import { UserAvatar } from "#/components/user-avatar";
 import { api, type Role, type RoleInfo, type User } from "#/lib/console-api";
 import { primaryIdentifier } from "#/lib/users";
 
+const defaults = { q: "", api: "", role: "" };
 const search = z.object({
-	q: z.string().optional(),
-	api: z.string().optional(),
-	role: z.string().optional(),
+	q: z.string().default("").catch(""),
+	api: z.string().default("").catch(""),
+	role: z.string().default("").catch(""),
 });
 
 export const rolesQuery = {
@@ -37,10 +46,29 @@ export const rolesQuery = {
 export const Route = createFileRoute("/console/users/")({
 	staticData: { useHeader: () => ({ title: "用户" }) },
 	validateSearch: search,
+	search: { middlewares: [stripSearchParams(defaults)] },
+	loaderDeps: ({ search }) => search,
+	loader: ({ context: { queryClient }, deps }) =>
+		Promise.all([
+			queryClient.ensureInfiniteQueryData(usersQuery(deps)),
+			queryClient.ensureQueryData(rolesQuery),
+		]),
 	component: Users,
 });
 
 const pageSize = 50;
+
+const usersQuery = ({ q, api: roleAPI, role }: z.infer<typeof search>) =>
+	infiniteQueryOptions({
+		queryKey: ["users", q, roleAPI, role],
+		initialPageParam: 0,
+		queryFn: ({ pageParam }) =>
+			api<{ users: User[]; hasMore: boolean }>(
+				`/users?${new URLSearchParams({ q, api: roleAPI, role, limit: `${pageSize}`, offset: `${pageParam}` })}`,
+			),
+		getNextPageParam: (last, pages) =>
+			last.hasMore ? pages.length * pageSize : undefined,
+	});
 
 // roleKey names a Role in the filter: Role keys are unique per API only.
 const roleKey = (r: Pick<Role, "api" | "key">) => `${r.api}\n${r.key}`;
@@ -54,39 +82,13 @@ const userName = (u: User) =>
 		<span className="font-mono text-muted-foreground">{u.sub.slice(0, 8)}</span>
 	);
 
-// Avatar is a User's initial on the primary tint; one with no Identifier
-// gets the person icon.
-export function Avatar({
-	name,
-	className = "size-6 text-xs",
-}: {
-	name?: string;
-	className?: string;
-}) {
-	return (
-		<span
-			className={`grid shrink-0 place-items-center rounded-full bg-primary-soft font-medium text-primary-ink uppercase ${className}`}
-		>
-			{name ? name[0] : <UserRound className="size-3.5" />}
-		</span>
-	);
-}
-
 function Users() {
-	const { q = "", api: roleAPI = "", role = "" } = Route.useSearch();
+	const filters = Route.useSearch();
+	const { q, api: roleAPI, role } = filters;
 	const navigate = useNavigate({ from: Route.fullPath });
-	const roles = useQuery(rolesQuery);
-	const users = useInfiniteQuery({
-		queryKey: ["users", q, roleAPI, role],
-		initialPageParam: 0,
-		queryFn: ({ pageParam }) =>
-			api<{ users: User[]; hasMore: boolean }>(
-				`/users?${new URLSearchParams({ q, api: roleAPI, role, limit: `${pageSize}`, offset: `${pageParam}` })}`,
-			),
-		getNextPageParam: (last, pages) =>
-			last.hasMore ? pages.length * pageSize : undefined,
-	});
-	const rows = users.data?.pages.flatMap((p) => p.users) ?? [];
+	const { roles } = useSuspenseQuery(rolesQuery).data;
+	const users = useSuspenseInfiniteQuery(usersQuery(filters));
+	const rows = users.data.pages.flatMap((p) => p.users);
 	const filter = role ? roleKey({ api: roleAPI, key: role }) : "";
 
 	return (
@@ -126,14 +128,13 @@ function Users() {
 					<SelectTrigger className="w-48" aria-label="按角色筛选">
 						<SelectValue>
 							{(v: string) =>
-								roles.data?.roles.find((r) => roleKey(r) === v)?.name ??
-								"全部角色"
+								roles.find((r) => roleKey(r) === v)?.name ?? "全部角色"
 							}
 						</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value="">全部角色</SelectItem>
-						{roles.data?.roles.map((r) => (
+						{roles.map((r) => (
 							<SelectItem key={roleKey(r)} value={roleKey(r)}>
 								{r.name}
 								<span className="text-muted-foreground text-xs">
@@ -167,7 +168,7 @@ function Users() {
 						>
 							<TableCell>
 								<span className="flex items-center gap-3 font-medium">
-									<Avatar name={primaryIdentifier(u.identifiers)} />
+									<UserAvatar name={primaryIdentifier(u.identifiers)} />
 									{userName(u)}
 									{u.disabledAt && <Badge variant="destructive">已禁用</Badge>}
 								</span>
@@ -189,7 +190,7 @@ function Users() {
 							</TableCell>
 						</TableRow>
 					))}
-					{users.isSuccess && rows.length === 0 && (
+					{rows.length === 0 && (
 						<TableRow>
 							<TableCell
 								colSpan={4}
@@ -208,8 +209,8 @@ function Users() {
 					)}
 				</TableBody>
 			</Table>
-			{users.error && (
-				<p className="text-destructive text-sm">{users.error.message}</p>
+			{users.isFetchNextPageError && (
+				<p className="text-destructive text-sm">{users.error?.message}</p>
 			)}
 			{users.hasNextPage && (
 				<Button
