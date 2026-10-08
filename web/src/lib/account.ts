@@ -45,6 +45,18 @@ export const reauthSchema = (
 					: z.string(),
 	});
 
+// totpSchema checks a code from the authenticator, confirming the TOTP.
+export const totpSchema = z.object({
+	code: z
+		.string()
+		.trim()
+		.regex(/^\d{6}$/, "请输入验证器中的 6 位数字"),
+});
+
+// recoveryCodesText is the file the recovery codes download as.
+export const recoveryCodesText = (host: string, codes: string[]) =>
+	`${host} 两步验证恢复码\n每个只能用一次。\n\n${codes.join("\n")}\n`;
+
 export const deleteSchema = z.object({
 	confirm: z.string().refine((v) => v.trim() === "注销", "请输入「注销」确认"),
 });

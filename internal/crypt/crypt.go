@@ -10,7 +10,9 @@ package crypt
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 )
@@ -18,15 +20,17 @@ import (
 type Keyring struct {
 	current byte
 	aeads   map[byte]cipher.AEAD
+	macKeys map[byte][]byte
 }
 
 // NewKeyring seals with keys[current] and opens with any key in keys.
 func NewKeyring(current byte, keys map[byte][]byte) (*Keyring, error) {
-	k := &Keyring{current: current, aeads: map[byte]cipher.AEAD{}}
+	k := &Keyring{current: current, aeads: map[byte]cipher.AEAD{}, macKeys: map[byte][]byte{}}
 	for v, key := range keys {
 		if len(key) != 32 {
 			return nil, fmt.Errorf("master key v%d: want 32 bytes, got %d", v, len(key))
 		}
+		k.macKeys[v] = hmacSHA256(key, []byte("stars-auth mac"))
 		block, err := aes.NewCipher(key)
 		if err != nil {
 			return nil, err
@@ -64,4 +68,26 @@ func (k *Keyring) Open(ciphertext, aad []byte) ([]byte, error) {
 	}
 	nonce, sealed := ciphertext[1:1+aead.NonceSize()], ciphertext[1+aead.NonceSize():]
 	return aead.Open(nil, nonce, sealed, aad)
+}
+
+// MAC is a keyed hash of data, for a secret kept only to be recognised
+// (恢复码): version(1) || HMAC-SHA256 under a key derived from the current
+// master key.
+func (k *Keyring) MAC(data []byte) []byte {
+	return append([]byte{k.current}, hmacSHA256(k.macKeys[k.current], data)...)
+}
+
+// MACEqual reports whether mac is the MAC of data under the master key it
+// names.
+func (k *Keyring) MACEqual(mac, data []byte) bool {
+	if len(mac) < 1 || k.macKeys[mac[0]] == nil {
+		return false
+	}
+	return hmac.Equal(mac[1:], hmacSHA256(k.macKeys[mac[0]], data))
+}
+
+func hmacSHA256(key, data []byte) []byte {
+	h := hmac.New(sha256.New, key)
+	h.Write(data)
+	return h.Sum(nil)
 }

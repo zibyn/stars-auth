@@ -5,6 +5,8 @@ import {
 	deleteSchema,
 	passwordSchema,
 	reauthSchema,
+	recoveryCodesText,
+	totpSchema,
 } from "./account.ts";
 
 // fieldErrors is what a form shows under each field.
@@ -90,4 +92,18 @@ test("deleting the account takes typing 注销", () => {
 	assert.deepEqual(fieldErrors(deleteSchema.safeParse({ confirm: "删除" })), {
 		confirm: "请输入「注销」确认",
 	});
+});
+
+test("confirming the TOTP takes the authenticator's 6 digits", () => {
+	assert.equal(totpSchema.safeParse({ code: " 123456 " }).success, true);
+	assert.deepEqual(fieldErrors(totpSchema.safeParse({ code: "12345" })), {
+		code: "请输入验证器中的 6 位数字",
+	});
+});
+
+test("recovery codes download as a text file, one per line", () => {
+	assert.equal(
+		recoveryCodesText("auth.example.com", ["abcd-efgh", "ijkl-mnop"]),
+		"auth.example.com 两步验证恢复码\n每个只能用一次。\n\nabcd-efgh\nijkl-mnop\n",
+	);
 });

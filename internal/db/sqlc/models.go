@@ -140,6 +140,12 @@ type PowSpent struct {
 	ExpiresAt pgtype.Timestamptz
 }
 
+type RecoveryCode struct {
+	UserID string
+	Mac    []byte
+	UsedAt pgtype.Timestamptz
+}
+
 type Role struct {
 	Api     string
 	Key     string
@@ -189,6 +195,13 @@ type SigningKey struct {
 	Kid       string
 	CreatedAt pgtype.Timestamptz
 	Sealed    []byte
+}
+
+type TotpCredential struct {
+	UserID      string
+	Secret      []byte
+	ConfirmedAt pgtype.Timestamptz
+	LastStep    int64
 }
 
 type User struct {
