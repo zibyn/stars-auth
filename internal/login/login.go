@@ -31,6 +31,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidcstore"
 	"github.com/zibyn/stars-auth/internal/otp"
 	"github.com/zibyn/stars-auth/internal/pow"
+	providers "github.com/zibyn/stars-auth/internal/provider"
 	"github.com/zibyn/stars-auth/internal/twofactor"
 )
 
@@ -52,6 +53,9 @@ const (
 	// Set, to the mistakes so far, while the pending login waits for a TOTP
 	// code or a 恢复码.
 	storeTOTPFailures = "totp_failures"
+	// Set, to the User a Provider just signed in, by the Provider's
+	// callback before it sends the browser back to the login.
+	storeFederated = "federated_sub"
 )
 
 // totpTries is how many wrong TOTP codes or 恢复码 end a login.
@@ -59,6 +63,9 @@ const totpTries = 5
 
 // amrMFA marks a login that passed 两步验证 (RFC 8176).
 const amrMFA = "mfa"
+
+// amrFed marks a login through a Provider (docs/spec/protocol.md).
+const amrFed = "fed"
 
 type Service struct {
 	issuer    string
@@ -68,6 +75,8 @@ type Service struct {
 	codes     *otp.Service
 	pow       *pow.PoW
 	op        *provider.Provider
+	store     *oidcstore.Store
+	providers *providers.Store
 	origin    *http.CrossOriginProtection
 }
 
@@ -100,9 +109,11 @@ func New(ctx context.Context, pool *pgxpool.Pool, keyring *crypt.Keyring, issuer
 		twoFactor: twofactor.New(pool, keyring),
 		codes:     otp.New(pool, channel.NewStore(pool, keyring)),
 		pow:       work,
+		providers: providers.NewStore(pool, keyring),
 		origin:    http.NewCrossOriginProtection(),
 	}
 	store := oidcstore.New(pool, keyring)
+	s.store = store
 	store.Scopes = strings.Join([]string{goidc.ScopeOpenID.ID, goidc.ScopeOfflineAccess.ID, goidc.ScopePhone.ID, goidc.ScopeEmail.ID}, " ")
 	op, err := provider.New(
 		provider.Config{
@@ -175,6 +186,8 @@ func (s *Service) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/auth/openapi.json", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFileFS(w, r, pagesFS, "challenge.openapi.json")
 	})
+	mux.HandleFunc("GET /login/providers/{id}/callback", s.providerCallback)
+	mux.HandleFunc("POST /login/providers/{id}/callback", s.providerCallback)
 	mux.HandleFunc("GET /setup", s.setupPage)
 	mux.HandleFunc("POST /setup", s.setup)
 }
@@ -218,6 +231,9 @@ func (s *Service) authenticate(w http.ResponseWriter, r *http.Request, as *goidc
 	// itself may arrive as a cross-site POST.
 	if r.Method == http.MethodPost && r.PathValue("callback") != "" {
 		return s.submit(w, r, as, c)
+	}
+	if sub, ok := as.Store[storeFederated].(string); ok {
+		return s.login(w, r, as, c, sub, amrFed, "")
 	}
 	prompts := strings.Fields(string(as.Prompt))
 	none := slices.Contains(prompts, string(goidc.PromptTypeNone))
@@ -400,6 +416,21 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		}
 		return s.login(w, r, as, c, sub, goidc.AMRPassword, terms.TermsVersion)
 
+	case "provider":
+		if pending != "" {
+			break
+		}
+		id := r.PostFormValue("provider")
+		to, err := s.providers.Begin(ctx, s.issuer, id, as.ID)
+		if errors.Is(err, providers.ErrNotFound) {
+			return fail(errNoProvider)
+		} else if err != nil {
+			slog.Warn("provider login", "provider", id, "err", err)
+			return fail(errProviderDown)
+		}
+		http.Redirect(w, r, to, http.StatusSeeOther)
+		return goidc.StatusPending, nil
+
 	case "consent":
 		if pending == "" {
 			break
@@ -425,7 +456,9 @@ var (
 	errAgree  = identity.Invalid("请先阅读并同意用户协议和隐私政策")
 	errNoCode = identity.Invalid("该账号不能用验证码登录")
 	// The 5th wrong TOTP code or 恢复码 ends the login.
-	errTOTPTries = identity.Invalid("两步验证错误次数过多,请重新登录")
+	errTOTPTries    = identity.Invalid("两步验证错误次数过多,请重新登录")
+	errNoProvider   = identity.Invalid("这个外部登录方式已停用")
+	errProviderDown = identity.Invalid("暂时无法连接这个外部登录方式,请稍后重试")
 )
 
 // needsTOTP reports whether sub, signed in with amr, must still enter a
@@ -675,6 +708,8 @@ type loginPage struct {
 	// PasswordOn: password login is not off.
 	CodeKinds, IdentifierLabel string
 	PasswordOn                 bool
+	// Providers are the buttons of the first step.
+	Providers []providers.Button
 	// The steps: the first asks for an Identifier, then a code was sent to
 	// it (CodeSent) or it was a Username, which takes a password.
 	// PasswordForm takes both at once.
@@ -726,6 +761,11 @@ func (s *Service) render(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		p.CodeKinds = "手机号或邮箱"
 	}
 	p.IdentifierLabel = p.CodeKinds
+	if _, pending := as.Store[storeBindSub]; !pending && !p.TOTP {
+		if p.Providers, err = s.providers.Buttons(ctx); err != nil {
+			return goidc.StatusFailure, err
+		}
+	}
 	if p.PasswordOn && !p.Bind {
 		p.IdentifierLabel = strings.Replace(p.CodeKinds, "或", "、", 1) + "或用户名"
 	}

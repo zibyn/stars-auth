@@ -110,7 +110,7 @@ func (s *Store) Put(ctx context.Context, kind, plugin string, config map[string]
 				}
 				continue
 			}
-			if err := check(f, v); err != nil {
+			if err := f.Check(v); err != nil {
 				return err
 			}
 			full[f.Key] = v
@@ -139,7 +139,8 @@ func (s *Store) Put(ctx context.Context, kind, plugin string, config map[string]
 	})
 }
 
-func check(f Field, v string) error {
+// Check tells the admin what is wrong with v as f's value, if anything.
+func (f Field) Check(v string) error {
 	switch f.Type {
 	case "number":
 		if _, err := strconv.Atoi(v); err != nil {

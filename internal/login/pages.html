@@ -45,6 +45,10 @@ label.agree { display: flex; align-items: flex-start; gap: 8px; font-size: 12px;
 label.agree a { text-decoration: none; }
 label.agree input { margin: 3px 0 0; accent-color: var(--primary); }
 altcha-widget { --altcha-border-radius: 8px; --altcha-color-border: var(--line); --altcha-max-width: 100%; }
+/* Provider buttons: secondary to the form above, no icons. */
+form.providers { margin-top: 12px; gap: 8px; }
+form.providers button { background: var(--panel); color: var(--ink); border: 1px solid var(--line); }
+form.providers button:hover { background: var(--canvas); }
 .by { margin-top: 40px; text-align: center; font-size: 12px; color: var(--faint); }
 @media (max-width: 767px) {
   body { grid-template-columns: 1fr; }
@@ -175,6 +179,10 @@ addEventListener("submit", e => {
 }, true);
 </script>{{end}}
 {{end}}
+{{if and .Providers (not .CodeSent) (not (and .Username (not .PasswordForm)))}}<form method="post" action="{{.Action}}" class="providers">
+  <input type="hidden" name="op" value="provider">
+  {{range .Providers}}<button name="provider" value="{{.ID}}">使用 {{.Name}} 登录</button>
+  {{end}}</form>{{end}}
 {{end}}
 {{template "foot"}}{{end}}
 
