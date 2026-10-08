@@ -1,8 +1,7 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { UserRound } from "lucide-react";
 import { z } from "zod";
-import { EmptyState } from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
@@ -22,8 +21,7 @@ import {
 	TableRow,
 } from "#/components/ui/table";
 import { api, type Role, type RoleInfo, type User } from "#/lib/console-api";
-import { onlyAdmins, primaryIdentifier } from "#/lib/users";
-import { useCan } from "./console";
+import { primaryIdentifier } from "#/lib/users";
 
 const search = z.object({
 	q: z.string().optional(),
@@ -76,7 +74,6 @@ export function Avatar({
 function Users() {
 	const { q = "", api: roleAPI = "", role = "" } = Route.useSearch();
 	const navigate = useNavigate({ from: Route.fullPath });
-	const can = useCan();
 	const roles = useQuery(rolesQuery);
 	const users = useInfiniteQuery({
 		queryKey: ["users", q, roleAPI, role],
@@ -90,26 +87,10 @@ function Users() {
 	});
 	const rows = users.data?.pages.flatMap((p) => p.users) ?? [];
 	const filter = role ? roleKey({ api: roleAPI, key: role }) : "";
-	const filtered = !!(q || role);
-	const first = users.data?.pages[0];
 
 	return (
 		<div className="space-y-6">
 			<h1 className="font-semibold text-2xl tracking-tight">用户</h1>
-			{!filtered && first && onlyAdmins(first) && (
-				<EmptyState
-					title="还没有用户注册"
-					action={
-						can("applications:read") && (
-							<Link to="/console/apps" className="underline">
-								去「应用」
-							</Link>
-						)
-					}
-				>
-					用户在你的应用里第一次登录时会自动注册，之后出现在这里。
-				</EmptyState>
-			)}
 			<div className="flex gap-2">
 				<form
 					className="flex-1"
