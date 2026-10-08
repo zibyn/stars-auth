@@ -228,6 +228,16 @@ func introspect(ctx oidc.Context, req queryRequest) (goidc.TokenInfo, error) {
 
 // IDToken parses and validates an ID token issued by this provider.
 func IDToken(ctx oidc.Context, rawToken string) (goidc.IDToken, error) {
+	return parseIDToken(ctx, rawToken, false)
+}
+
+// IDTokenHint is IDToken for a logout id_token_hint, which may have
+// expired: RP-Initiated Logout 1.0 §2 says the OP SHOULD accept it anyway.
+func IDTokenHint(ctx oidc.Context, rawToken string) (goidc.IDToken, error) {
+	return parseIDToken(ctx, rawToken, true)
+}
+
+func parseIDToken(ctx oidc.Context, rawToken string, expiredOK bool) (goidc.IDToken, error) {
 	parsedToken, err := jwt.ParseSigned(rawToken, ctx.IDTokenSigAlgs)
 	if err != nil {
 		return goidc.IDToken{}, fmt.Errorf("could not parse id token: %w", err)
@@ -248,6 +258,9 @@ func IDToken(ctx oidc.Context, rawToken string) (goidc.IDToken, error) {
 		return goidc.IDToken{}, fmt.Errorf("could not verify id token claims: %w", err)
 	}
 
+	if expiredOK {
+		claims.Expiry = nil
+	}
 	if err := claims.ValidateWithLeeway(jwt.Expected{
 		Issuer: ctx.Issuer(),
 	}, time.Duration(ctx.JWTLeewayTimeSecs)*time.Second); err != nil {

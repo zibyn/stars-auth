@@ -232,7 +232,7 @@ func TestInitLogout(t *testing.T) {
 			},
 		},
 		{
-			name: "expired id token hint",
+			name: "expired id token hint is accepted",
 			setup: func(t *testing.T) (oidc.Context, request) {
 				ctx, client := setup(t)
 				idToken := signIDToken(t, ctx, map[string]any{
@@ -249,11 +249,18 @@ func TestInitLogout(t *testing.T) {
 					},
 				}
 			},
-			wantErr: true,
+			// RP-Initiated Logout 1.0 §2: the OP SHOULD accept an expired ID
+			// Token as a hint.
 			validate: func(t *testing.T, ctx oidc.Context) {
 				sessions := logoutSessions(t, ctx)
-				if len(sessions) != 0 {
-					t.Errorf("expected 0 logout sessions, got %d", len(sessions))
+				if len(sessions) != 1 {
+					t.Fatalf("expected 1 logout session, got %d", len(sessions))
+				}
+				if sessions[0].Status != goidc.StatusSuccess {
+					t.Errorf("session status = %q, want %q", sessions[0].Status, goidc.StatusSuccess)
+				}
+				if c := sessions[0].IDTokenHintClaims; c == nil || c.Subject != "random_user" {
+					t.Errorf("id token hint claims = %+v, want subject random_user", c)
 				}
 			},
 		},

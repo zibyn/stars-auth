@@ -108,13 +108,18 @@ export function oidcClient({
 			: home;
 	}
 
-	// The ID token lives as long as the access token, so one expiry covers both.
-	function tokens(): { accessToken: string; idToken: string } | null {
-		const tok = JSON.parse(sessionStorage.getItem(tokenKey) ?? "null");
-		return tok && tok.expiresAt - 30_000 > Date.now() ? tok : null;
+	function stored(): {
+		accessToken: string;
+		idToken: string;
+		expiresAt: number;
+	} | null {
+		return JSON.parse(sessionStorage.getItem(tokenKey) ?? "null");
 	}
 
-	const accessToken = () => tokens()?.accessToken ?? null;
+	function accessToken(): string | null {
+		const tok = stored();
+		return tok && tok.expiresAt - 30_000 > Date.now() ? tok.accessToken : null;
+	}
 
 	// api calls an API path, signing in first when needed; body goes as JSON.
 	async function api<T>(
@@ -151,10 +156,9 @@ export function oidcClient({
 
 	// logout ends the browser Session, which signs out every Application
 	// that signed in with it, and comes back home to sign in again. The
-	// id_token_hint skips the confirmation page; an expired one is refused,
-	// so past expiry it is left out and the page asks first.
+	// id_token_hint, expired or not, skips the confirmation page.
 	function logout() {
-		const idToken = tokens()?.idToken;
+		const idToken = stored()?.idToken;
 		forget();
 		location.assign(
 			`/logout?${new URLSearchParams({

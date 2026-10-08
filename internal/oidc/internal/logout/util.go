@@ -71,7 +71,7 @@ func initLogout(ctx oidc.Context, req request) error {
 	ls.PolicyID = policy.ID
 	if ls.IDTokenHint != "" {
 		// The ID token hint was already validated during request validation.
-		idTkn, _ := token.IDToken(ctx, ls.IDTokenHint)
+		idTkn, _ := token.IDTokenHint(ctx, ls.IDTokenHint)
 		ls.IDTokenHintClaims = &idTkn
 	}
 
@@ -171,7 +171,7 @@ func validateIDTokenHint(ctx oidc.Context, req request, _ *goidc.Client) error {
 		return nil
 	}
 
-	idTkn, err := token.IDToken(ctx, req.IDTokenHint)
+	idTkn, err := token.IDTokenHint(ctx, req.IDTokenHint)
 	if err != nil {
 		return goidc.WrapError(goidc.ErrorCodeInvalidRequest, "invalid request", err)
 	}
