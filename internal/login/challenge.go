@@ -16,6 +16,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/identity"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
+	"github.com/zibyn/stars-auth/internal/twofactor"
 )
 
 // ChallengePath is the direct auth API's authorization challenge endpoint
@@ -32,6 +33,7 @@ const (
 const (
 	nextCode  = "code"  // enter the code just sent
 	nextPhone = "phone" // bind a phone number first
+	nextTOTP  = "totp"  // enter a TOTP code or a 恢复码
 )
 
 // challengeState is what an auth_session carries between requests.
@@ -39,7 +41,8 @@ type challengeState struct {
 	Params goidc.AuthorizationParameters `json:"params"`
 	// Identifier the last code went to.
 	Identifier string `json:"identifier,omitempty"`
-	// Set once the User has authenticated but must bind a phone number.
+	// Set once the User has passed the first factor but must pass 两步验证
+	// or bind a phone number.
 	Pending *pendingLogin `json:"pending,omitempty"`
 }
 
@@ -47,6 +50,9 @@ type pendingLogin struct {
 	Sub      string   `json:"sub"`
 	AuthTime int64    `json:"auth_time"`
 	AMR      []string `json:"amr"`
+	// TOTP: waiting for a TOTP code or a 恢复码, with Failures mistakes so far.
+	TOTP     bool `json:"totp,omitempty"`
+	Failures int  `json:"failures,omitempty"`
 }
 
 // challengeError is a draft error response; AuthSession lets the App go on.
@@ -134,23 +140,33 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 		return "", err
 	}
 
-	// next keeps the sign-in going: the App must take another step.
-	next := func(step, description string) (string, error) {
+	// save keeps st in the auth_session.
+	save := func() error {
 		if token == "" {
 			token = newAuthSession()
 		}
 		data, err := json.Marshal(st)
 		if err != nil {
-			return "", err
+			return err
 		}
-		if err := s.q.SaveChallengeSession(ctx, sqlc.SaveChallengeSessionParams{Hash: hash(token), ClientID: c.ID, Data: data}); err != nil {
+		return s.q.SaveChallengeSession(ctx, sqlc.SaveChallengeSessionParams{Hash: hash(token), ClientID: c.ID, Data: data})
+	}
+	// next keeps the sign-in going: the App must take another step.
+	next := func(step, description string) (string, error) {
+		if err := save(); err != nil {
 			return "", err
 		}
 		return "", &challengeError{status: http.StatusForbidden, Code: errInsufficientAuthorization, Description: description, AuthSession: token, Next: step}
 	}
 	// signedIn ends the sign-in with an authorization code, unless sub must
-	// bind a phone number first.
+	// pass 两步验证 or bind a phone number first, in that order.
 	signedIn := func(sub string, authTime time.Time, amr []string) (string, error) {
+		if totp, err := s.needsTOTP(ctx, sub, amr); err != nil {
+			return "", err
+		} else if totp {
+			st.Pending, st.Identifier = &pendingLogin{Sub: sub, AuthTime: authTime.Unix(), AMR: amr, TOTP: true}, ""
+			return next(nextTOTP, "两步验证 is on: send totp or recovery_code")
+		}
 		needs, err := s.q.NeedsPhone(ctx, sub)
 		if err != nil {
 			return "", err
@@ -193,6 +209,31 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 	}
 
 	switch {
+	case st.Pending != nil && st.Pending.TOTP: // nothing else before TOTP
+		p := st.Pending
+		totp, recoveryCode := r.PostFormValue("totp"), r.PostFormValue("recovery_code")
+		if totp == "" && recoveryCode == "" {
+			return mistake(identity.Invalid("两步验证 is on: send totp or recovery_code"))
+		}
+		err := s.secondFactor(ctx, clientIP(r), p.Sub, totp, recoveryCode)
+		switch {
+		case err == nil:
+			return signedIn(p.Sub, time.Unix(p.AuthTime, 0), withMFA(p.AMR))
+		case errors.Is(err, twofactor.ErrOff): // turned off meanwhile: nothing to enter
+			return signedIn(p.Sub, time.Unix(p.AuthTime, 0), p.AMR)
+		case wrongSecondFactor(err):
+			if p.Failures++; p.Failures >= totpTries {
+				if err := s.q.DeleteChallengeSession(ctx, hash(token)); err != nil {
+					return "", err
+				}
+				return "", &challengeError{status: http.StatusBadRequest, Code: errInvalidSession, Description: "too many wrong codes: sign in again"}
+			}
+			if err := save(); err != nil {
+				return "", err
+			}
+		}
+		return mistake(err)
+
 	case r.PostFormValue("code") != "":
 		if st.Identifier == "" {
 			return "", invalid("no code was sent in this auth_session")

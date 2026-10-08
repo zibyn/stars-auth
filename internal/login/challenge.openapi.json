@@ -29,7 +29,9 @@
                   "identifier": {"type": "string", "description": "+86 phone number or email to send a code to."},
                   "code": {"type": "string", "description": "The code sent to the identifier of this auth_session."},
                   "username": {"type": "string", "description": "An Identifier, for password login."},
-                  "password": {"type": "string"}
+                  "password": {"type": "string"},
+                  "totp": {"type": "string", "description": "A 6-digit code from the User's authenticator, when `next` is `totp`. Each code works once."},
+                  "recovery_code": {"type": "string", "description": "Instead of totp: one of the User's 恢复码 (xxxx-xxxx; any case, dash optional). Each works once."}
                 }
               }
             }
@@ -44,7 +46,7 @@
             }}}
           },
           "400": {
-            "description": "`invalid_request`: a parameter is missing or wrong, or the User made a mistake (wrong code or password, PoW unsolved, send limit hit; `error_description` says which, in words fit to show, and `auth_session` comes back if one was sent). `unauthorized_client`, `invalid_scope`: as at the token endpoint. `invalid_session`: the auth_session is unknown, expired, or spent (each one yields a single authorization code); start over. `redirect_to_web` is never sent: every sign-in step the hosted page has, this endpoint has too.",
+            "description": "`invalid_request`: a parameter is missing or wrong, or the User made a mistake (wrong code or password, PoW unsolved, send limit hit; `error_description` says which, in words fit to show, and `auth_session` comes back if one was sent). `unauthorized_client`, `invalid_scope`: as at the token endpoint. `invalid_session`: the auth_session is unknown, expired, or spent (each one yields a single authorization code), or the 5th wrong totp or recovery_code ended it; start over. `redirect_to_web` is never sent: every sign-in step the hosted page has, this endpoint has too.",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {
@@ -104,7 +106,7 @@
           "error": {"type": "string", "enum": ["invalid_request", "invalid_client", "unauthorized_client", "invalid_scope", "invalid_session", "insufficient_authorization", "server_error"]},
           "error_description": {"type": "string"},
           "auth_session": {"type": "string"},
-          "next": {"type": "string", "enum": ["code", "phone"], "description": "Sent with `insufficient_authorization` only (non-standard, ADR 0010): the step to take. `code`: enter the code just sent. `phone`: bind a phone number (send a code to one, then enter it). Values are only ever added, never renamed or removed; treat one you do not know as a failure (ask the User to update the App)."}
+          "next": {"type": "string", "enum": ["code", "phone", "totp"], "description": "Sent with `insufficient_authorization` only (non-standard, ADR 0010): the step to take. `code`: enter the code just sent. `phone`: bind a phone number (send a code to one, then enter it). `totp`: the User has 两步验证 on; send `totp` or `recovery_code` (comes before `phone`). Values are only ever added, never renamed or removed; treat one you do not know as a failure (ask the User to update the App)."}
         }
       }
     }

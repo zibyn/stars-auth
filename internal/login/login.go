@@ -31,6 +31,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidcstore"
 	"github.com/zibyn/stars-auth/internal/otp"
 	"github.com/zibyn/stars-auth/internal/pow"
+	"github.com/zibyn/stars-auth/internal/twofactor"
 )
 
 //go:embed pages.html altcha challenge.openapi.json
@@ -45,15 +46,25 @@ const (
 	storeAuthTime = "auth_time"
 	storeAMR      = "amr"
 	// Set instead of a grant while a User past the first factor must still
-	// bind a phone number or agree to the terms; with auth_time and amr, and
-	// the Session only if the browser already had one.
+	// enter a TOTP code, bind a phone number or agree to the terms; with
+	// auth_time and amr, and the Session only if the browser already had one.
 	storeBindSub = "pending_sub"
+	// Set, to the mistakes so far, while the pending login waits for a TOTP
+	// code or a 恢复码.
+	storeTOTPFailures = "totp_failures"
 )
+
+// totpTries is how many wrong TOTP codes or 恢复码 end a login.
+const totpTries = 5
+
+// amrMFA marks a login that passed 两步验证 (RFC 8176).
+const amrMFA = "mfa"
 
 type Service struct {
 	issuer string
 	q      *sqlc.Queries
 	ids    *identity.Store
+	tf     *twofactor.Store
 	codes  *otp.Service
 	pow    *pow.PoW
 	op     *provider.Provider
@@ -86,6 +97,7 @@ func New(ctx context.Context, pool *pgxpool.Pool, keyring *crypt.Keyring, issuer
 		issuer: issuer,
 		q:      sqlc.New(pool),
 		ids:    identity.New(pool, keyring),
+		tf:     twofactor.New(pool, keyring),
 		codes:  otp.New(pool, channel.NewStore(pool, keyring)),
 		pow:    work,
 		origin: http.NewCrossOriginProtection(),
@@ -237,7 +249,7 @@ func (s *Service) authenticate(w http.ResponseWriter, r *http.Request, as *goidc
 	// The page's links: ?password for the password form, ?identifier to
 	// send a code again.
 	q := r.URL.Query()
-	return s.render(w, r, as, c, loginPage{PasswordForm: q.Has("password"), Identifier: q.Get("identifier")})
+	return s.render(w, r, as, c, loginPage{PasswordForm: q.Has("password"), Identifier: q.Get("identifier"), Recovery: q.Has("recovery")})
 }
 
 // mustLogin reports whether the request rules out the existing Session.
@@ -284,7 +296,35 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		return s.render(w, r, as, c, form)
 	}
 
-	switch r.PostFormValue("op") {
+	op := r.PostFormValue("op")
+	failures, awaitingTOTP := as.Store[storeTOTPFailures].(int64)
+	if awaitingTOTP && op != "totp" {
+		return s.render(w, r, as, c, loginPage{}) // nothing else before TOTP
+	}
+	switch op {
+	case "totp":
+		if !awaitingTOTP {
+			break
+		}
+		form.Recovery = r.PostFormValue("recovery_code") != ""
+		amr := storedAMR(as.Store[storeAMR])
+		err := s.secondFactor(ctx, clientIP(r), pending, r.PostFormValue("totp"), r.PostFormValue("recovery_code"))
+		switch {
+		case err == nil:
+			amr = withMFA(amr)
+		case errors.Is(err, twofactor.ErrOff): // turned off meanwhile: nothing to enter
+		case wrongSecondFactor(err):
+			if failures++; failures >= totpTries {
+				as.Store = nil
+				return s.render(w, r, as, c, loginPage{Error: errTOTPTries.Error()})
+			}
+			as.Store[storeTOTPFailures] = failures
+			return fail(err)
+		default:
+			return fail(err)
+		}
+		return s.complete(w, r, as, c, "", pending, time.Unix(pendingAuthTime, 0), amr)
+
 	case "send":
 		kind, value, err := identity.ParseIdentifier(form.Identifier)
 		if pending == "" && !agreed {
@@ -384,7 +424,47 @@ var codeLike = regexp.MustCompile(`@|^[\d\s+-]+$`)
 var (
 	errAgree  = identity.Invalid("请先阅读并同意用户协议和隐私政策")
 	errNoCode = identity.Invalid("该账号不能用验证码登录")
+	// The 5th wrong TOTP code or 恢复码 ends the login.
+	errTOTPTries = identity.Invalid("两步验证错误次数过多,请重新登录")
 )
+
+// needsTOTP reports whether sub, signed in with amr, must still enter a
+// TOTP code or a 恢复码: 两步验证 is on and not yet passed.
+func (s *Service) needsTOTP(ctx context.Context, sub string, amr []string) (bool, error) {
+	if slices.Contains(amr, amrMFA) {
+		return false, nil
+	}
+	t, err := s.q.TOTP(ctx, sub)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil && t.ConfirmedAt.Valid, err
+}
+
+// secondFactor checks sub's TOTP code, or 恢复码 when one is given; a wrong
+// one counts against ip.
+func (s *Service) secondFactor(ctx context.Context, ip, sub, totp, recoveryCode string) error {
+	return s.ids.FromIP(ctx, ip, func() error {
+		if recoveryCode != "" {
+			return s.tf.UseRecoveryCode(ctx, sub, recoveryCode)
+		}
+		return s.tf.CheckTOTP(ctx, sub, totp)
+	})
+}
+
+// wrongSecondFactor reports whether err is a wrong TOTP code or 恢复码: one
+// of the tries a pending login has.
+func wrongSecondFactor(err error) bool {
+	return errors.Is(err, twofactor.ErrCode) || errors.Is(err, twofactor.ErrRecoveryCode)
+}
+
+// withMFA is amr after a TOTP code or a 恢复码: the first factor, otp, mfa.
+func withMFA(amr []string) []string {
+	if !slices.Contains(amr, string(goidc.AMROneTimePassword)) {
+		amr = append(amr, string(goidc.AMROneTimePassword))
+	}
+	return append(amr, amrMFA)
+}
 
 // login goes on with a User who just passed the first factor, having agreed
 // to the terms of version (if any).
@@ -397,12 +477,20 @@ func (s *Service) login(w http.ResponseWriter, r *http.Request, as *goidc.AuthnS
 	return s.complete(w, r, as, c, "", sub, time.Now(), []string{string(amr)})
 }
 
-// complete grants sub, unless sub has yet to agree to the current terms or
-// to bind the phone number the instance requires: then those pages come
-// first. Until they are done, the login waits in the AuthnSession store and
-// the browser holds no Session; session is empty unless the browser already
-// had one, and the Session starts once nothing is left.
+// complete grants sub, unless sub has yet to pass 两步验证, to bind the
+// phone number the instance requires or to agree to the current terms:
+// then those pages come first, in that order. Until they are done, the login
+// waits in the AuthnSession store and the browser holds no Session; session
+// is empty unless the browser already had one (whose login passed 两步验证
+// already), and the Session starts once nothing is left.
 func (s *Service) complete(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession, c *goidc.Client, session, sub string, authTime time.Time, amr []string) (goidc.Status, error) {
+	totp := false
+	if session == "" {
+		var err error
+		if totp, err = s.needsTOTP(r.Context(), sub, amr); err != nil {
+			return goidc.StatusFailure, err
+		}
+	}
 	phone, err := s.q.NeedsPhone(r.Context(), sub)
 	if err != nil {
 		return goidc.StatusFailure, err
@@ -411,10 +499,13 @@ func (s *Service) complete(w http.ResponseWriter, r *http.Request, as *goidc.Aut
 	if err != nil {
 		return goidc.StatusFailure, err
 	}
-	if phone || consent {
+	if totp || phone || consent {
 		as.Store = map[string]any{storeBindSub: sub, storeAuthTime: authTime.Unix(), storeAMR: amr}
 		if session != "" {
 			as.Store[oidcstore.SessionKey] = session
+		}
+		if totp {
+			as.Store[storeTOTPFailures] = int64(0)
 		}
 		return s.render(w, r, as, c, loginPage{})
 	}
@@ -588,6 +679,9 @@ func hash(token string) []byte {
 type loginPage struct {
 	Client, Action, Error string
 	Terms                 sqlc.TermsRow
+	// TOTP: a User past the first factor must enter a TOTP code, or a 恢复码
+	// on the Recovery form.
+	TOTP, Recovery bool
 	// Consent: a signed-in User must agree to new terms before going on;
 	// then Bind: they must bind a phone number.
 	Consent, Bind bool
@@ -608,7 +702,8 @@ type loginPage struct {
 func (s *Service) render(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession, c *goidc.Client, p loginPage) (goidc.Status, error) {
 	p.Client, p.Action = c.Name, "/authorize/"+as.ID
 	ctx := r.Context()
-	if pending, ok := as.Store[storeBindSub].(string); ok {
+	_, p.TOTP = as.Store[storeTOTPFailures]
+	if pending, ok := as.Store[storeBindSub].(string); ok && !p.TOTP {
 		consent, err := s.q.NeedsConsent(ctx, pending)
 		if err != nil {
 			return goidc.StatusFailure, err

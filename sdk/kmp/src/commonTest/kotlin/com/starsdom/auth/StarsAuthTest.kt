@@ -83,6 +83,30 @@ class StarsAuthTest {
     assertEquals("id1", auth.tokens()?.idToken)
   }
 
+  // 两步验证: a TOTP code or a 恢复码 in the same auth_session; a wrong one
+  // can be entered again.
+  @Test
+  fun signInAsksForTotpWhenTwoFactorIsOn() = runTest {
+    server.handlers["/v1/auth/challenge"] = { form ->
+      when {
+        form["username"] == "alice" -> json(insufficient("s1", "totp"), HttpStatusCode.Forbidden)
+        form["totp"] == "000000" -> json("""{"error":"invalid_request","error_description":"验证码不正确或已用过","auth_session":"s1"}""", HttpStatusCode.BadRequest)
+        form["totp"] == "123456" -> json(insufficient("s1", "phone"), HttpStatusCode.Forbidden)
+        form["recovery_code"] == "abcd-efgh" -> json("""{"authorization_code":"c1"}""")
+        else -> error("unexpected $form")
+      }
+    }
+    val auth = server.auth()
+
+    val totp = assertIs<SignInStep.TotpRequired>(auth.signInWithPassword("alice", "pw", termsVersion = ""))
+    val wrong = assertFailsWith<StarsAuthException> { auth.verifyTotp(totp.session, "000000") }
+    assertEquals("invalid_request", wrong.error)
+    assertIs<SignInStep.PhoneRequired>(auth.verifyTotp(totp.session, "123456"))
+    assertEquals(SignInStep.SignedIn, auth.verifyRecoveryCode(totp.session, "abcd-efgh"))
+    val steps = server.forms.filter { it.first == "/v1/auth/challenge" }.map { it.second }
+    assertTrue(steps.drop(1).all { it["auth_session"] == "s1" })
+  }
+
   @Test
   fun codeSignInBindsAPhoneWhenAsked() = runTest {
     server.handlers["/v1/auth/challenge"] = { form ->

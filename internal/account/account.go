@@ -310,26 +310,15 @@ func (s *Service) reauth(ctx context.Context, in *reauthInput) (*struct{}, error
 // counts toward the IP lockout like a wrong code.
 func (s *Service) reauthTwoFactor(ctx context.Context, in *reauthInput) error {
 	c := callerOf(ctx)
-	var wrong error
 	err := s.ids.FromIP(ctx, c.ip, func() error {
-		var err error
 		switch {
 		case in.Body.TOTP != "":
-			err = s.twoFA.CheckTOTP(ctx, c.sub, in.Body.TOTP)
+			return s.twoFA.CheckTOTP(ctx, c.sub, in.Body.TOTP)
 		case in.Body.RecoveryCode != "":
-			err = s.twoFA.UseRecoveryCode(ctx, c.sub, in.Body.RecoveryCode)
-		default:
-			return errTwoFactorOnly
+			return s.twoFA.UseRecoveryCode(ctx, c.sub, in.Body.RecoveryCode)
 		}
-		if errors.Is(err, twofactor.ErrCode) || errors.Is(err, twofactor.ErrRecoveryCode) {
-			wrong = err // FromIP counts only identity's own errors
-			return identity.ErrWrongCode
-		}
-		return err
+		return errTwoFactorOnly
 	})
-	if wrong != nil && errors.Is(err, identity.ErrWrongCode) {
-		err = wrong
-	}
 	if err != nil {
 		return err
 	}
