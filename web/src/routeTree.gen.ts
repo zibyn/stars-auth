@@ -20,6 +20,7 @@ import { Route as ConsoleAuditRouteImport } from './routes/console.audit'
 import { Route as ConsoleSettingsRouteImport } from './routes/console.settings'
 import { Route as ConsoleUsersRouteImport } from './routes/console.users'
 import { Route as ConsoleCallbackRouteImport } from './routes/console_.callback'
+import { Route as PrototypeShadcnFeedbackRouteImport } from './routes/prototype.shadcn-feedback'
 import { Route as ConsoleApisIndexRouteImport } from './routes/console.apis.index'
 import { Route as ConsoleApisApiRouteImport } from './routes/console.apis.$api'
 import { Route as ConsoleAppsIndexRouteImport } from './routes/console.apps.index'
@@ -83,6 +84,11 @@ const ConsoleCallbackRoute = ConsoleCallbackRouteImport.update({
   path: '/console/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PrototypeShadcnFeedbackRoute = PrototypeShadcnFeedbackRouteImport.update({
+  id: '/prototype/shadcn-feedback',
+  path: '/prototype/shadcn-feedback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ConsoleApisIndexRoute = ConsoleApisIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -130,6 +136,7 @@ export interface FileRoutesByFullPath {
   '/console/settings': typeof ConsoleSettingsRoute
   '/console/users': typeof ConsoleUsersRouteWithChildren
   '/console/callback': typeof ConsoleCallbackRoute
+  '/prototype/shadcn-feedback': typeof PrototypeShadcnFeedbackRoute
   '/console/': typeof ConsoleIndexRoute
   '/console/apis/$api': typeof ConsoleApisApiRoute
   '/console/apps/$clientId': typeof ConsoleAppsClientIdRoute
@@ -146,6 +153,7 @@ export interface FileRoutesByTo {
   '/console/audit': typeof ConsoleAuditRoute
   '/console/settings': typeof ConsoleSettingsRoute
   '/console/callback': typeof ConsoleCallbackRoute
+  '/prototype/shadcn-feedback': typeof PrototypeShadcnFeedbackRoute
   '/console': typeof ConsoleIndexRoute
   '/console/apis/$api': typeof ConsoleApisApiRoute
   '/console/apps/$clientId': typeof ConsoleAppsClientIdRoute
@@ -167,6 +175,7 @@ export interface FileRoutesById {
   '/console/settings': typeof ConsoleSettingsRoute
   '/console/users': typeof ConsoleUsersRouteWithChildren
   '/console_/callback': typeof ConsoleCallbackRoute
+  '/prototype/shadcn-feedback': typeof PrototypeShadcnFeedbackRoute
   '/console/': typeof ConsoleIndexRoute
   '/console/apis/$api': typeof ConsoleApisApiRoute
   '/console/apps/$clientId': typeof ConsoleAppsClientIdRoute
@@ -189,6 +198,7 @@ export interface FileRouteTypes {
     | '/console/settings'
     | '/console/users'
     | '/console/callback'
+    | '/prototype/shadcn-feedback'
     | '/console/'
     | '/console/apis/$api'
     | '/console/apps/$clientId'
@@ -205,6 +215,7 @@ export interface FileRouteTypes {
     | '/console/audit'
     | '/console/settings'
     | '/console/callback'
+    | '/prototype/shadcn-feedback'
     | '/console'
     | '/console/apis/$api'
     | '/console/apps/$clientId'
@@ -225,6 +236,7 @@ export interface FileRouteTypes {
     | '/console/settings'
     | '/console/users'
     | '/console_/callback'
+    | '/prototype/shadcn-feedback'
     | '/console/'
     | '/console/apis/$api'
     | '/console/apps/$clientId'
@@ -241,6 +253,7 @@ export interface RootRouteChildren {
   ConsoleRoute: typeof ConsoleRouteWithChildren
   AccountCallbackRoute: typeof AccountCallbackRoute
   ConsoleCallbackRoute: typeof ConsoleCallbackRoute
+  PrototypeShadcnFeedbackRoute: typeof PrototypeShadcnFeedbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -320,6 +333,13 @@ declare module '@tanstack/react-router' {
       path: '/console/callback'
       fullPath: '/console/callback'
       preLoaderRoute: typeof ConsoleCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/prototype/shadcn-feedback': {
+      id: '/prototype/shadcn-feedback'
+      path: '/prototype/shadcn-feedback'
+      fullPath: '/prototype/shadcn-feedback'
+      preLoaderRoute: typeof PrototypeShadcnFeedbackRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/console/apis/': {
@@ -445,6 +465,7 @@ const rootRouteChildren: RootRouteChildren = {
   ConsoleRoute: ConsoleRouteWithChildren,
   AccountCallbackRoute: AccountCallbackRoute,
   ConsoleCallbackRoute: ConsoleCallbackRoute,
+  PrototypeShadcnFeedbackRoute: PrototypeShadcnFeedbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
