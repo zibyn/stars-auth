@@ -72,6 +72,8 @@ public class StarsAuthException(public val error: String, public val description
     public const val SIGNED_OUT: String = "signed_out"
     /** Deleting the account needs a sign-in in the last 10 minutes: sign in again, then retry. */
     public const val REAUTHENTICATE: String = "insufficient_user_authentication"
+    /** The server asked for a sign-in step this SDK version does not know: ask the User to update the App. */
+    public const val UNSUPPORTED_STEP: String = "unsupported_step"
   }
 }
 
@@ -113,7 +115,7 @@ public class StarsAuth(
 
   private suspend fun sendCode(identifier: String, session: AuthSession?, termsVersion: String): SignInStep.CodeSent {
     val altcha = altcha()
-    return challenge(session, termsVersion, sendsCode = true) {
+    return challenge(session, termsVersion) {
       append("identifier", identifier)
       append("altcha", altcha)
     } as? SignInStep.CodeSent ?: throw StarsAuthException("unexpected_response", "sending a code signed in")
@@ -143,7 +145,6 @@ public class StarsAuth(
   private suspend fun challenge(
     session: AuthSession?,
     termsVersion: String,
-    sendsCode: Boolean = false,
     step: ParametersBuilder.() -> Unit,
   ): SignInStep {
     val verifier = session?.verifier ?: newVerifier()
@@ -164,7 +165,12 @@ public class StarsAuth(
       val e = json.decodeFromString<ErrorResponse>(r.bodyAsText())
       if (e.error == "insufficient_authorization" && e.authSession != null) {
         val next = AuthSession(e.authSession, verifier, termsVersion)
-        return if (sendsCode) SignInStep.CodeSent(next) else SignInStep.PhoneRequired(next)
+        // Unknown values come from a newer server: fail rather than guess (ADR 0010).
+        return when (e.next) {
+          "code" -> SignInStep.CodeSent(next)
+          "phone" -> SignInStep.PhoneRequired(next)
+          else -> throw StarsAuthException(StarsAuthException.UNSUPPORTED_STEP, "next step not supported by this SDK version: ${e.next}")
+        }
       }
       throw StarsAuthException(e.error, e.description)
     }
@@ -317,4 +323,5 @@ private fun newVerifier(): String = base64Url.encode(Uuid.random().toByteArray()
   val error: String,
   @SerialName("error_description") val description: String? = null,
   @SerialName("auth_session") val authSession: String? = null,
+  val next: String? = null,
 )

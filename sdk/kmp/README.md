@@ -44,7 +44,7 @@ when (val step = auth.verifyCode(sent.session, code)) {
 
 密码登录:`auth.signInWithPassword(identifier, password, terms.version)`(用户名、手机号或邮箱),结果同上。
 
-出错抛 `StarsAuthException`:`error == "invalid_request"` 时 `description` 可直接展示(验证码错误、发送太频繁等)。
+出错抛 `StarsAuthException`:`error == "invalid_request"` 时 `description` 可直接展示(验证码错误、发送太频繁等);`error == StarsAuthException.UNSUPPORTED_STEP` 表示服务端要求了这个 SDK 版本不认识的步骤,提示 User 升级 App。
 
 ### 调用业务后端
 
