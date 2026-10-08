@@ -191,7 +191,12 @@ function useHeader(): Header | null {
 					who={who}
 					disabled={act.isPending}
 					onConfirm={() =>
-						act.mutate({ method: "DELETE", path: "", what: "删除用户失败" })
+						act.mutate({
+							method: "DELETE",
+							path: "",
+							what: "删除用户失败",
+							leave: true,
+						})
 					}
 				/>
 			</>
@@ -326,7 +331,7 @@ function DeleteUser({
 
 // useUserAction calls a users:write operation on sub (path under
 // /users/{sub}) and refreshes what it changes; what names it in the toast
-// if it fails. The header and the page each hold one; both see whether a
+// if it fails; leave goes back to the Users list after it. The header and the page each hold one; both see whether a
 // call is running.
 function useUserAction(sub: string) {
 	const client = useQueryClient();
@@ -339,13 +344,14 @@ function useUserAction(sub: string) {
 			path: string;
 			body?: unknown;
 			what: string;
+			leave?: boolean;
 		}) =>
 			api(`/users/${encodeURIComponent(sub)}${a.path}`, {
 				method: a.method,
 				body: a.body,
 			}),
 		onSuccess: (_, a) => {
-			if (a.method === "DELETE" && a.path === "") {
+			if (a.leave) {
 				navigate({ to: "/console/users" });
 			}
 			return client.invalidateQueries();
