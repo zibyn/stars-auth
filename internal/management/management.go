@@ -22,6 +22,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/db/sqlc"
 	"github.com/zibyn/stars-auth/internal/identity"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
+	"github.com/zibyn/stars-auth/internal/twofactor"
 )
 
 // Prefix is where the Management API lives; its OpenAPI document is at
@@ -35,10 +36,11 @@ type Service struct {
 	q        *sqlc.Queries
 	keys     *oidcstore.Keys
 	channels *channel.Store
+	mfa      *twofactor.Store
 }
 
 func New(pool *pgxpool.Pool, keyring *crypt.Keyring, issuer string) *Service {
-	return &Service{issuer: issuer, pool: pool, keyring: keyring, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring), channels: channel.NewStore(pool, keyring)}
+	return &Service{issuer: issuer, pool: pool, keyring: keyring, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring), channels: channel.NewStore(pool, keyring), mfa: twofactor.New(pool, keyring)}
 }
 
 type callerKey struct{}
@@ -79,6 +81,7 @@ func (s *Service) Register(mux *http.ServeMux) {
 	op(api, http.MethodPost, "disable-user", "users:write", "/users/{sub}/disable", "Disable a User: no logins, every Session ended", s.disableUser, http.StatusConflict)
 	op(api, http.MethodPost, "enable-user", "users:write", "/users/{sub}/enable", "Restore a disabled User", s.enableUser, http.StatusConflict)
 	op(api, http.MethodDelete, "delete-user", "users:write", "/users/{sub}", "Delete a User and all their data", s.deleteUser, http.StatusConflict)
+	op(api, http.MethodDelete, "reset-two-factor", "users:write", "/users/{sub}/2fa", "Reset a User's 两步验证: their TOTP and 恢复码 go, their Sessions stay", s.resetTwoFactor, http.StatusConflict)
 	op(api, http.MethodPut, "replace-identifier", "users:write", "/users/{sub}/identifiers/{kind}", "Set a User's Identifier of a kind, replacing theirs", s.replaceIdentifier, http.StatusConflict)
 	get(api, "overview", "users:read", "/overview", "Counts for the console's overview", s.overview)
 	get(api, "list-audit", "audit:read", "/audit", "Search the audit log", s.listAudit)
@@ -204,6 +207,7 @@ type User struct {
 type UserDetail struct {
 	User
 	HasPassword bool `json:"hasPassword"`
+	TwoFactor   bool `json:"twoFactor" doc:"两步验证 is on"`
 }
 
 type meOutput struct {
@@ -292,7 +296,7 @@ func (s *Service) getUser(ctx context.Context, in *struct {
 	if err != nil {
 		return nil, err
 	}
-	return &getUserOutput{Body: UserDetail{User: u, HasPassword: r.HasPassword}}, nil
+	return &getUserOutput{Body: UserDetail{User: u, HasPassword: r.HasPassword, TwoFactor: r.TwoFactor}}, nil
 }
 
 func user(sub string, created time.Time, disabled pgtype.Timestamptz, identifiers, roles []byte) (User, error) {

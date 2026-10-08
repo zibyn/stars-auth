@@ -213,7 +213,8 @@ SELECT u.id, u.created_at, u.disabled_at,
        COALESCE((SELECT json_agg(json_build_object('api', r.api, 'key', r.key, 'name', r.name) ORDER BY r.api, r.key)
                  FROM user_roles ur JOIN roles r ON r.api = ur.api AND r.key = ur.role
                  WHERE ur.user_id = u.id), '[]')::jsonb AS roles,
-       EXISTS (SELECT 1 FROM passwords p WHERE p.user_id = u.id) AS has_password
+       EXISTS (SELECT 1 FROM passwords p WHERE p.user_id = u.id) AS has_password,
+       EXISTS (SELECT 1 FROM totp_credentials t WHERE t.user_id = u.id AND t.confirmed_at IS NOT NULL) AS two_factor
 FROM users u
 WHERE u.id = $1
 `
@@ -225,6 +226,7 @@ type GetUserRow struct {
 	Identifiers []byte
 	Roles       []byte
 	HasPassword bool
+	TwoFactor   bool
 }
 
 func (q *Queries) GetUser(ctx context.Context, id string) (GetUserRow, error) {
@@ -237,6 +239,7 @@ func (q *Queries) GetUser(ctx context.Context, id string) (GetUserRow, error) {
 		&i.Identifiers,
 		&i.Roles,
 		&i.HasPassword,
+		&i.TwoFactor,
 	)
 	return i, err
 }

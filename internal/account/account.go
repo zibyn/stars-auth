@@ -231,7 +231,22 @@ type kindBody struct {
 	}
 }
 
+// errTwoFactorOnly refuses a code or the password to a User with 两步验证 on.
+const errTwoFactorOnly identity.Invalid = "已开启两步验证,请输入验证器中的验证码或恢复码"
+
+// twoFactorOn reports whether sub has 两步验证 on.
+func (s *Service) twoFactorOn(ctx context.Context, sub string) (bool, error) {
+	t, err := s.q.TOTP(ctx, sub)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return t.ConfirmedAt.Valid, err
+}
+
 func (s *Service) sendReauthCode(ctx context.Context, in *kindBody) (*struct{}, error) {
+	if on, err := s.twoFactorOn(ctx, callerOf(ctx).sub); err != nil || on {
+		return nil, fail(cmp.Or(err, error(errTwoFactorOnly)))
+	}
 	value, err := s.identifier(ctx, in.Body.Kind)
 	if err == nil {
 		err = s.codes.Send(ctx, in.Body.Kind, value, callerOf(ctx).ip)
@@ -241,18 +256,28 @@ func (s *Service) sendReauthCode(ctx context.Context, in *kindBody) (*struct{}, 
 
 type reauthInput struct {
 	Body struct {
-		Kind     string `json:"kind,omitempty" enum:"phone,email" doc:"Where the code went"`
-		Code     string `json:"code,omitempty"`
-		Password string `json:"password,omitempty" doc:"Instead of a code"`
+		Kind         string `json:"kind,omitempty" enum:"phone,email" doc:"Where the code went"`
+		Code         string `json:"code,omitempty"`
+		Password     string `json:"password,omitempty" doc:"Instead of a code"`
+		TOTP         string `json:"totp,omitempty" doc:"A code from the User's TOTP; with 两步验证 on, this or a recovery code is the only way"`
+		RecoveryCode string `json:"recoveryCode,omitempty" doc:"One of the User's recovery codes, instead of a TOTP code; used up"`
 	}
 }
 
 // reauth makes a fresh authentication of this Session, counted toward the
-// same lockouts as logging in.
+// same lockouts as logging in. With 两步验证 on, only a TOTP or recovery
+// code does.
 func (s *Service) reauth(ctx context.Context, in *reauthInput) (*struct{}, error) {
 	c := callerOf(ctx)
+	on, err := s.twoFactorOn(ctx, c.sub)
+	if err != nil {
+		return nil, err
+	}
+	if on {
+		return nil, fail(s.reauthTwoFactor(ctx, in))
+	}
 	var amr string
-	err := s.ids.FromIP(ctx, c.ip, func() error {
+	err = s.ids.FromIP(ctx, c.ip, func() error {
 		if in.Body.Password != "" {
 			amr = "pwd"
 			ids, err := s.q.UserIdentifiers(ctx, c.sub)
@@ -279,6 +304,36 @@ func (s *Service) reauth(ctx context.Context, in *reauthInput) (*struct{}, error
 		return nil, fail(err)
 	}
 	return nil, s.q.Reauthenticate(ctx, sqlc.ReauthenticateParams{ID: c.session, UserID: c.sub, Amr: []string{amr}})
+}
+
+// reauthTwoFactor reauthenticates with a TOTP or recovery code; a wrong one
+// counts toward the IP lockout like a wrong code.
+func (s *Service) reauthTwoFactor(ctx context.Context, in *reauthInput) error {
+	c := callerOf(ctx)
+	var wrong error
+	err := s.ids.FromIP(ctx, c.ip, func() error {
+		var err error
+		switch {
+		case in.Body.TOTP != "":
+			err = s.twoFA.CheckTOTP(ctx, c.sub, in.Body.TOTP)
+		case in.Body.RecoveryCode != "":
+			err = s.twoFA.UseRecoveryCode(ctx, c.sub, in.Body.RecoveryCode)
+		default:
+			return errTwoFactorOnly
+		}
+		if errors.Is(err, twofactor.ErrCode) || errors.Is(err, twofactor.ErrRecoveryCode) {
+			wrong = err // FromIP counts only identity's own errors
+			return identity.ErrWrongCode
+		}
+		return err
+	})
+	if wrong != nil && errors.Is(err, identity.ErrWrongCode) {
+		err = wrong
+	}
+	if err != nil {
+		return err
+	}
+	return s.q.Reauthenticate(ctx, sqlc.ReauthenticateParams{ID: c.session, UserID: c.sub, Amr: []string{"otp", "mfa"}})
 }
 
 type kindPath struct {
