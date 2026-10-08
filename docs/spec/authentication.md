@@ -9,7 +9,7 @@
 | 用户名 / 手机号 / 邮箱 + 密码 | 第一因素 | "仅管理员" | 托管页、直连 API | 一期 |
 | Passkey | 第一因素(本身已是多因素) | 开 | 托管页、直连 API;小程序不提供 | 二期 |
 | TOTP | 唯一的第二因素 | User 自愿开启 | 托管页、直连 API | 二期 |
-| Provider(通用 OIDC、Apple 等) | 第一因素 | 管理员添加实例 | 视插件声明的交互形态 | 二期起 |
+| Provider(通用 OIDC、Apple 等) | 第一因素 | 管理员添加 Provider | 通用 OIDC:托管页;Apple:托管页、直连 API | 二期起 |
 
 ## 验证码
 
@@ -41,6 +41,13 @@
 - **TOTP 参数**:`otpauth://` 固定 SHA1 / 6 位 / 30 秒,同时显示可复制的 Base32 密钥。
 - **恢复码**:开启时生成 10 个一次性恢复码,只显示一次,可以重新生成。
 - **认证强度**:Application 需要更强认证时,用 `max_age` / `prompt=login`,并检查 `amr`。不支持 `acr_values`。
+
+## Provider(二期)
+
+- **首次登录**:没有绑定过的 External Identity 直接新建 User,之后照常走 2FA、"必须绑定手机号"和协议同意。
+- **2FA**:Provider 登录属于第一因素,开了 2FA 的 User 仍要输入 TOTP。
+- **托管页**:每个启用中的重定向型 Provider 一个按钮,"使用 {名称} 登录",放在验证码表单下方,按创建顺序排列;Apple 按 HIG 黑底样式,通用 OIDC 不带图标。
+- 配置与各 Provider 类型的细节见 [architecture.md](architecture.md#provider-的配置与身份)。
 
 ## 密码管理器适配
 

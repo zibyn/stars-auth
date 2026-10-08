@@ -26,22 +26,41 @@
 | 类型 | 职责 | 产出 | 实例数 |
 |---|---|---|---|
 | **Channel** | 把 Stars Auth 生成的验证码投递到手机号或邮箱 | 投递结果 | 每种 Identifier(短信、邮件)同时只启用一个,不做故障切换 |
-| **Provider** | 由外部服务证明"这是谁" | 一个已验证的 Identifier(如一键登录给出的手机号),**或**一个 External Identity | 可以配多个实例,每个实例都是独立的服务商 |
+| **Provider** | 由外部服务证明"这是谁" | 一个已验证的 Identifier(如一键登录给出的手机号),**或**一个 External Identity | 可以添加多个 Provider,同一 Provider 类型也可以添加多个,各自的 External Identity 互不相通 |
 
 - **核心能力不做成插件**:验证码登录、密码、Passkey、TOTP。
 - **两个免写代码的通用插件**:
   - **Webhook Channel**:把 `{"to": 目标, "code": 验证码}` POST 到管理员指定的 URL,返回 2xx 即视为送达;请求头 `X-Stars-Signature: t=<秒>,v1=<hex HMAC-SHA256(密钥, "<t>.<body>")>`,接收方应拒绝过旧的 `t` 以防重放;
-  - **通用 OIDC Provider**:填 issuer、client_id、secret 即可接入。
-- **Apple Provider**:单独实现(自签 JWT 作 client secret、form_post 回调、姓名只在首次登录返回),内部复用通用 OIDC 的代码。
-- **Provider 的交互形态**:Provider 声明自己支持哪种,或两种都支持。
+  - **通用 OIDC Provider 类型**:填 issuer、client_id、secret 即可接入,见下文。
+- **Provider 的交互形态**:每个 Provider 类型声明自己支持哪种,或两种都支持。
   - **重定向型**:托管登录页跳到服务商,再接收回调;
-  - **客户端令牌型**:客户端从平台拿到令牌,提交到直连 API,并带上 Provider 实例 ID。
+  - **客户端令牌型**:客户端从平台拿到令牌,提交到直连 API,并带上 Provider ID。
 - **Provider 的可选回调**:解绑或注销时触发,用于吊销第三方令牌(Apple 必需)。
 - **配置 schema**:每个插件声明自己的配置字段(类型、是否为密钥字段),管理端据此自动渲染表单。
 - **服务商附带的信息**:Provider 返回的邮箱等附带信息一律忽略,不据此关联 User。
 - **一期内置插件**:
   - Channel:阿里云短信认证、SMTP、Webhook;
-  - Provider:无(通用 OIDC 与 Apple 在二期)。
+  - Provider 类型:无(通用 OIDC 与 Apple 在二期)。
+
+### Provider 的配置与身份
+
+- **Provider ID**:管理员创建时填写的 slug(如 `google`),出现在回调 URL `/login/providers/{id}/callback` 和直连 API 的请求里,创建后不可改。
+- **身份锚点**:External Identity 是 (Provider, 上游 `sub`)。通用 OIDC 的 issuer 创建后不可改;client_id 和密钥可以改。
+- **停用与删除**:停用后托管页不再显示,已绑定的 User 也不能用它登录。还有 External Identity 绑定时只能停用,不能删除。
+- **请求的信息**:只请求 `openid`;Apple 不请求 `name email`,首次登录返回的姓名直接丢弃。
+
+### 通用 OIDC Provider 类型
+
+- 只接真正的 OIDC 上游:必须提供 discovery(`/.well-known/openid-configuration`),校验 id_token。纯 OAuth2 服务(如 GitHub)不支持,要接就另写一个 Provider 类型。
+- 只支持重定向型:authorization code + PKCE + `state` + `nonce`。原生 App 要接时,再加客户端令牌型(届时需要"额外接受的 `aud`")。
+
+### Apple Provider 类型
+
+- **配置**:Team ID、Key ID、`.p8` 私钥(密钥字段)、Services ID(Web)、Bundle ID(原生);issuer 固定为 `https://appleid.apple.com`。client secret 是用 `.p8` 自签的 JWT。
+- **重定向型**:Web 用 Services ID,回调为 `form_post`(跨站 POST,浏览器不会带 SameSite=Lax 的 cookie,登录状态按 `state` 存在服务端)。
+- **客户端令牌型**:原生 App 只提交 `authorization_code`,服务端以 Bundle ID 换码,以换回的 id_token 为认证结果,不需要 identity token 和 nonce(ADR 0011)。
+- **refresh token**:两种形态都在换码时拿到 refresh token,用主密钥加密后存在 External Identity 上;换码失败,这次登录就失败。
+- **撤销**:解绑和注销时调用 Apple `/auth/revoke`,尽力而为,失败只记审计日志,不阻塞解绑或注销。不接 Apple 的服务器到服务器通知。
 
 ## 配置与密钥
 

@@ -45,7 +45,7 @@ User 用来登录的手机号、邮箱或用户名,在用户池内唯一;手机�
 _Avoid_: 账号, 用户名, 联系方式
 
 **External Identity**:
-某个 Provider 认定的一个用户(Provider 实例 + 其侧用户 ID,如微信 openid、Apple `sub`),绑定在某个 User 上。
+某个 Provider 认定的一个用户(Provider + 其侧用户 ID,如微信 openid、Apple `sub`),绑定在某个 User 上。
 _Avoid_: 社交账号, 第三方账号, Identity
 
 **Credential**:
@@ -65,8 +65,12 @@ _Avoid_: 备用码, 救援码, 备份码
 _Avoid_: 网关, 短信服务商, 发送器
 
 **Provider**:
-替 Stars Auth 证明"这是谁"的外部认证服务(如微信、运营商一键登录、Apple、任意 OIDC 上游),认证结果是一个已验证的 Identifier 或一个 External Identity;管理员可配置多个实例。
-_Avoid_: 社交登录, IdP, 第三方登录, 认证服务商
+管理员添加的一个外部认证服务(如"Google"、"Apple"、"公司 Keycloak"),替 Stars Auth 证明"这是谁",认证结果是一个已验证的 Identifier 或一个 External Identity;各 Provider 的 External Identity 互不相通。
+_Avoid_: Provider 实例, 社交登录, IdP, 第三方登录, 认证服务商
+
+**Provider 类型**:
+一种 Provider 的实现(如通用 OIDC、Apple、微信),决定它要哪些配置、支持哪种交互形态;同一类型可添加多个 Provider。
+_Avoid_: 连接器, 驱动
 
 **Permission**:
 某个 API 定义的一项可授予的能力,以字符串表示(如 `track:write`)。
