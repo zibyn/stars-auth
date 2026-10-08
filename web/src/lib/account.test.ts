@@ -87,6 +87,26 @@ test("reauthentication needs the password, or the code once sent", () => {
 	);
 });
 
+test("with 两步验证 on, reauthentication takes a TOTP or a recovery code", () => {
+	assert.deepEqual(
+		fieldErrors(reauthSchema("totp", false).safeParse({ secret: "12345" })),
+		{ secret: "请输入验证器中的 6 位数字" },
+	);
+	for (const ok of ["abcd-2345", "ABCD2345", " abcd 2345 "]) {
+		assert.equal(
+			reauthSchema("recovery", false).safeParse({ secret: ok }).success,
+			true,
+			ok,
+		);
+	}
+	assert.deepEqual(
+		fieldErrors(
+			reauthSchema("recovery", false).safeParse({ secret: "abcd-234" }),
+		),
+		{ secret: "请输入恢复码,形如 xxxx-xxxx" },
+	);
+});
+
 test("deleting the account takes typing 注销", () => {
 	assert.equal(deleteSchema.safeParse({ confirm: "注销" }).success, true);
 	assert.deepEqual(fieldErrors(deleteSchema.safeParse({ confirm: "删除" })), {

@@ -34,6 +34,7 @@ import {
 	bindSchema,
 	deleteSchema,
 	passwordSchema,
+	type ReauthMethod,
 	reauthSchema,
 	recoveryCodesText,
 	totpSchema,
@@ -817,7 +818,7 @@ function DeleteAccount({
 }
 
 // Reauth proves the User again with a code to one of their Identifiers, or
-// their password.
+// their password; with 两步验证 on, only with a TOTP or recovery code.
 function Reauth({
 	me,
 	open,
@@ -832,13 +833,27 @@ function Reauth({
 	const codeKinds = me.identifiers
 		.map((i) => i.kind)
 		.filter((k): k is "phone" | "email" => k !== "username");
-	const methods = [
-		...codeKinds,
-		...(me.hasPassword && me.passwordAllowed ? (["password"] as const) : []),
-	];
-	const [method, setMethod] = useState<(typeof methods)[number] | undefined>();
-	const current = method ?? methods[0];
+	const twoFactor = me.twoFactor.enabled;
+	const methods: ReauthMethod[] = twoFactor
+		? ["totp"]
+		: [
+				...codeKinds,
+				...(me.hasPassword && me.passwordAllowed
+					? (["password"] as const)
+					: []),
+			];
+	const [method, setMethod] = useState<ReauthMethod | undefined>();
+	const current =
+		method && (twoFactor ? method === "recovery" : methods.includes(method))
+			? method
+			: methods[0];
+	const byCode = current === "phone" || current === "email";
 	const [sent, setSent] = useState(false);
+	const pick = (m: ReauthMethod) => {
+		setMethod(m);
+		setSent(false);
+		form.reset();
+	};
 	const send = useMutation({
 		mutationFn: () =>
 			api("/reauth/code", { method: "POST", body: { kind: current } }),
@@ -851,7 +866,11 @@ function Reauth({
 				body:
 					current === "password"
 						? { password: secret }
-						: { kind: current, code: secret },
+						: current === "totp"
+							? { totp: secret.trim() }
+							: current === "recovery"
+								? { recoveryCode: secret }
+								: { kind: current, code: secret },
 			}),
 		onSuccess: () => {
 			form.reset();
@@ -864,9 +883,7 @@ function Reauth({
 		validationLogic: revalidateLogic(),
 		validators: { onDynamic: reauthSchema(current ?? "password", sent) },
 		onSubmit: ({ value }) =>
-			current !== "password" && !sent
-				? send.mutate()
-				: verify.mutate(value.secret),
+			byCode && !sent ? send.mutate() : verify.mutate(value.secret),
 	});
 	const error = send.error ?? verify.error;
 	const target = me.identifiers.find((i) => i.kind === current)?.value;
@@ -884,13 +901,11 @@ function Reauth({
 								key={m}
 								size="sm"
 								variant={m === current ? "secondary" : "ghost"}
-								onClick={() => {
-									setMethod(m);
-									setSent(false);
-									form.reset();
-								}}
+								onClick={() => pick(m)}
 							>
-								{m === "password" ? "密码" : `${kindName[m]}验证码`}
+								{m === "phone" || m === "email"
+									? `${kindName[m]}验证码`
+									: "密码"}
 							</Button>
 						))}
 					</div>
@@ -920,6 +935,33 @@ function Reauth({
 									</FormField>
 								)}
 							</form.Field>
+						) : current === "totp" || current === "recovery" ? (
+							<form.Field name="secret">
+								{(field) =>
+									current === "totp" ? (
+										<FormField field={field} label="验证器中的验证码">
+											{(control) => (
+												<Input
+													{...control}
+													inputMode="numeric"
+													autoComplete="one-time-code"
+													placeholder="6 位数字"
+												/>
+											)}
+										</FormField>
+									) : (
+										<FormField field={field} label="恢复码">
+											{(control) => (
+												<Input
+													{...control}
+													autoComplete="off"
+													placeholder="xxxx-xxxx"
+												/>
+											)}
+										</FormField>
+									)
+								}
+							</form.Field>
 						) : (
 							<>
 								<p className="text-muted-foreground">验证码将发送到 {target}</p>
@@ -948,12 +990,21 @@ function Reauth({
 									: error
 							}
 						/>
-						<div className="flex justify-end">
+						<div className="flex justify-end gap-2">
+							{twoFactor && (
+								<Button
+									type="button"
+									variant="ghost"
+									onClick={() => pick(current === "totp" ? "recovery" : "totp")}
+								>
+									{current === "totp" ? "使用恢复码" : "使用验证器"}
+								</Button>
+							)}
 							<Button
 								type="submit"
 								disabled={send.isPending || verify.isPending}
 							>
-								{current !== "password" && !sent ? "发送验证码" : "验证"}
+								{byCode && !sent ? "发送验证码" : "验证"}
 							</Button>
 						</div>
 					</form>
