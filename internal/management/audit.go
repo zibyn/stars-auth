@@ -19,6 +19,7 @@ import (
 var selfAudited = map[string]bool{
 	"end-session": true, "disable-user": true, "enable-user": true, "delete-user": true,
 	"replace-identifier": true, "set-user-roles": true, "put-settings": true, "rotate-signing-keys": true,
+	"reset-two-factor": true,
 }
 
 var pathParam = regexp.MustCompile(`\{(\w+)\}`)

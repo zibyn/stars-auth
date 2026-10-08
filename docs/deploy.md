@@ -104,7 +104,9 @@ docker compose exec postgres psql -U stars
   DELETE FROM lockouts;
   ```
 
-- **其他情况**(忘了密码、丢了 2FA、被禁用、管理员 Role 被撤掉):重新打开引导页,建一个新的所有者:
+- **丢了验证器和全部恢复码,但还有别的管理员能登录**:请对方线下核实身份后,在管理端的用户详情里点「重置两步验证」(需要 `users:write`;对方是管理员时还需要 `admin-roles:assign`)。重置不会让任何设备下线;之后只用验证码或密码就能登录,再到账号中心重新开启两步验证。
+
+- **其他情况**(忘了密码、丢了两步验证且没有别的管理员、被禁用、管理员 Role 被撤掉):重新打开引导页,建一个新的所有者:
 
   ```sql
   UPDATE settings SET setup_done = false;
@@ -112,7 +114,7 @@ docker compose exec postgres psql -U stars
   UPDATE settings SET password_login = 'admins' WHERE password_login = 'off';
   ```
 
-  然后 `docker compose restart stars-auth`,按「首次引导」拿新链接,用一个**没被占用的用户名**创建所有者。登录管理端后,在 User 详情里为原来的管理员重置 2FA、恢复禁用或重新分配 Role。引导完成后引导页再次自动关闭。
+  然后 `docker compose restart stars-auth`,按「首次引导」拿新链接,用一个**没被占用的用户名**创建所有者。登录管理端后,在用户详情里为原来的管理员重置两步验证、恢复禁用或重新分配 Role。打开了"管理员必须启用两步验证"的话,新所有者会先被拦下,按提示到账号中心开启两步验证后再进管理端。引导完成后引导页再次自动关闭。
 
 ## 已知风险与合规提醒
 
