@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { EmptyState, SectionHeading } from "#/components/console";
+import { EmptyState, PageHeader, SectionHeading } from "#/components/console";
 import { Button, buttonVariants } from "#/components/ui/button";
 import { ownCount } from "#/lib/apps";
 import { type AuditEvent, api, type Overview } from "#/lib/console-api";
@@ -13,7 +13,10 @@ import { apisQuery } from "./console.apis.index";
 import { applicationsQuery } from "./console.apps.index";
 import { EventList } from "./console.audit";
 
-export const Route = createFileRoute("/console/")({ component: Home });
+export const Route = createFileRoute("/console/")({
+	staticData: { crumb: "概览" },
+	component: Home,
+});
 
 type Stat = { label: string; value?: number; hint?: string };
 
@@ -45,7 +48,7 @@ function Home() {
 	}
 	return (
 		<div className="space-y-10">
-			<h1 className="font-semibold text-2xl tracking-tight">概览</h1>
+			<PageHeader title="概览" />
 			{o && o.sendsLastDay >= o.dailySendLimit && (
 				<p className="rounded-xl bg-destructive/10 px-6 py-6 text-destructive">
 					过去 24 小时已发送 {o.sendsLastDay} 条验证码,达到每日上限{" "}

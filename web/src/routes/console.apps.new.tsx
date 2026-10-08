@@ -1,8 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
-import { Field } from "#/components/console";
-import { Button } from "#/components/ui/button";
+import { Field, PageHeader } from "#/components/console";
+import { Button, buttonVariants } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
 import { Textarea } from "#/components/ui/textarea";
 import { typeName } from "#/lib/apps";
@@ -22,6 +22,7 @@ const search = z.object({
 });
 
 export const Route = createFileRoute("/console/apps/new")({
+	staticData: { crumb: "创建应用" },
 	validateSearch: search,
 	component: CreateApplication,
 });
@@ -34,24 +35,16 @@ function CreateApplication() {
 	const can = useCan();
 	return (
 		<div className="max-w-3xl space-y-6">
-			<Link
-				to="/console/apps"
-				className="text-muted-foreground text-sm hover:underline"
-			>
-				应用 ›
-			</Link>
 			{!can("applications:write") ? (
 				<p className="text-sm">需要「管理员」角色才能创建应用。</p>
 			) : platform ? (
 				<CreateForm platform={platform} />
 			) : (
 				<>
-					<div className="space-y-1">
-						<h1 className="font-semibold text-2xl tracking-tight">创建应用</h1>
-						<p className="text-muted-foreground">
-							你的用户在哪里登录？选一个最接近的，认证服务会按它准备好设置。
-						</p>
-					</div>
+					<PageHeader
+						title="创建应用"
+						description="你的用户在哪里登录？选一个最接近的，认证服务会按它准备好设置。"
+					/>
 					<div className="grid gap-4 sm:grid-cols-2">
 						{platformKeys.map((k) => (
 							<Link
@@ -108,19 +101,19 @@ function CreateForm({ platform }: { platform: Platform }) {
 	});
 	return (
 		<>
-			<div className="space-y-1">
-				<Link
-					from={Route.fullPath}
-					search={{}}
-					className="text-muted-foreground text-sm hover:underline"
-				>
-					← 换个平台
-				</Link>
-				<h1 className="font-semibold text-2xl tracking-tight">创建{p.name}</h1>
-				<p className="text-muted-foreground">
-					{typeName[p.type]}。类型创建后不能更改。
-				</p>
-			</div>
+			<PageHeader
+				title={`创建${p.name}`}
+				description={`${typeName[p.type]}。类型创建后不能更改。`}
+				actions={
+					<Link
+						from={Route.fullPath}
+						search={{}}
+						className={buttonVariants({ variant: "outline" })}
+					>
+						换个平台
+					</Link>
+				}
+			/>
 			<form
 				className="space-y-6"
 				onSubmit={(e) => {

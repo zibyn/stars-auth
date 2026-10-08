@@ -4,15 +4,17 @@ import {
 	Link,
 	useBlocker,
 	useNavigate,
+	useParams,
 } from "@tanstack/react-router";
 import { Check } from "lucide-react";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { z } from "zod";
 import {
 	ConfirmDialog,
 	DangerZone,
 	Field,
 	InlineWarning,
+	PageHeader,
 	SaveBar,
 	Section,
 } from "#/components/console";
@@ -61,6 +63,7 @@ const search = z.object({
 });
 
 export const Route = createFileRoute("/console/apps/$clientId")({
+	staticData: { crumb: ApplicationName },
 	validateSearch: search,
 	component: ApplicationPage,
 });
@@ -81,6 +84,14 @@ const currentSettings = (a: Application): ApplicationSettings => ({
 	appleAppIds: a.appleAppIds,
 	androidApps: a.androidApps,
 });
+
+// ApplicationName is the Application's crumb, kept current by the query.
+function ApplicationName(): ReactNode {
+	const { clientId } = useParams({ from: "/console/apps/$clientId" });
+	return useQuery(applicationsQuery).data?.applications.find(
+		(a) => a.clientId === clientId,
+	)?.name;
+}
 
 function ApplicationPage() {
 	const { clientId } = Route.useParams();
@@ -126,18 +137,24 @@ function ApplicationPage() {
 			}
 			className="gap-6"
 		>
-			<div className="space-y-3">
-				<Link
-					to="/console/apps"
-					className="text-muted-foreground text-sm hover:underline"
-				>
-					应用 ›
-				</Link>
-				<div className="flex items-center gap-3">
-					<h1 className="font-semibold text-2xl tracking-tight">{app.name}</h1>
-					<Badge variant="secondary">{typeName[app.type]}</Badge>
-					{app.builtin && <Badge variant="outline">内置</Badge>}
-				</div>
+			<PageHeader
+				title={app.name}
+				badges={
+					<>
+						<Badge variant="secondary">{typeName[app.type]}</Badge>
+						{app.builtin && <Badge variant="outline">内置</Badge>}
+					</>
+				}
+				tabs={
+					<TabsList variant="line">
+						{tabs.map(([key, label]) => (
+							<TabsTrigger key={key} value={key}>
+								{label}
+							</TabsTrigger>
+						))}
+					</TabsList>
+				}
+			>
 				{!editable && (
 					<p className="text-muted-foreground text-sm">
 						{app.builtin
@@ -146,14 +163,7 @@ function ApplicationPage() {
 					</p>
 				)}
 				{onboarding && <Onboarding app={app} platform={onboarding} />}
-				<TabsList variant="line">
-					{tabs.map(([key, label]) => (
-						<TabsTrigger key={key} value={key}>
-							{label}
-						</TabsTrigger>
-					))}
-				</TabsList>
-			</div>
+			</PageHeader>
 			<TabsContent value="basic">
 				<BasicTab app={app} editable={editable} />
 			</TabsContent>
@@ -236,10 +246,7 @@ function BasicTab({ app, editable }: TabProps) {
 				title="访问令牌"
 				editable={editable}
 				onSubmit={() => saveApi.mutate({ defaultApi })}
-				footer={
-					editable &&
-					registered.length > 0 && <SaveBar save={saveApi} outline />
-				}
+				footer={editable && registered.length > 0 && <SaveBar save={saveApi} />}
 			>
 				<Field
 					label="默认 API 资源"

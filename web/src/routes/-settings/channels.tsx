@@ -72,7 +72,6 @@ export function ChannelsTab() {
 				suffix="条"
 				help="认证服务每天最多发出这么多条验证码，防止短信被盗刷。达到上限后，当天不再发送。"
 				min={0}
-				outline
 				warning={(n) =>
 					sendsNothing(n) && (
 						<InlineWarning>
@@ -106,11 +105,6 @@ function Channels() {
 								p.kinds.includes(k.kind),
 							)}
 							current={channels.data.channels.find((c) => c.kind === k.kind)}
-							// One solid save per screen: SMS once it is set up, email until then.
-							solid={
-								channels.data.channels.some((c) => c.kind === "phone") ===
-								(k.kind === "phone")
-							}
 						/>
 					))}
 			</div>
@@ -125,7 +119,6 @@ function Channel({
 	lose,
 	plugins,
 	current,
-	solid,
 }: {
 	kind: "phone" | "email";
 	label: string;
@@ -133,7 +126,6 @@ function Channel({
 	lose: string;
 	plugins: ChannelPlugin[];
 	current?: ChannelSettings;
-	solid: boolean; // whether this save is the screen's one solid button
 }) {
 	const can = useCan();
 	const editable = can("config:write");
@@ -257,11 +249,7 @@ function Channel({
 					)}
 					{editable && (
 						<div className="flex gap-2">
-							<Button
-								type="submit"
-								variant={solid ? "default" : "outline"}
-								disabled={save.isPending}
-							>
+							<Button type="submit" disabled={save.isPending}>
 								{current && !stored ? "切换并保存" : "保存"}
 							</Button>
 							{current &&

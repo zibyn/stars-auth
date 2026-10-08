@@ -45,8 +45,6 @@ type PolicyNumberProps = {
 	suffix: string;
 	help: string;
 	min: number;
-	// one solid button per screen: outline when another save leads
-	outline?: boolean;
 	warning?: (value: number) => ReactNode;
 	confirm?: {
 		when: (before: number, after: number) => boolean;
@@ -82,7 +80,6 @@ function NumberForm({
 	suffix,
 	help,
 	min,
-	outline,
 	warning,
 	confirm,
 }: PolicyNumberProps & {
@@ -104,7 +101,7 @@ function NumberForm({
 					save.mutate({ [field]: next });
 				}
 			}}
-			footer={editable && <SaveBar save={save} outline={outline} />}
+			footer={editable && <SaveBar save={save} />}
 		>
 			<Field label={label} help={help}>
 				<div className="flex items-center gap-2">

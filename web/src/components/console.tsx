@@ -195,6 +195,47 @@ export function Section({
 	);
 }
 
+// PageHeader opens every console page, below the breadcrumb the console
+// layout draws: the title with its badges, actions on the right, an
+// optional line on what the page is for, then children (notes, the
+// 接入清单) and the TabsList last. Pages with tabs put it inside <Tabs>.
+export function PageHeader({
+	title,
+	badges,
+	actions,
+	description,
+	tabs,
+	children,
+}: {
+	title: ReactNode;
+	badges?: ReactNode;
+	actions?: ReactNode;
+	description?: ReactNode;
+	tabs?: ReactNode;
+	children?: ReactNode;
+}) {
+	return (
+		<header className="space-y-4">
+			<div>
+				<div className="flex flex-wrap items-center gap-3">
+					<h1 className="flex items-center gap-3 font-semibold text-2xl tracking-tight">
+						{title}
+					</h1>
+					{badges}
+					{actions && (
+						<div className="ml-auto flex items-center gap-2">{actions}</div>
+					)}
+				</div>
+				{description && (
+					<p className="mt-1 text-muted-foreground">{description}</p>
+				)}
+			</div>
+			{children}
+			{tabs}
+		</header>
+	);
+}
+
 // Panel is the raised card a page's content sits on.
 export function Panel({
 	className,
@@ -218,19 +259,12 @@ export function Panel({
 // SaveBar is a section's save button and how the last save went.
 export function SaveBar({
 	save,
-	outline,
 }: {
 	save: { isPending: boolean; isSuccess: boolean; error: Error | null };
-	// one solid button per screen: the other sections' saves are outlined
-	outline?: boolean;
 }) {
 	return (
 		<div className="flex items-center gap-3">
-			<Button
-				type="submit"
-				variant={outline ? "outline" : "default"}
-				disabled={save.isPending}
-			>
+			<Button type="submit" disabled={save.isPending}>
 				保存
 			</Button>
 			{save.isSuccess && <span className="text-green-700 text-sm">已保存</span>}

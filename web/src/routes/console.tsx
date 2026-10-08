@@ -1,8 +1,22 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
-import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
+import {
+	createFileRoute,
+	Link,
+	Outlet,
+	useMatches,
+} from "@tanstack/react-router";
 import { UserRound } from "lucide-react";
+import { type ComponentType, Fragment } from "react";
 import { Panel } from "#/components/console";
 import { Star } from "#/components/star";
+import {
+	Breadcrumb,
+	BreadcrumbItem,
+	BreadcrumbLink,
+	BreadcrumbList,
+	BreadcrumbPage,
+	BreadcrumbSeparator,
+} from "#/components/ui/breadcrumb";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -14,6 +28,47 @@ import { navGroups } from "#/lib/nav";
 import { avatarInitial } from "#/lib/users";
 
 export const Route = createFileRoute("/console")({ component: Console });
+
+declare module "@tanstack/react-router" {
+	interface StaticDataRouteOption {
+		// crumb names a route in the console breadcrumb: a label, or a
+		// component when the name comes from data (an Application's name).
+		crumb?: string | ComponentType;
+	}
+}
+
+// Crumbs is the breadcrumb atop every console page, one item per matched
+// route that names itself; the last is the page you're on.
+function Crumbs() {
+	const crumbs = useMatches().flatMap((m) =>
+		m.staticData.crumb ? [{ ...m, crumb: m.staticData.crumb }] : [],
+	);
+	return (
+		<Breadcrumb>
+			<BreadcrumbList className="text-[13px]">
+				{crumbs.map(({ id, pathname, crumb: C }, i) => {
+					const label = typeof C === "string" ? C : <C />;
+					return (
+						<Fragment key={id}>
+							{i > 0 && <BreadcrumbSeparator />}
+							<BreadcrumbItem>
+								{i < crumbs.length - 1 ? (
+									<BreadcrumbLink render={<Link to={pathname} />}>
+										{label}
+									</BreadcrumbLink>
+								) : (
+									<BreadcrumbPage className="text-muted-foreground">
+										{label}
+									</BreadcrumbPage>
+								)}
+							</BreadcrumbItem>
+						</Fragment>
+					);
+				})}
+			</BreadcrumbList>
+		</Breadcrumb>
+	);
+}
 
 export const meQuery = queryOptions({
 	queryKey: ["me"],
@@ -98,6 +153,7 @@ function Console() {
 			</aside>
 			<Panel className="min-w-0 flex-1 px-14 py-11">
 				<div className="max-w-4xl space-y-6">
+					<Crumbs />
 					<Outlet />
 				</div>
 			</Panel>

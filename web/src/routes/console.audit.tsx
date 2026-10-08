@@ -3,6 +3,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { UserRound } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { z } from "zod";
+import { PageHeader } from "#/components/console";
 import { Star } from "#/components/star";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
@@ -47,6 +48,7 @@ const search = z.object({
 });
 
 export const Route = createFileRoute("/console/audit")({
+	staticData: { crumb: "审计" },
 	validateSearch: search,
 	component: Audit,
 });
@@ -122,7 +124,7 @@ function Audit() {
 
 	return (
 		<div className="space-y-6">
-			<h1 className="font-semibold text-2xl tracking-tight">审计日志</h1>
+			<PageHeader title="审计日志" />
 			<div className="flex flex-wrap gap-2">
 				<Select value={event} onValueChange={(v) => set("event", `${v ?? ""}`)}>
 					<SelectTrigger className="w-56">

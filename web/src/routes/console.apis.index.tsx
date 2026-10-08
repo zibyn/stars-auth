@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { EmptyState, SectionHeading } from "#/components/console";
+import { EmptyState, PageHeader, SectionHeading } from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
@@ -30,13 +30,10 @@ function APIs() {
 	return (
 		<div className="space-y-10">
 			<div className="space-y-6">
-				<div>
-					<h1 className="font-semibold text-2xl tracking-tight">API 资源</h1>
-					<p className="mt-1 text-muted-foreground">
-						在这里登记你的后端服务，再为它定义权限和角色。用户登录某个应用后，拿到的令牌只带这个应用默认
-						API 资源上的角色和权限。
-					</p>
-				</div>
+				<PageHeader
+					title="API 资源"
+					description="在这里登记你的后端服务，再为它定义权限和角色。用户登录某个应用后，拿到的令牌只带这个应用默认 API 资源上的角色和权限。"
+				/>
 				{apis.data && onlyBuiltin(apis.data.apis) && (
 					<EmptyState
 						title="还没有你自己的 API 资源"
@@ -147,7 +144,7 @@ function CreateForm() {
 						placeholder="如：订单 API"
 						className="w-40"
 					/>
-					<Button type="submit" variant="outline" disabled={create.isPending}>
+					<Button type="submit" disabled={create.isPending}>
 						添加 API 资源
 					</Button>
 				</div>

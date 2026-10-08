@@ -2,6 +2,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { UserRound } from "lucide-react";
 import { z } from "zod";
+import { PageHeader } from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
@@ -90,7 +91,7 @@ function Users() {
 
 	return (
 		<div className="space-y-6">
-			<h1 className="font-semibold text-2xl tracking-tight">用户</h1>
+			<PageHeader title="用户" />
 			<div className="flex gap-2">
 				<form
 					className="flex-1"

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { EmptyState } from "#/components/console";
+import { EmptyState, PageHeader } from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { buttonVariants } from "#/components/ui/button";
 import {
@@ -41,10 +41,7 @@ function Applications() {
 	const empty = apps.data && onlyBuiltin(apps.data.applications);
 	return (
 		<div className="space-y-6">
-			<div className="flex items-center justify-between">
-				<h1 className="font-semibold text-2xl tracking-tight">应用</h1>
-				{!empty && create}
-			</div>
+			<PageHeader title="应用" actions={!empty && create} />
 			{empty && (
 				<EmptyState
 					title="还没有接入你的应用"

@@ -1,12 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import {
+	createFileRoute,
+	Link,
+	useNavigate,
+	useParams,
+} from "@tanstack/react-router";
+import { type ReactNode, useState } from "react";
 import { z } from "zod";
 import {
 	ConfirmDialog,
 	DangerZone,
 	EmptyState,
 	InlineWarning,
+	PageHeader,
 } from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
@@ -29,6 +35,7 @@ const search = z.object({
 });
 
 export const Route = createFileRoute("/console/apis/$api")({
+	staticData: { crumb: APIName },
 	validateSearch: search,
 	component: APIPage,
 });
@@ -45,6 +52,13 @@ function useAPIMutation<T>(fn: (v: T) => Promise<unknown>) {
 		mutationFn: fn,
 		onSuccess: () => client.invalidateQueries(apisQuery),
 	});
+}
+
+// APIName is the API resource's crumb, kept current by the query.
+function APIName(): ReactNode {
+	const { api: identifier } = useParams({ from: "/console/apis/$api" });
+	return useQuery(apisQuery).data?.apis.find((a) => a.identifier === identifier)
+		?.name;
 }
 
 function APIPage() {
@@ -80,17 +94,19 @@ function APIPage() {
 			}
 			className="gap-6"
 		>
-			<div className="space-y-3">
-				<Link
-					to="/console/apis"
-					className="text-muted-foreground text-sm hover:underline"
-				>
-					API 资源 ›
-				</Link>
-				<div className="flex items-center gap-3">
-					<h1 className="font-semibold text-2xl tracking-tight">{def.name}</h1>
-					{def.builtin && <Badge variant="secondary">内置</Badge>}
-				</div>
+			<PageHeader
+				title={def.name}
+				badges={def.builtin && <Badge variant="secondary">内置</Badge>}
+				tabs={
+					<TabsList variant="line">
+						{tabs.map(([key, label]) => (
+							<TabsTrigger key={key} value={key}>
+								{label}
+							</TabsTrigger>
+						))}
+					</TabsList>
+				}
+			>
 				<dl className="grid gap-1 text-sm sm:grid-cols-[10rem_1fr]">
 					<dt className="text-muted-foreground">API 资源标识符</dt>
 					<dd>
@@ -108,14 +124,7 @@ function APIPage() {
 						)}
 					</dd>
 				</dl>
-				<TabsList variant="line">
-					{tabs.map(([key, label]) => (
-						<TabsTrigger key={key} value={key}>
-							{label}
-						</TabsTrigger>
-					))}
-				</TabsList>
-			</div>
+			</PageHeader>
 			<div className="space-y-10">
 				<TabsContent value="permissions">
 					<Permissions def={def} />
@@ -161,7 +170,7 @@ function Permissions({ def }: { def: APIDef }) {
 	);
 	const [adding, setAdding] = useState(false);
 	const add = editable ? (
-		<Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+		<Button size="sm" onClick={() => setAdding(true)}>
 			添加权限
 		</Button>
 	) : (
@@ -308,7 +317,7 @@ function Roles({
 		can("applications:write") && (!def.builtin || can("admin-roles:assign"));
 	const [adding, setAdding] = useState(false);
 	const add = editable ? (
-		<Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+		<Button size="sm" onClick={() => setAdding(true)}>
 			添加角色
 		</Button>
 	) : (
@@ -475,14 +484,7 @@ function RoleForm({
 				<p className="text-destructive text-sm">{put.error.message}</p>
 			)}
 			<div className="flex gap-2">
-				{/* one solid button per screen: several rows can be in edit at
-				    once, so only the new-Role form's save is solid */}
-				<Button
-					type="submit"
-					size="sm"
-					variant={role ? "outline" : "default"}
-					disabled={put.isPending}
-				>
+				<Button type="submit" size="sm" disabled={put.isPending}>
 					保存
 				</Button>
 				<Button type="button" size="sm" variant="ghost" onClick={onDone}>

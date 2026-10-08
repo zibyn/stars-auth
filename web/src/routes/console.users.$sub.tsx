@@ -1,7 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
-import { ConfirmDialog, EmptyState, Section } from "#/components/console";
+import {
+	createFileRoute,
+	Link,
+	useNavigate,
+	useParams,
+} from "@tanstack/react-router";
+import { type ReactNode, useState } from "react";
+import {
+	ConfirmDialog,
+	EmptyState,
+	PageHeader,
+	Section,
+} from "#/components/console";
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import {
@@ -21,15 +31,26 @@ import { useCan } from "./console";
 import { Avatar, date, rolesQuery } from "./console.users.index";
 
 export const Route = createFileRoute("/console/users/$sub")({
+	staticData: { crumb: UserName },
 	component: UserPage,
 });
 
+const userQuery = (sub: string) => ({
+	queryKey: ["user", sub],
+	queryFn: () => api<UserDetail>(`/users/${encodeURIComponent(sub)}`),
+});
+
+// UserName is the User's crumb: their primary Identifier, kept current by
+// the query.
+function UserName(): ReactNode {
+	const { sub } = useParams({ from: "/console/users/$sub" });
+	const u = useQuery(userQuery(sub)).data;
+	return u && (primaryIdentifier(u.identifiers) ?? "未绑定登录标识");
+}
+
 function UserPage() {
 	const { sub } = Route.useParams();
-	const user = useQuery({
-		queryKey: ["user", sub],
-		queryFn: () => api<UserDetail>(`/users/${encodeURIComponent(sub)}`),
-	});
+	const user = useQuery(userQuery(sub));
 	const can = useCan();
 	const act = useUserAction(sub);
 	if (user.error) {
@@ -48,34 +69,34 @@ function UserPage() {
 	const who = name ? `用户 ${name}` : "这个用户";
 	return (
 		<div className="space-y-10">
-			<div className="space-y-3">
-				<Link
-					to="/console/users"
-					className="text-muted-foreground text-sm hover:underline"
-				>
-					用户 ›
-				</Link>
-				<div className="flex flex-wrap items-center gap-3">
-					<Avatar name={name} className="size-10 text-base" />
-					<h1 className="font-semibold text-2xl tracking-tight">
+			<PageHeader
+				title={
+					<>
+						<Avatar name={name} className="size-10 text-base" />
 						{name ?? "未绑定登录标识"}
-					</h1>
-					{u.disabledAt ? (
-						<Badge variant="destructive">已禁用 · {date(u.disabledAt)}</Badge>
-					) : (
-						<Badge className="bg-green-500/10 text-green-700">正常</Badge>
-					)}
-					{can("audit:read") && (
-						<Link
-							to="/console/audit"
-							search={{ sub: u.sub, q: name ?? u.sub }}
-							className="text-primary-ink text-sm hover:underline"
-						>
-							查看审计记录
-						</Link>
-					)}
-					{writable && (
-						<div className="ml-auto flex gap-2">
+					</>
+				}
+				badges={
+					<>
+						{u.disabledAt ? (
+							<Badge variant="destructive">已禁用 · {date(u.disabledAt)}</Badge>
+						) : (
+							<Badge className="bg-green-500/10 text-green-700">正常</Badge>
+						)}
+						{can("audit:read") && (
+							<Link
+								to="/console/audit"
+								search={{ sub: u.sub, q: name ?? u.sub }}
+								className="text-primary-ink text-sm hover:underline"
+							>
+								查看审计记录
+							</Link>
+						)}
+					</>
+				}
+				actions={
+					writable && (
+						<>
 							{u.disabledAt ? (
 								<Button
 									variant="outline"
@@ -107,13 +128,14 @@ function UserPage() {
 								disabled={act.isPending}
 								onConfirm={() => act.mutate({ method: "DELETE", path: "" })}
 							/>
-						</div>
-					)}
-				</div>
+						</>
+					)
+				}
+			>
 				{act.error && (
 					<p className="text-destructive text-sm">{act.error.message}</p>
 				)}
-			</div>
+			</PageHeader>
 			<Section title="登录标识与密码">
 				{identifierKinds.map((kind) => (
 					<Row key={kind} label={kindName[kind]}>

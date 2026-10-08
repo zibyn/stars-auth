@@ -140,7 +140,7 @@ function RequirePhone({
 					? setAsking(true)
 					: save.mutate({ requirePhone: on })
 			}
-			footer={editable && <SaveBar save={save} outline />}
+			footer={editable && <SaveBar save={save} />}
 		>
 			<Field
 				label="必须绑定手机号"
@@ -202,7 +202,7 @@ function Terms({ current, editable }: SectionProps) {
 				editable && (
 					<>
 						{error && <p className="text-destructive text-sm">{error}</p>}
-						<SaveBar save={save} outline />
+						<SaveBar save={save} />
 					</>
 				)
 			}
