@@ -28,6 +28,12 @@ const (
 	errInsufficientAuthorization = "insufficient_authorization"
 )
 
+// Values of next (ADR 0010): only ever added to, never renamed or removed.
+const (
+	nextCode  = "code"  // enter the code just sent
+	nextPhone = "phone" // bind a phone number first
+)
+
 // challengeState is what an auth_session carries between requests.
 type challengeState struct {
 	Params goidc.AuthorizationParameters `json:"params"`
@@ -49,6 +55,8 @@ type challengeError struct {
 	Code        string `json:"error"`
 	Description string `json:"error_description,omitempty"`
 	AuthSession string `json:"auth_session,omitempty"`
+	// Next names the step an insufficient_authorization asks for (ADR 0010).
+	Next string `json:"next,omitempty"`
 }
 
 func (e *challengeError) Error() string { return e.Code + ": " + e.Description }
@@ -127,7 +135,7 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 	}
 
 	// next keeps the sign-in going: the App must take another step.
-	next := func(description string) (string, error) {
+	next := func(step, description string) (string, error) {
 		if token == "" {
 			token = newAuthSession()
 		}
@@ -138,7 +146,7 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 		if err := s.q.SaveChallengeSession(ctx, sqlc.SaveChallengeSessionParams{Hash: hash(token), ClientID: c.ID, Data: data}); err != nil {
 			return "", err
 		}
-		return "", &challengeError{status: http.StatusForbidden, Code: errInsufficientAuthorization, Description: description, AuthSession: token}
+		return "", &challengeError{status: http.StatusForbidden, Code: errInsufficientAuthorization, Description: description, AuthSession: token, Next: step}
 	}
 	// signedIn ends the sign-in with an authorization code, unless sub must
 	// bind a phone number first.
@@ -149,7 +157,7 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 		}
 		if needs {
 			st.Pending, st.Identifier = &pendingLogin{Sub: sub, AuthTime: authTime.Unix(), AMR: amr}, ""
-			return next("a phone number must be bound: send a code to one")
+			return next(nextPhone, "a phone number must be bound: send a code to one")
 		}
 		if terms.TermsVersion != "" {
 			if err := s.q.RecordConsent(ctx, sqlc.RecordConsentParams{UserID: sub, Version: version, ClientID: c.ID}); err != nil {
@@ -220,7 +228,7 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 			return mistake(err)
 		}
 		st.Identifier = value
-		return next("code sent: enter it")
+		return next(nextCode, "code sent: enter it")
 
 	case r.PostFormValue("username") != "":
 		if st.Pending != nil {

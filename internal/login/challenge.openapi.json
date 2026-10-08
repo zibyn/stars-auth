@@ -52,7 +52,7 @@
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "403": {
-            "description": "`insufficient_authorization`: another step is needed (enter the code just sent, or bind a phone number); send it with the `auth_session` returned.",
+            "description": "`insufficient_authorization`: another step is needed, named by `next`; send it with the `auth_session` returned.",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           }
         }
@@ -103,7 +103,8 @@
         "properties": {
           "error": {"type": "string", "enum": ["invalid_request", "invalid_client", "unauthorized_client", "invalid_scope", "invalid_session", "insufficient_authorization", "server_error"]},
           "error_description": {"type": "string"},
-          "auth_session": {"type": "string"}
+          "auth_session": {"type": "string"},
+          "next": {"type": "string", "enum": ["code", "phone"], "description": "Sent with `insufficient_authorization` only (non-standard, ADR 0010): the step to take. `code`: enter the code just sent. `phone`: bind a phone number (send a code to one, then enter it). Values are only ever added, never renamed or removed; treat one you do not know as a failure (ask the User to update the App)."}
         }
       }
     }
