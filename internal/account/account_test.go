@@ -809,3 +809,64 @@ func TestTwoFactorData(t *testing.T) {
 		t.Errorf("%d rows left: %v", n, err)
 	}
 }
+
+// With 两步验证 on, only a TOTP code or a recovery code reauthenticates:
+// a code to an Identifier or the password is refused. Each works once,
+// and the Session's amr becomes otp + mfa.
+func TestReauthenticationWithTwoFactor(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", "phone:+8613800138000")
+	e.password("ALICE", "password1")
+	tok := e.signIn("ALICE", 0)
+	secret, codes := e.enableTwoFactor(tok)
+	if _, err := e.pool.Exec(context.Background(), "UPDATE settings SET password_login = 'all'; UPDATE sessions SET auth_time = now() - interval '1 hour'"); err != nil {
+		t.Fatal(err)
+	}
+
+	if c := e.call("POST", tok, "/v1/account/reauth/code", map[string]string{"kind": "phone"}, nil); c != 422 {
+		t.Errorf("send reauth code: %d", c)
+	}
+	if c := e.call("POST", tok, "/v1/account/reauth", map[string]string{"password": "password1"}, nil); c != 422 {
+		t.Errorf("reauth by password: %d", c)
+	}
+	if c := e.call("POST", tok, "/v1/account/2fa/recovery-codes", nil, nil); c != 403 {
+		t.Fatalf("still not reauthenticated: %d", c)
+	}
+
+	// The code confirming 两步验证 was this step's; the next one is fresh.
+	code := totp(t, secret, time.Now().Add(30*time.Second))
+	if c := e.call("POST", tok, "/v1/account/reauth", map[string]string{"totp": "000000"}, nil); c != 422 {
+		t.Errorf("wrong TOTP: %d", c)
+	}
+	if c := e.call("POST", tok, "/v1/account/reauth", map[string]string{"totp": code}, nil); c != 204 {
+		t.Fatalf("reauth by TOTP: %d", c)
+	}
+	var amr []string
+	if err := e.pool.QueryRow(context.Background(), "SELECT amr FROM sessions").Scan(&amr); err != nil ||
+		!slices.Equal(amr, []string{"otp", "mfa"}) {
+		t.Errorf("amr %v: %v", amr, err)
+	}
+	if c := e.call("POST", tok, "/v1/account/reauth", map[string]string{"totp": code}, nil); c != 422 {
+		t.Errorf("same TOTP again: %d", c)
+	}
+
+	upper := strings.ToUpper(strings.ReplaceAll(codes[0], "-", ""))
+	if c := e.call("POST", tok, "/v1/account/reauth", map[string]string{"recoveryCode": upper}, nil); c != 204 {
+		t.Errorf("reauth by recovery code: %d", c)
+	}
+	if c := e.call("POST", tok, "/v1/account/reauth", map[string]string{"recoveryCode": codes[0]}, nil); c != 422 {
+		t.Errorf("same recovery code again: %d", c)
+	}
+	if got := e.twoFactorOf(tok); got.RecoveryCodesLeft != 9 {
+		t.Errorf("after using one: %+v", got)
+	}
+	var used, failures int
+	if err := e.pool.QueryRow(context.Background(),
+		"SELECT count(*) FROM audit_log WHERE sub = 'ALICE' AND event = 'recovery_code.used'").Scan(&used); err != nil || used != 1 {
+		t.Errorf("%d recovery_code.used events: %v", used, err)
+	}
+	// Wrong TOTP and recovery codes count toward the IP lockout.
+	if err := e.pool.QueryRow(context.Background(), "SELECT count(*) FROM login_failures WHERE key LIKE 'ip:%'").Scan(&failures); err != nil || failures != 3 {
+		t.Errorf("%d IP failures: %v", failures, err)
+	}
+}
