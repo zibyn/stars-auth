@@ -11,6 +11,7 @@ import {
 import { Badge } from "#/components/ui/badge";
 import { Button } from "#/components/ui/button";
 import { Input } from "#/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { defaultFor, rolesWith } from "#/lib/apis";
 import {
 	type APIDef,
@@ -49,6 +50,7 @@ function useAPIMutation<T>(fn: (v: T) => Promise<unknown>) {
 function APIPage() {
 	const { api: identifier } = Route.useParams();
 	const { tab = "permissions" } = Route.useSearch();
+	const navigate = useNavigate({ from: Route.fullPath });
 	const apis = useQuery(apisQuery);
 	const apps = useQuery(applicationsQuery);
 	const error = apis.error ?? apps.error;
@@ -71,7 +73,11 @@ function APIPage() {
 	}
 	const defaulting = defaultFor(apps.data.applications, def.identifier);
 	return (
-		<>
+		<Tabs
+			value={tab}
+			onValueChange={(v) => navigate({ search: { tab: v } })}
+			className="gap-6"
+		>
 			<div className="space-y-3">
 				<Link
 					to="/console/apis"
@@ -100,27 +106,24 @@ function APIPage() {
 						)}
 					</dd>
 				</dl>
-				<nav className="flex gap-1 border-b">
+				<TabsList variant="line">
 					{tabs.map(([key, label]) => (
-						<Link
-							key={key}
-							from={Route.fullPath}
-							search={{ tab: key }}
-							className={`px-3 py-2 text-sm ${tab === key ? "-mb-px border-primary border-b-2 font-medium" : "text-muted-foreground hover:text-foreground"}`}
-						>
+						<TabsTrigger key={key} value={key}>
 							{label}
-						</Link>
+						</TabsTrigger>
 					))}
-				</nav>
+				</TabsList>
 			</div>
 			<div className="space-y-10">
-				{tab === "permissions" && <Permissions def={def} />}
-				{tab === "roles" && (
+				<TabsContent value="permissions">
+					<Permissions def={def} />
+				</TabsContent>
+				<TabsContent value="roles">
 					<Roles def={def} noDefaultApps={defaulting.length === 0} />
-				)}
+				</TabsContent>
 				<DeleteAPI def={def} defaulting={defaulting} />
 			</div>
-		</>
+		</Tabs>
 	);
 }
 

@@ -27,6 +27,7 @@ import {
 	SelectValue,
 } from "#/components/ui/select";
 import { Switch } from "#/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "#/components/ui/tabs";
 import { Textarea } from "#/components/ui/textarea";
 import { typeName, typeWhy, webhookError } from "#/lib/apps";
 import {
@@ -118,7 +119,11 @@ function ApplicationPage() {
 	}
 	const editable = can("applications:write") && !app.builtin;
 	return (
-		<>
+		<Tabs
+			value={tab}
+			onValueChange={(v) => navigate({ search: { tab: v } })}
+			className="gap-6"
+		>
 			<div className="space-y-3">
 				<Link
 					to="/console/apps"
@@ -139,23 +144,24 @@ function ApplicationPage() {
 					</p>
 				)}
 				{onboarding && <Onboarding app={app} platform={onboarding} />}
-				<nav className="flex gap-1 border-b">
+				<TabsList variant="line">
 					{tabs.map(([key, label]) => (
-						<Link
-							key={key}
-							from={Route.fullPath}
-							search={{ tab: key }}
-							className={`px-3 py-2 text-sm ${tab === key ? "-mb-px border-primary border-b-2 font-medium" : "text-muted-foreground hover:text-foreground"}`}
-						>
+						<TabsTrigger key={key} value={key}>
 							{label}
-						</Link>
+						</TabsTrigger>
 					))}
-				</nav>
+				</TabsList>
 			</div>
-			{tab === "basic" && <BasicTab app={app} editable={editable} />}
-			{tab === "login" && <LoginTab app={app} editable={editable} />}
-			{tab === "webhook" && <WebhookTab app={app} editable={editable} />}
-		</>
+			<TabsContent value="basic">
+				<BasicTab app={app} editable={editable} />
+			</TabsContent>
+			<TabsContent value="login">
+				<LoginTab app={app} editable={editable} />
+			</TabsContent>
+			<TabsContent value="webhook">
+				<WebhookTab app={app} editable={editable} />
+			</TabsContent>
+		</Tabs>
 	);
 }
 
