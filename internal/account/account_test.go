@@ -770,6 +770,36 @@ func TestManageTwoFactor(t *testing.T) {
 	e.audited(t, "mfa.disabled", 1)
 }
 
+// While 管理员必须启用两步验证 is on, a User holding a Management API Role
+// can't turn 两步验证 off, though they can still regenerate recovery codes;
+// other Users can.
+func TestAdminsKeepTwoFactor(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", "username:alice")
+	e.user("BOB", "username:bob")
+	if _, err := e.pool.Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO user_roles VALUES ('ALICE', '%s', 'readonly');
+		UPDATE settings SET admins_need_two_factor = true`, identity.ManagementAPI)); err != nil {
+		t.Fatal(err)
+	}
+	alice, bob := e.signIn("ALICE", 0), e.signIn("BOB", 0)
+	e.enableTwoFactor(alice)
+	e.enableTwoFactor(bob)
+
+	if c := e.call("DELETE", alice, "/v1/account/2fa", nil, nil); c != 409 {
+		t.Errorf("admin turns off: %d, want 409", c)
+	}
+	if got := e.twoFactorOf(alice); !got.Enabled {
+		t.Errorf("admin's 两步验证 went off")
+	}
+	if c := e.call("POST", alice, "/v1/account/2fa/recovery-codes", nil, nil); c != 200 {
+		t.Errorf("admin regenerates: %d", c)
+	}
+	if c := e.call("DELETE", bob, "/v1/account/2fa", nil, nil); c != 204 {
+		t.Errorf("non-admin turns off: %d", c)
+	}
+}
+
 // Deleting the account deletes the TOTP and recovery codes with it; the
 // export says only whether 两步验证 is on, since when, and how many
 // recovery codes are left.

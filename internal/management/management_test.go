@@ -28,11 +28,12 @@ import (
 )
 
 type env struct {
-	t      *testing.T
-	pool   *pgxpool.Pool
-	issuer string
-	keys   *oidcstore.Keys
-	owner  string // sub
+	t       *testing.T
+	pool    *pgxpool.Pool
+	keyring *crypt.Keyring
+	issuer  string
+	keys    *oidcstore.Keys
+	owner   string // sub
 }
 
 func start(t *testing.T) *env {
@@ -62,7 +63,7 @@ func start(t *testing.T) *env {
 	ts := httptest.NewServer(nil)
 	t.Cleanup(ts.Close)
 	ts.Config.Handler = server.New(pool.Ping, http.NotFoundHandler(), nil, management.New(pool, keyring, ts.URL).Register)
-	return &env{t: t, pool: pool, issuer: ts.URL, keys: keys, owner: owner}
+	return &env{t: t, pool: pool, keyring: keyring, issuer: ts.URL, keys: keys, owner: owner}
 }
 
 // user adds a User with the given Identifiers ("kind:value") and Management

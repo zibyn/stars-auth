@@ -48,7 +48,12 @@ type callerKey struct{}
 type caller struct {
 	sub         string
 	permissions []string
+	twoFactor   bool // 两步验证 is on
 }
+
+// TwoFactorRequired is the code of the 403 an admin without 两步验证 gets
+// while 管理员必须启用两步验证 is on.
+const TwoFactorRequired = "two_factor_required"
 
 // Register adds the Management API and its OpenAPI document to mux.
 func (s *Service) Register(mux *http.ServeMux) {
@@ -158,11 +163,21 @@ func (s *Service) authorize(api huma.API) func(huma.Context, func(huma.Context))
 			_ = huma.WriteErr(api, ctx, http.StatusForbidden, "not an admin")
 			return
 		}
+		if c.TwoFactorRequired && !c.TwoFactor {
+			// The console shows a page sending the admin to the account center.
+			ctx.SetHeader("Content-Type", "application/problem+json")
+			ctx.SetStatus(http.StatusForbidden)
+			_ = json.NewEncoder(ctx.BodyWriter()).Encode(struct {
+				huma.ErrorModel
+				Code string `json:"code"`
+			}{huma.ErrorModel{Title: "Forbidden", Status: http.StatusForbidden, Detail: "需要先开启两步验证"}, TwoFactorRequired})
+			return
+		}
 		if want != "" && !slices.Contains(c.Permissions, want) {
 			_ = huma.WriteErr(api, ctx, http.StatusForbidden, "missing permission "+want)
 			return
 		}
-		next(huma.WithValue(ctx, callerKey{}, caller{sub: sub, permissions: c.Permissions}))
+		next(huma.WithValue(ctx, callerKey{}, caller{sub: sub, permissions: c.Permissions, twoFactor: c.TwoFactor}))
 		s.auditWrite(ctx, sub)
 	}
 }

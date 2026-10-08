@@ -98,6 +98,20 @@ func (q *Queries) LoginPaths(ctx context.Context, userID string) (LoginPathsRow,
 	return i, err
 }
 
+const mustKeepTwoFactor = `-- name: MustKeepTwoFactor :one
+SELECT (s.admins_need_two_factor AND EXISTS (
+    SELECT 1 FROM user_roles r WHERE r.user_id = $1 AND r.api = 'urn:stars-auth:management-api'))::boolean AS must
+FROM settings s
+`
+
+// 管理员必须启用两步验证 is on and the User holds a Management API Role.
+func (q *Queries) MustKeepTwoFactor(ctx context.Context, userID string) (bool, error) {
+	row := q.db.QueryRow(ctx, mustKeepTwoFactor, userID)
+	var must bool
+	err := row.Scan(&must)
+	return must, err
+}
+
 const putPassword = `-- name: PutPassword :exec
 WITH put AS (
     INSERT INTO passwords (user_id, hash) VALUES ($1, $2)

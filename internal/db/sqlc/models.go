@@ -178,17 +178,18 @@ type Session struct {
 }
 
 type Setting struct {
-	ID                 bool
-	PasswordLogin      string
-	SetupToken         []byte
-	SetupDone          bool
-	DailySendLimit     int32
-	RequirePhone       bool
-	PowSecret          string
-	TermsUrl           string
-	PrivacyUrl         string
-	TermsVersion       string
-	AuditRetentionDays int32
+	ID                  bool
+	PasswordLogin       string
+	SetupToken          []byte
+	SetupDone           bool
+	DailySendLimit      int32
+	RequirePhone        bool
+	PowSecret           string
+	TermsUrl            string
+	PrivacyUrl          string
+	TermsVersion        string
+	AuditRetentionDays  int32
+	AdminsNeedTwoFactor bool
 }
 
 type SigningKey struct {

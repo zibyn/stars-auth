@@ -17,6 +17,12 @@ SELECT u.created_at,
 FROM users u, settings s
 WHERE u.id = $1;
 
+-- name: MustKeepTwoFactor :one
+-- 管理员必须启用两步验证 is on and the User holds a Management API Role.
+SELECT (s.admins_need_two_factor AND EXISTS (
+    SELECT 1 FROM user_roles r WHERE r.user_id = $1 AND r.api = 'urn:stars-auth:management-api'))::boolean AS must
+FROM settings s;
+
 -- name: Reauthenticate :exec
 -- The User proved themselves again in this Session.
 UPDATE sessions SET auth_time = now(), amr = @amr WHERE id = @id AND user_id = @user_id;
