@@ -99,6 +99,7 @@ export function oidcClient({
 			tokenKey,
 			JSON.stringify({
 				accessToken: tok.access_token,
+				idToken: tok.id_token,
 				expiresAt: Date.now() + tok.expires_in * 1000,
 			}),
 		);
@@ -107,10 +108,13 @@ export function oidcClient({
 			: home;
 	}
 
-	function accessToken(): string | null {
+	// The ID token lives as long as the access token, so one expiry covers both.
+	function tokens(): { accessToken: string; idToken: string } | null {
 		const tok = JSON.parse(sessionStorage.getItem(tokenKey) ?? "null");
-		return tok && tok.expiresAt - 30_000 > Date.now() ? tok.accessToken : null;
+		return tok && tok.expiresAt - 30_000 > Date.now() ? tok : null;
 	}
+
+	const accessToken = () => tokens()?.accessToken ?? null;
 
 	// api calls an API path, signing in first when needed; body goes as JSON.
 	async function api<T>(
@@ -145,5 +149,21 @@ export function oidcClient({
 	// forget drops the access token, as after the account is deleted.
 	const forget = () => sessionStorage.removeItem(tokenKey);
 
-	return { login, finishLogin, api, forget };
+	// logout ends the browser Session, which signs out every Application
+	// that signed in with it, and comes back home to sign in again. The
+	// id_token_hint skips the confirmation page; an expired one is refused,
+	// so past expiry it is left out and the page asks first.
+	function logout() {
+		const idToken = tokens()?.idToken;
+		forget();
+		location.assign(
+			`/logout?${new URLSearchParams({
+				client_id: clientID,
+				post_logout_redirect_uri: location.origin + home,
+				...(idToken && { id_token_hint: idToken }),
+			})}`,
+		);
+	}
+
+	return { login, finishLogin, api, forget, logout };
 }

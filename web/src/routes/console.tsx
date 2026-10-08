@@ -3,8 +3,15 @@ import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 import { UserRound } from "lucide-react";
 import { Panel } from "#/components/console";
 import { Star } from "#/components/star";
-import { APIError, api, type Me } from "#/lib/console-api";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "#/components/ui/dropdown-menu";
+import { APIError, api, logout, type Me } from "#/lib/console-api";
 import { navGroups } from "#/lib/nav";
+import { avatarInitial } from "#/lib/users";
 
 export const Route = createFileRoute("/console")({ component: Console });
 
@@ -68,17 +75,26 @@ function Console() {
 						</Link>
 					))}
 				</nav>
-				<div className="mt-auto flex items-center gap-3 px-3">
-					<span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary-soft text-primary-ink">
-						<UserRound className="size-3.5" />
-					</span>
-					<span
-						className="truncate font-mono text-muted-foreground text-xs"
-						title={me.data.sub}
-					>
-						{me.data.sub}
-					</span>
-				</div>
+				<DropdownMenu>
+					<DropdownMenuTrigger className="mt-auto flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-card">
+						<span className="grid size-6 shrink-0 place-items-center rounded-full bg-primary-soft font-semibold text-primary-ink text-xs">
+							{me.data.identifier ? (
+								avatarInitial(me.data.identifier)
+							) : (
+								<UserRound className="size-3.5" />
+							)}
+						</span>
+						<span className="truncate" title={me.data.identifier}>
+							{me.data.identifier}
+						</span>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent side="top">
+						<DropdownMenuItem render={<Link to="/account" />}>
+							账号中心
+						</DropdownMenuItem>
+						<DropdownMenuItem onClick={logout}>退出登录</DropdownMenuItem>
+					</DropdownMenuContent>
+				</DropdownMenu>
 			</aside>
 			<Panel className="min-w-0 flex-1 px-14 py-11">
 				<div className="max-w-4xl space-y-6">

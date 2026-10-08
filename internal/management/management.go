@@ -194,6 +194,7 @@ type UserDetail struct {
 type meOutput struct {
 	Body struct {
 		Sub         string   `json:"sub"`
+		Identifier  string   `json:"identifier" doc:"The caller's primary Identifier: phone, else email, else username"`
 		Permissions []string `json:"permissions"`
 	}
 }
@@ -202,6 +203,20 @@ func (s *Service) me(ctx context.Context, _ *struct{}) (*meOutput, error) {
 	c := ctx.Value(callerKey{}).(caller)
 	out := &meOutput{}
 	out.Body.Sub, out.Body.Permissions = c.sub, c.permissions
+	r, err := s.q.GetUser(ctx, c.sub)
+	if err != nil {
+		return nil, err
+	}
+	u, err := user(r.ID, r.CreatedAt.Time, r.DisabledAt, r.Identifiers, r.Roles)
+	if err != nil {
+		return nil, err
+	}
+	for _, kind := range []string{"phone", "email", "username"} {
+		if i := slices.IndexFunc(u.Identifiers, func(i Identifier) bool { return i.Kind == kind }); i >= 0 {
+			out.Body.Identifier = u.Identifiers[i].Value
+			break
+		}
+	}
 	return out, nil
 }
 

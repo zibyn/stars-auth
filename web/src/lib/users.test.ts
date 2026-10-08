@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { managementAPI, onlyAdmins, primaryIdentifier } from "./users.ts";
+import {
+	avatarInitial,
+	managementAPI,
+	onlyAdmins,
+	primaryIdentifier,
+} from "./users.ts";
 
 const admin = { roles: [{ api: managementAPI, key: "owner", name: "所有者" }] };
 const customer = { roles: [] };
@@ -29,4 +34,11 @@ test("the primary identifier is the phone, then email, then username", () => {
 	assert.equal(primaryIdentifier([username, email]), email.value);
 	assert.equal(primaryIdentifier([username]), username.value);
 	assert.equal(primaryIdentifier([]), undefined);
+});
+
+test("the avatar shows the identifier's first letter, past +86", () => {
+	assert.equal(avatarInitial("+8613800001111"), "1");
+	assert.equal(avatarInitial("+447700900123"), "+");
+	assert.equal(avatarInitial("alice@example.com"), "A");
+	assert.equal(avatarInitial("张三"), "张");
 });

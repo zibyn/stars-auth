@@ -21,10 +21,11 @@ import {
 	APIError,
 	api,
 	forget,
+	logout,
 	type Me,
 	type Session,
 } from "#/lib/account-api";
-import { kindName } from "#/lib/users";
+import { avatarInitial, kindName, primaryIdentifier } from "#/lib/users";
 
 export const Route = createFileRoute("/account")({ component: Account });
 
@@ -83,9 +84,7 @@ function Account() {
 			setPending(() => action);
 		}
 	};
-	const main = ["phone", "email", "username"]
-		.map((k) => user.identifiers.find((i) => i.kind === k))
-		.find(Boolean);
+	const main = primaryIdentifier(user.identifiers);
 
 	return (
 		<div className="min-h-svh bg-canvas p-2 text-sm sm:p-6">
@@ -96,18 +95,19 @@ function Account() {
 				</div>
 				<header className="flex items-center gap-4">
 					<div className="flex size-14 shrink-0 items-center justify-center rounded-full bg-primary-soft font-semibold text-primary-ink text-xl">
-						{main?.value.replace(/^\+86/, "").charAt(0).toUpperCase() ?? (
-							<Star className="size-6" />
-						)}
+						{main ? avatarInitial(main) : <Star className="size-6" />}
 					</div>
 					<div className="min-w-0">
 						<h1 className="truncate font-semibold text-2xl tracking-tight">
-							{main?.value ?? user.sub}
+							{main ?? user.sub}
 						</h1>
 						<p className="text-[13px] text-muted-foreground">
 							注册于 {date(user.createdAt)}
 						</p>
 					</div>
+					<Button variant="outline" className="ml-auto" onClick={logout}>
+						退出登录
+					</Button>
 				</header>
 				<LoginMethods me={user} guard={guard} />
 				{user.passwordAllowed && <Security me={user} guard={guard} />}

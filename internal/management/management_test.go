@@ -178,11 +178,16 @@ func TestOwnerBrowsesUsers(t *testing.T) {
 
 	var me struct {
 		Sub         string
+		Identifier  string
 		Permissions []string
 	}
-	if code := e.get(tok, "/me", &me); code != 200 || me.Sub != e.owner ||
+	if code := e.get(tok, "/me", &me); code != 200 || me.Sub != e.owner || me.Identifier != "owner" ||
 		!slices.Contains(me.Permissions, "users:read") || !slices.Contains(me.Permissions, "keys:rotate") {
 		t.Errorf("me: %d %+v", code, me)
+	}
+	// The primary Identifier: phone, then email, then username.
+	if code := e.get(e.token("BOB", nil), "/me", &me); code != 200 || me.Identifier != "bob@example.com" {
+		t.Errorf("me as BOB: %d %+v", code, me)
 	}
 
 	var list struct{ Users []user }

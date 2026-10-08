@@ -5,7 +5,7 @@ import { oidcClient } from "#/lib/oidc";
 
 export { APIError } from "#/lib/oidc";
 
-export const { login, finishLogin, api } = oidcClient({
+export const { login, finishLogin, api, logout } = oidcClient({
 	clientID: "stars-auth-console",
 	home: "/console",
 	apiPrefix: "/v1/management",
@@ -25,7 +25,7 @@ export type User = {
 };
 export type UserDetail = User & { hasPassword: boolean };
 export type RoleInfo = Role & { apiName: string; builtin: boolean };
-export type Me = { sub: string; permissions: string[] };
+export type Me = { sub: string; identifier: string; permissions: string[] };
 export type Session = {
 	id: string;
 	kind: "browser" | "app";

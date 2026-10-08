@@ -32,3 +32,8 @@ export const primaryIdentifier = (identifiers: Identifier[]) =>
 	identifierKinds
 		.map((kind) => identifiers.find((i) => i.kind === kind))
 		.find(Boolean)?.value;
+
+// avatarInitial is the letter an avatar shows for a primary Identifier,
+// skipping a mainland phone number's +86.
+export const avatarInitial = (identifier: string) =>
+	identifier.replace(/^\+86/, "").charAt(0).toUpperCase();
