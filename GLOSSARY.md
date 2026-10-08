@@ -49,8 +49,16 @@ _Avoid_: 账号, 用户名, 联系方式
 _Avoid_: 社交账号, 第三方账号, Identity
 
 **Credential**:
-User 持有、用于证明身份的秘密,如密码、Passkey、TOTP;本身不能定位 User,须配合 Identifier 或由设备提供。
+User 持有、用于证明身份的秘密,如密码、Passkey、TOTP、恢复码;本身不能定位 User,须配合 Identifier 或由设备提供。
 _Avoid_: 密钥, 因子
+
+**两步验证**(2FA):
+User 自愿开启的状态:开启后,除 Passkey 外,任何第一因素登录都还要输入 TOTP 或一个恢复码。
+_Avoid_: MFA, 二次验证, 双因素认证
+
+**恢复码**:
+开启两步验证时生成的一组一次性 Credential,每个可代替一次 TOTP,供丢失验证器时使用。
+_Avoid_: 备用码, 救援码, 备份码
 
 **Channel**:
 把验证码送达 Identifier 的外部投递服务(短信或邮件),由管理员选择并配置;每种 Identifier 同时只启用一个。
