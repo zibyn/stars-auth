@@ -29,30 +29,37 @@
 | **Provider** | 由外部服务证明"这是谁" | 一个已验证的 Identifier(如一键登录给出的手机号),**或**一个 External Identity | 可以添加多个 Provider,同一 Provider 类型也可以添加多个,各自的 External Identity 互不相通 |
 
 - **核心能力不做成插件**:验证码登录、密码、Passkey、TOTP。
-- **两个免写代码的通用插件**:
+- **三个免写代码的通用插件**:
   - **Webhook Channel**:把 `{"to": 目标, "code": 验证码}` POST 到管理员指定的 URL,返回 2xx 即视为送达;请求头 `X-Stars-Signature: t=<秒>,v1=<hex HMAC-SHA256(密钥, "<t>.<body>")>`,接收方应拒绝过旧的 `t` 以防重放;
-  - **通用 OIDC Provider 类型**:填 issuer、client_id、secret 即可接入,见下文。
+  - **通用 OIDC Provider 类型**:填 issuer、client_id、secret 即可接入,见下文;
+  - **通用 OAuth2 Provider 类型**:填 authorization、token、userinfo 三个 endpoint、scope 与用户 ID 字段即可接入,见下文。
 - **Provider 的交互形态**:每个 Provider 类型声明自己支持哪种,或两种都支持。
   - **重定向型**:托管登录页跳到服务商,再接收回调;
   - **客户端令牌型**:客户端从平台拿到令牌,提交到直连 API,并带上 Provider ID。
 - **Provider 的可选回调**:解绑或注销时触发,用于吊销第三方令牌(Apple 必需)。
 - **配置 schema**:每个插件声明自己的配置字段(类型、是否为密钥字段),管理端据此自动渲染表单。
 - **服务商附带的信息**:Provider 返回的邮箱等附带信息一律忽略,不据此关联 User。
-- **一期内置插件**:
+- **内置插件**:
   - Channel:阿里云短信认证、SMTP、Webhook;
-  - Provider 类型:无(通用 OIDC 与 Apple 在二期)。
+  - Provider 类型:通用 OIDC、通用 OAuth2、Apple,以及 Google、Microsoft、GitHub 三个具名供应商——具名供应商与通用类型共用同一份实现,差别只在端点、scope、品牌是否预填。
 
 ### Provider 的配置与身份
 
 - **Provider ID**:管理员创建时填写的 slug(如 `google`),出现在回调 URL `/login/providers/{id}/callback` 和直连 API 的请求里,创建后不可改。
-- **身份锚点**:External Identity 是 (Provider, 上游 `sub`)。通用 OIDC 的 issuer 创建后不可改;client_id 和密钥可以改。
+- **身份锚点**:External Identity 是 (Provider, 上游的用户 ID)——通用 OIDC 是 id_token 的 `sub`,通用 OAuth2 是配置里指定的 userinfo 字段。锚定它的字段创建后不可改:Provider ID、通用 OIDC 的 issuer、Microsoft 的租户;client_id 和密钥可以改。
 - **停用与删除**:停用后托管页不再显示,已绑定的 User 也不能用它登录。还有 External Identity 绑定时只能停用,不能删除。
-- **请求的信息**:只请求 `openid`;Apple 不请求 `name email`,首次登录返回的姓名直接丢弃。
+- **请求的信息**:OIDC 只请求 `openid`;Apple 不请求 `name email`,首次登录返回的姓名直接丢弃;通用 OAuth2 的 scope 由管理员按服务商要求填写(GitHub 预设已写死)。
 
 ### 通用 OIDC Provider 类型
 
-- 只接真正的 OIDC 上游:必须提供 discovery(`/.well-known/openid-configuration`),校验 id_token。纯 OAuth2 服务(如 GitHub)不支持,要接就另写一个 Provider 类型。
+- 只接真正的 OIDC 上游:必须提供 discovery(`/.well-known/openid-configuration`),校验 id_token。Google、Microsoft 是照它实现的具名供应商:issuer 写死在类型里(微软的是模板,见 ADR 0013),管理员只填 client_id 与 client secret。
 - 只支持重定向型:authorization code + PKCE + `state` + `nonce`。原生 App 要接时,再加客户端令牌型(届时需要"额外接受的 `aud`")。
+
+### 通用 OAuth2 Provider 类型
+
+- 接不走 OIDC 的服务(如 GitHub):没有 discovery,也没有 id_token,身份只能来自拿 access token 调 userinfo,所以**不带上游的签名背书**(ADR 0013)。管理员因此必须指定 userinfo 里哪个字段是用户 ID,而且该字段必须上游不会变。
+- **配置**:authorization、token、userinfo 三个 endpoint,scope,client_id,client secret,用户 ID 字段名。
+- 只支持重定向型,与通用 OIDC 一样。GitHub 是它的具名供应商:endpoints 与 scope 写死,用户 ID 取数字 `id`。不请求邮箱——GitHub 的邮箱要么私密、要么要另调 `/user/emails`,而认证结果里的邮箱本来就被丢弃。
 
 ### Apple Provider 类型
 

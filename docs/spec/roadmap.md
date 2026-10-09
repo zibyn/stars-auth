@@ -27,14 +27,14 @@
 - Passkey(托管页 conditional UI、直连 API 的 WebAuthn challenge、SDK 调用系统 API)。
 - TOTP 2FA 与恢复码;"管理员必须启用 2FA 或 Passkey"开关。
 - 动态生成 `/.well-known/` 文件:`apple-app-site-association`、`assetlinks.json`、`passkey-endpoints`、`change-password`。
-- Provider 框架落地:通用 OIDC Provider、Apple Provider(含注销回调)。
+- Provider 框架落地:通用 OIDC、通用 OAuth2、Apple(含注销回调),以及 Google、Microsoft、GitHub 三个具名供应商;管理端把它们收进独立的「认证源」分组。
 - `client_credentials` 与服务账号、默认 Role、Management API 对外文档。
 - 审计导出 CSV;主密钥轮换命令。
 
 **完成标准**:
 - 同一个 User 在 iOS 上添加 Passkey 后,能用 Passkey 登录;
 - 开启 TOTP 后,验证码登录也要求输入 TOTP;
-- 用 Google 通用 OIDC 登录成功。
+- 用 Google、Microsoft、GitHub 各登录成功一次;Microsoft 在 `common` 租户下的 issuer 校验也验证过。
 
 ## 三期(1.0):认证与发布
 
