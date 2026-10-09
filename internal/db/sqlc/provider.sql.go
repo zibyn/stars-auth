@@ -38,7 +38,7 @@ WITH added AS (
     RETURNING provider, user_id
 )
 INSERT INTO audit_log (event, sub, detail)
-SELECT 'external_identity.bound', user_id, jsonb_build_object('provider', provider, 'by', user_id) FROM added
+SELECT 'external_identity.added', user_id, jsonb_build_object('provider', provider, 'by', user_id) FROM added
 `
 
 type BindExternalIdentityParams struct {

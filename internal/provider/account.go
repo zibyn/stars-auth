@@ -134,7 +134,7 @@ func (s *Store) Unbind(ctx context.Context, userID, providerID string) error {
 	if err := s.unlink(ctx, providerID, gone); err != nil {
 		slog.Warn("unlink external identity", "provider", providerID, "err", err)
 		detail, _ := json.Marshal(map[string]string{"provider": providerID, "error": err.Error()})
-		if err := s.q.Audit(ctx, sqlc.AuditParams{Event: "external_identity.revoke_failed",
+		if err := s.q.Audit(ctx, sqlc.AuditParams{Event: "provider.unlink_failed",
 			Sub: pgtype.Text{String: userID, Valid: true}, Detail: detail}); err != nil {
 			slog.Error("audit", "err", err)
 		}

@@ -323,7 +323,9 @@ func (s *Store) signIn(ctx context.Context, id string, ident Identity) (string, 
 }
 
 // provider builds the enabled Provider id.
-func (s *Store) provider(ctx context.Context, id string) (Redirect, error) { return s.build(ctx, id, true) }
+func (s *Store) provider(ctx context.Context, id string) (Redirect, error) {
+	return s.build(ctx, id, true)
+}
 
 // build builds the Provider id; only an enabled one if enabledOnly.
 func (s *Store) build(ctx context.Context, id string, enabledOnly bool) (Redirect, error) {

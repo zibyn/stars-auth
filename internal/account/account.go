@@ -280,7 +280,7 @@ func (s *Service) unbindProvider(ctx context.Context, in *providerPath) (*struct
 		return nil, fail(err)
 	}
 	detail, _ := json.Marshal(map[string]string{"provider": in.ID, "by": sub})
-	return nil, s.q.Audit(context.WithoutCancel(ctx), sqlc.AuditParams{Event: "external_identity.unbound",
+	return nil, s.q.Audit(context.WithoutCancel(ctx), sqlc.AuditParams{Event: "external_identity.removed",
 		Sub: pgtype.Text{String: sub, Valid: true}, Detail: detail})
 }
 
