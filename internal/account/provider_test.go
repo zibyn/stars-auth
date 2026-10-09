@@ -264,7 +264,7 @@ func TestBindRefusesAnotherUsersExternalIdentity(t *testing.T) {
 		t.Errorf("Alice: %+v", got)
 	}
 	up.Sub = "google-user-2"
-	if q := e.redirect(bob, "/v1/account/providers/google/bind"); q.Get("error") != "已绑定这个服务商的另一个账号,请先解绑" {
+	if q := e.redirect(bob, "/v1/account/providers/google/bind"); q.Get("error") != "已绑定这个外部登录方式的另一个账号,请先解绑" {
 		t.Errorf("Bob binds a second Google account: %v", q)
 	}
 }
@@ -331,7 +331,7 @@ func TestReauthenticateWithProvider(t *testing.T) {
 	// Signed in at the upstream before the redirect: not afresh.
 	stale()
 	up.AuthTime = time.Now().Add(-time.Hour).Unix()
-	if q := e.redirect(tok, "/v1/account/providers/google/reauth"); q.Get("error") != "请在服务商重新登录后再试" || recent() {
+	if q := e.redirect(tok, "/v1/account/providers/google/reauth"); q.Get("error") != "请在外部登录页重新登录后再试" || recent() {
 		t.Errorf("old auth_time: %v", q)
 	}
 	up.AuthTime = time.Now().Unix()

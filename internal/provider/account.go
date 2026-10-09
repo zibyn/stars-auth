@@ -17,9 +17,9 @@ import (
 const (
 	// ErrTaken: the External Identity is another User's (ADR 0003).
 	ErrTaken         identity.Invalid = "这个外部账号已绑定其他账号,请先在那边解绑或注销"
-	ErrBoundAnother  identity.Invalid = "已绑定这个服务商的另一个账号,请先解绑"
+	ErrBoundAnother  identity.Invalid = "已绑定这个外部登录方式的另一个账号,请先解绑"
 	ErrNotYours      identity.Invalid = "这不是你绑定的外部账号"
-	ErrNotAfreshAuth identity.Invalid = "请在服务商重新登录后再试"
+	ErrNotAfreshAuth identity.Invalid = "请在外部登录页重新登录后再试"
 )
 
 // BeginAccount starts a redirect from the account center to the enabled
