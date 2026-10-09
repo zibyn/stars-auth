@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"slices"
 	"testing"
 	"time"
 
@@ -231,5 +232,80 @@ func TestBindRefusesAnotherUsersExternalIdentity(t *testing.T) {
 	up.Sub = "google-user-2"
 	if q := e.redirect(bob, "/v1/account/providers/google/bind"); q.Get("error") != "已绑定这个服务商的另一个账号,请先解绑" {
 		t.Errorf("Bob binds a second Google account: %v", q)
+	}
+}
+
+// A User without 两步验证 can reauthenticate by signing in afresh at a
+// Provider they bound, as the External Identity they bound.
+func TestReauthenticateWithProvider(t *testing.T) {
+	e := start(t)
+	ctx := context.Background()
+	e.user("ALICE", "phone:+8613800138000")
+	up := e.addGoogle()
+	tok := e.signIn("ALICE", 0)
+	e.redirect(tok, "/v1/account/providers/google/bind")
+	stale := func() {
+		t.Helper()
+		if _, err := e.pool.Exec(ctx, "UPDATE sessions SET auth_time = now() - interval '1 hour'"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recent := func() bool {
+		t.Helper()
+		var got me
+		e.call("GET", tok, "/v1/account/me", nil, &got)
+		return got.RecentAuthUntil.After(time.Now())
+	}
+
+	stale()
+	if q := e.redirect(tok, "/v1/account/providers/google/reauth"); q.Get("reauthenticated") != "google" || !recent() {
+		t.Fatalf("reauth: %v", q)
+	}
+	if up.Last.Prompt != "login" || up.Last.MaxAuthnAgeSecs == nil || *up.Last.MaxAuthnAgeSecs != 0 {
+		t.Errorf("asked the upstream for prompt %q max_age %v", up.Last.Prompt, up.Last.MaxAuthnAgeSecs)
+	}
+	var amr []string
+	if err := e.pool.QueryRow(ctx, "SELECT amr FROM sessions").Scan(&amr); err != nil || !slices.Equal(amr, []string{"fed"}) {
+		t.Errorf("amr %v: %v", amr, err)
+	}
+
+	// Signed in at the upstream before the redirect: not afresh.
+	stale()
+	up.AuthTime = time.Now().Add(-time.Hour).Unix()
+	if q := e.redirect(tok, "/v1/account/providers/google/reauth"); q.Get("error") != "请在服务商重新登录后再试" || recent() {
+		t.Errorf("old auth_time: %v", q)
+	}
+	up.AuthTime = time.Now().Unix()
+	if q := e.redirect(tok, "/v1/account/providers/google/reauth"); q.Get("reauthenticated") != "google" || !recent() {
+		t.Errorf("fresh auth_time: %v", q)
+	}
+
+	// Another Google account is not the one bound.
+	stale()
+	up.Sub = "google-user-2"
+	if q := e.redirect(tok, "/v1/account/providers/google/reauth"); q.Get("error") != "这不是你绑定的外部账号" || recent() {
+		t.Errorf("another account: %v", q)
+	}
+
+	e.user("BOB", "phone:+8613900139000")
+	if c := e.call("POST", e.signIn("BOB", time.Hour), "/v1/account/providers/google/reauth", nil, nil); c != 422 {
+		t.Errorf("reauth at a Provider not bound: %d", c)
+	}
+	if c := e.call("POST", tok, "/v1/account/providers/nope/reauth", nil, nil); c != 422 && c != 404 {
+		t.Errorf("reauth at no Provider: %d", c)
+	}
+}
+
+// With 两步验证 on, a Provider does not reauthenticate: only a TOTP or
+// recovery code does.
+func TestReauthenticateWithProviderNeedsNoTwoFactor(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", "phone:+8613800138000")
+	e.addGoogle()
+	tok := e.signIn("ALICE", 0)
+	e.redirect(tok, "/v1/account/providers/google/bind")
+	e.enableTwoFactor(tok)
+	if c := e.call("POST", tok, "/v1/account/providers/google/reauth", nil, nil); c != 422 {
+		t.Errorf("reauth at Google with 两步验证 on: %d", c)
 	}
 }
