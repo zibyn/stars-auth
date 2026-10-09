@@ -7,8 +7,8 @@ import {
 } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { toast } from "sonner";
 import { encode } from "uqr";
+import { CopyButton } from "#/components/copy-button";
 import { FormError, FormField, failed, saved } from "#/components/form";
 import { ItemList } from "#/components/item-list";
 import { Star } from "#/components/star";
@@ -572,23 +572,6 @@ function QRCode({ value, className }: { value: string; className?: string }) {
 			<rect width={data.length} height={data.length} fill="white" />
 			<path d={d} fill="black" />
 		</svg>
-	);
-}
-
-function CopyButton({ value }: { value: string }) {
-	return (
-		<Button
-			type="button"
-			variant="outline"
-			size="sm"
-			onClick={() =>
-				navigator.clipboard
-					.writeText(value)
-					.then(() => toast.success("已复制"), failed("复制失败"))
-			}
-		>
-			复制
-		</Button>
 	);
 }
 

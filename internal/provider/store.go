@@ -302,6 +302,23 @@ func (s *Store) signIn(ctx context.Context, id string, ident Identity) (string, 
 	return sub, err
 }
 
+// ExternalIdentity is one of a User's bindings, as an admin sees it.
+type ExternalIdentity struct {
+	Provider  string    `json:"provider" doc:"Provider ID"`
+	Name      string    `json:"name" doc:"The Provider's name"`
+	CreatedAt time.Time `json:"createdAt" doc:"When it was bound"`
+}
+
+// ExternalIdentities lists the User's bindings in the login page's order.
+func (s *Store) ExternalIdentities(ctx context.Context, userID string) ([]ExternalIdentity, error) {
+	rows, err := s.q.ExternalIdentities(ctx, userID)
+	out := []ExternalIdentity{}
+	for _, r := range rows {
+		out = append(out, ExternalIdentity{Provider: r.Provider, Name: r.Name, CreatedAt: r.CreatedAt.Time})
+	}
+	return out, err
+}
+
 // provider builds the enabled Provider id.
 func (s *Store) provider(ctx context.Context, id string) (Redirect, error) {
 	return s.build(ctx, id, true)

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/zibyn/stars-auth/internal/db/sqlc"
+	"github.com/zibyn/stars-auth/internal/identity"
 	"github.com/zibyn/stars-auth/internal/provider"
 )
 
@@ -83,6 +84,41 @@ func (s *Service) disableProvider(ctx context.Context, in *providerPath) (*struc
 
 func (s *Service) deleteProvider(ctx context.Context, in *providerPath) (*struct{}, error) {
 	return nil, providerErr(s.providers.Delete(ctx, in.ID))
+}
+
+type listExternalIdentitiesOutput struct {
+	Body struct {
+		ExternalIdentities []provider.ExternalIdentity `json:"externalIdentities" nullable:"false"`
+	}
+}
+
+func (s *Service) listExternalIdentities(ctx context.Context, in *subPath) (*listExternalIdentitiesOutput, error) {
+	list, err := s.providers.ExternalIdentities(ctx, in.Sub)
+	out := &listExternalIdentitiesOutput{}
+	out.Body.ExternalIdentities = list
+	return out, err
+}
+
+// unbindExternalIdentity is for a User who lost their account upstream
+// (an Apple ID, say); the admin checked who they are offline.
+func (s *Service) unbindExternalIdentity(ctx context.Context, in *struct {
+	Sub      string `path:"sub"`
+	Provider string `path:"provider"`
+}) (*struct{}, error) {
+	if err := s.mayManage(ctx, in.Sub); err != nil {
+		return nil, err
+	}
+	err := s.providers.Unbind(ctx, in.Sub, in.Provider)
+	switch {
+	case errors.Is(err, identity.ErrNotBound):
+		return nil, huma.Error404NotFound("该用户没有绑定这个 Provider")
+	case errors.Is(err, identity.ErrLastLoginPath):
+		return nil, huma.Error409Conflict(err.Error())
+	case err != nil:
+		return nil, err
+	}
+	detail, _ := json.Marshal(map[string]string{"provider": in.Provider, "by": callerSub(ctx)})
+	return nil, s.q.Audit(ctx, sqlc.AuditParams{Event: "external_identity.removed", Sub: pgtype.Text{String: in.Sub, Valid: true}, Detail: detail})
 }
 
 func providerErr(err error) error {

@@ -85,6 +85,8 @@ func (s *Service) Register(mux *http.ServeMux) {
 	op(api, http.MethodDelete, "delete-user", "users:write", "/users/{sub}", "Delete a User and all their data", s.deleteUser, http.StatusConflict)
 	op(api, http.MethodDelete, "reset-two-factor", "users:write", "/users/{sub}/2fa", "Reset a User's 两步验证: their TOTP and 恢复码 go, their Sessions stay", s.resetTwoFactor, http.StatusConflict)
 	op(api, http.MethodPut, "replace-identifier", "users:write", "/users/{sub}/identifiers/{kind}", "Set a User's Identifier of a kind, replacing theirs", s.replaceIdentifier, http.StatusConflict)
+	get(api, "list-external-identities", "users:read", "/users/{sub}/external-identities", "A User's External Identities", s.listExternalIdentities)
+	op(api, http.MethodDelete, "unbind-external-identity", "users:write", "/users/{sub}/external-identities/{provider}", "Unbind a User's External Identity, unless it is their last way to sign in; its Provider is told to revoke", s.unbindExternalIdentity, http.StatusConflict)
 	get(api, "overview", "users:read", "/overview", "Counts for the console's overview", s.overview)
 	get(api, "list-audit", "audit:read", "/audit", "Search the audit log", s.listAudit)
 	get(api, "list-roles", "users:read", "/roles", "All Roles, for the Role filter", s.listRoles)

@@ -5,10 +5,12 @@ import {
 	asksShorterRetention,
 	asksTermsVersion,
 	channelSchema,
+	disableImpact,
 	hasChannel,
 	lastRotation,
 	numberSchema,
 	passwordLocksOut,
+	providerSchema,
 	rotatedRecently,
 	sendsNothing,
 	smsLocked,
@@ -263,4 +265,77 @@ test("the current key's creation is the last rotation once a key retired", () =>
 test("a lone key was never rotated", () => {
 	assert.equal(lastRotation([{ ...first, current: true }]), "");
 	assert.equal(lastRotation([]), "");
+});
+
+const oidcFields = [
+	{
+		key: "issuer",
+		label: "Issuer",
+		type: "url",
+		secret: false,
+		optional: false,
+	},
+	{
+		key: "client_secret",
+		label: "Client secret",
+		type: "text",
+		secret: true,
+		optional: false,
+	},
+] as const;
+
+test("a new Provider needs an ID in the callback URL's form, a name and its fields", () => {
+	assert.deepEqual(
+		fieldErrors(
+			providerSchema(oidcFields, {}, true).safeParse({
+				id: "Google!",
+				name: " ",
+				config: { issuer: "accounts.google.com", client_secret: "" },
+			}),
+		),
+		{
+			id: "Provider ID 只能用小写字母、数字和 -，以字母或数字开头，最多 32 位。",
+			name: "请填写名称。",
+			"config.issuer": "请填写有效的地址。",
+			"config.client_secret": "请填写Client secret。",
+		},
+	);
+	assert.deepEqual(
+		fieldErrors(
+			providerSchema(oidcFields, {}, true).safeParse({
+				id: "google",
+				name: "Google",
+				config: { issuer: "https://accounts.google.com", client_secret: "s" },
+			}),
+		),
+		{},
+	);
+});
+
+test("editing a Provider keeps its ID and a secret already set", () => {
+	assert.deepEqual(
+		fieldErrors(
+			providerSchema(
+				oidcFields,
+				{ client_secret: "2026-10-01T00:00:00Z" },
+				false,
+			).safeParse({
+				id: "",
+				name: "Google",
+				config: { issuer: "https://accounts.google.com", client_secret: "" },
+			}),
+		),
+		{},
+	);
+});
+
+test("disabling a Provider says whom it locks out", () => {
+	assert.equal(
+		disableImpact({ bound: 12, onlyLoginPath: 3 }),
+		"12 个用户已绑定，其中 3 个没有其他登录方式，停用后他们无法登录。",
+	);
+	assert.equal(
+		disableImpact({ bound: 0, onlyLoginPath: 0 }),
+		"还没有用户绑定。停用后登录页不再显示这个按钮。",
+	);
 });

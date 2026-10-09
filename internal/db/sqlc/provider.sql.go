@@ -74,6 +74,40 @@ func (q *Queries) EnabledProviders(ctx context.Context) ([]EnabledProvidersRow, 
 	return items, nil
 }
 
+const externalIdentities = `-- name: ExternalIdentities :many
+SELECT e.provider, p.name, e.created_at
+FROM external_identities e JOIN providers p ON p.id = e.provider
+WHERE e.user_id = $1
+ORDER BY p.created_at
+`
+
+type ExternalIdentitiesRow struct {
+	Provider  string
+	Name      string
+	CreatedAt pgtype.Timestamptz
+}
+
+// A User's External Identities, in the login page's order of their Providers.
+func (q *Queries) ExternalIdentities(ctx context.Context, userID string) ([]ExternalIdentitiesRow, error) {
+	rows, err := q.db.Query(ctx, externalIdentities, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ExternalIdentitiesRow
+	for rows.Next() {
+		var i ExternalIdentitiesRow
+		if err := rows.Scan(&i.Provider, &i.Name, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getProvider = `-- name: GetProvider :one
 SELECT type, name, enabled, config FROM providers WHERE id = $1
 `

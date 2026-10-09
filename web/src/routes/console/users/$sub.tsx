@@ -41,6 +41,7 @@ import {
 	APIError,
 	type Application,
 	api,
+	type ExternalIdentity,
 	type RoleInfo,
 	type Session,
 	type UserDetail,
@@ -62,6 +63,7 @@ export const Route = createFileRoute("/console/users/$sub")({
 		Promise.all([
 			queryClient.ensureQueryData(userQuery(sub)),
 			queryClient.ensureQueryData(sessionsQuery(sub)),
+			queryClient.ensureQueryData(externalIdentitiesQuery(sub)),
 			queryClient.ensureQueryData(rolesQuery),
 		]).catch((e) => {
 			throw e instanceof APIError && e.status === 404 ? notFound() : e;
@@ -89,6 +91,15 @@ const sessionsQuery = (sub: string) =>
 		queryFn: () =>
 			api<{ sessions: Session[] }>(
 				`/users/${encodeURIComponent(sub)}/sessions`,
+			),
+	});
+
+const externalIdentitiesQuery = (sub: string) =>
+	queryOptions({
+		queryKey: ["external-identities", sub],
+		queryFn: () =>
+			api<{ externalIdentities: ExternalIdentity[] }>(
+				`/users/${encodeURIComponent(sub)}/external-identities`,
 			),
 	});
 
@@ -243,6 +254,9 @@ function UserPage() {
 					<Row label="密码">{u.hasPassword ? "已设置" : "未设置"}</Row>
 				</ItemList>
 			</Section>
+			<Section title="已绑定的外部账号">
+				<ExternalIdentities sub={u.sub} who={name} writable={writable} />
+			</Section>
 			<Section title="两步验证">
 				<ItemList>
 					<Row label="状态">
@@ -360,6 +374,61 @@ function useUserAction(sub: string) {
 	});
 	const isPending = useIsMutating({ mutationKey }) > 0;
 	return { mutate, isPending };
+}
+
+// ExternalIdentities lists the accounts at Providers the User signs in
+// with. Unbinding is for a User who lost one (an Apple ID, say); it can't
+// take their last way to sign in.
+function ExternalIdentities({
+	sub,
+	who,
+	writable,
+}: {
+	sub: string;
+	who?: string;
+	writable: boolean;
+}) {
+	const act = useUserAction(sub);
+	const list = useSuspenseQuery(externalIdentitiesQuery(sub)).data
+		.externalIdentities;
+	if (list.length === 0) {
+		return (
+			<p className="py-3 text-muted-foreground text-sm">没有绑定外部账号。</p>
+		);
+	}
+	return (
+		<ItemList>
+			{list.map((e) => (
+				<Row key={e.provider} label={e.name}>
+					<span className="text-muted-foreground text-xs">
+						绑定于 {date(e.createdAt)}
+					</span>
+					{writable && (
+						<ConfirmDialog
+							trigger={
+								<Button size="sm" variant="ghost" disabled={act.isPending}>
+									解绑
+								</Button>
+							}
+							title={`解绑${who ? `用户 ${who} ` : "这个用户"}的 ${e.name} 账号？`}
+							action="解绑外部账号"
+							onConfirm={() =>
+								act.mutate({
+									method: "DELETE",
+									path: `/external-identities/${encodeURIComponent(e.provider)}`,
+									what: "解绑外部账号失败",
+								})
+							}
+						>
+							请先线下核实对方身份。解绑后该用户不能再用 {e.name} 登录，会通知{" "}
+							{e.name}{" "}
+							撤销授权；要用得在账号中心重新绑定。如果这是他唯一的登录方式，不能解绑。
+						</ConfirmDialog>
+					)}
+				</Row>
+			))}
+		</ItemList>
+	);
 }
 
 function Sessions({ sub, writable }: { sub: string; writable: boolean }) {

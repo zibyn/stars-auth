@@ -63,5 +63,12 @@ UPDATE external_identities SET token = $3 WHERE provider = $1 AND subject = $2;
 -- name: UserExternalIdentities :many
 SELECT provider, subject, token FROM external_identities WHERE user_id = $1;
 
+-- name: ExternalIdentities :many
+-- A User's External Identities, in the login page's order of their Providers.
+SELECT e.provider, p.name, e.created_at
+FROM external_identities e JOIN providers p ON p.id = e.provider
+WHERE e.user_id = $1
+ORDER BY p.created_at;
+
 -- name: RemoveExternalIdentity :one
 DELETE FROM external_identities WHERE user_id = $1 AND provider = $2 RETURNING subject, token;

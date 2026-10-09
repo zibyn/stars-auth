@@ -66,6 +66,9 @@ func (s *Store) RemoveExternalIdentity(ctx context.Context, sub, provider string
 		}
 		return err
 	})
+	if errors.Is(err, pgx.ErrNoRows) { // no such User
+		err = ErrNotBound
+	}
 	return row, err
 }
 
