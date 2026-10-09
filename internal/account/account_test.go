@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base32"
@@ -48,6 +49,8 @@ type env struct {
 	issuer  string
 	keys    *oidcstore.Keys
 	inbox   *inbox
+	// cookies maps signIn's access tokens to their Session's cookie.
+	cookies map[string]string
 }
 
 func start(t *testing.T) *env {
@@ -72,7 +75,7 @@ func start(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	ts.Config.Handler = server.New(pool.Ping, http.NotFoundHandler(), nil, auth.Register, account.New(pool, keyring, ts.URL).Register)
-	e := &env{t: t, pool: pool, keyring: keyring, issuer: ts.URL, keys: keys, inbox: &inbox{codes: map[string]string{}}}
+	e := &env{t: t, pool: pool, keyring: keyring, issuer: ts.URL, keys: keys, inbox: &inbox{codes: map[string]string{}}, cookies: map[string]string{}}
 	hook := httptest.NewServer(e.inbox)
 	t.Cleanup(hook.Close)
 	for _, kind := range []string{"phone", "email"} {
@@ -127,13 +130,17 @@ func (e *env) user(sub string, idents ...string) {
 func (e *env) signIn(sub string, ago time.Duration) string {
 	e.t.Helper()
 	var sid string
+	cookie := rand.Text()
+	idHash := sha256.Sum256([]byte(cookie))
 	if err := e.pool.QueryRow(context.Background(), `
 		INSERT INTO sessions (id_hash, client_id, user_id, auth_time, amr)
-		VALUES (sha256(random()::text::bytea), 'stars-auth-account', $1, now() - $2 * interval '1 second', '{sms}') RETURNING id`,
-		sub, ago.Seconds()).Scan(&sid); err != nil {
+		VALUES ($3, 'stars-auth-account', $1, now() - $2 * interval '1 second', '{sms}') RETURNING id`,
+		sub, ago.Seconds(), idHash[:]).Scan(&sid); err != nil {
 		e.t.Fatal(err)
 	}
-	return e.token(sub, map[string]any{"sid": sid})
+	tok := e.token(sub, map[string]any{"sid": sid})
+	e.cookies[tok] = cookie
+	return tok
 }
 
 // token signs an access token the way the OIDC provider does; extra adds
@@ -916,12 +923,12 @@ func TestDeleteAccountRevokesApple(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Signed up with Apple, which is then disabled: deleting still revokes.
-	to, err := providers.Begin(ctx, e.issuer, "apple", "authorization")
+	to, err := providers.Begin(ctx, e.issuer, "apple", "authorization", "binder")
 	if err != nil {
 		t.Fatal(err)
 	}
 	form := apple.Approve(to)
-	f, err := providers.Finish(ctx, e.issuer, "apple", form)
+	f, err := providers.Finish(ctx, e.issuer, "apple", form, "binder", "")
 	if err != nil {
 		t.Fatal(err)
 	}

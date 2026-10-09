@@ -243,7 +243,7 @@ func (q *Queries) InsertProviderAccountLogin(ctx context.Context, arg InsertProv
 }
 
 const insertProviderLogin = `-- name: InsertProviderLogin :exec
-INSERT INTO provider_logins (state_hash, provider, nonce, verifier, authn_session) VALUES ($1, $2, $3, $4, $5)
+INSERT INTO provider_logins (state_hash, provider, nonce, verifier, authn_session, binder_hash) VALUES ($1, $2, $3, $4, $5, $6)
 `
 
 type InsertProviderLoginParams struct {
@@ -252,6 +252,7 @@ type InsertProviderLoginParams struct {
 	Nonce        string
 	Verifier     string
 	AuthnSession string
+	BinderHash   []byte
 }
 
 func (q *Queries) InsertProviderLogin(ctx context.Context, arg InsertProviderLoginParams) error {
@@ -261,6 +262,7 @@ func (q *Queries) InsertProviderLogin(ctx context.Context, arg InsertProviderLog
 		arg.Nonce,
 		arg.Verifier,
 		arg.AuthnSession,
+		arg.BinderHash,
 	)
 	return err
 }
@@ -272,7 +274,8 @@ SELECT p.id, p.type, p.name, p.enabled, p.config, p.created_at,
        (SELECT count(*) FROM external_identities e WHERE e.provider = p.id) AS bound,
        (SELECT count(*) FROM external_identities e
         WHERE e.provider = p.id
-          AND NOT EXISTS (SELECT 1 FROM external_identities o WHERE o.user_id = e.user_id AND o.provider <> p.id)
+          AND NOT EXISTS (SELECT 1 FROM external_identities o JOIN providers op ON op.id = o.provider
+                          WHERE o.user_id = e.user_id AND o.provider <> p.id AND op.enabled)
           AND NOT EXISTS (SELECT 1 FROM identifiers i WHERE i.user_id = e.user_id
                           AND (i.kind <> 'username' OR EXISTS (SELECT 1 FROM passwords pw WHERE pw.user_id = e.user_id)))
        ) AS only_login_path
@@ -293,7 +296,7 @@ type ListProvidersRow struct {
 }
 
 // only_login_path counts the bound Users with no other way to sign in
-// (docs/spec/identity.md#不变式).
+// (docs/spec/identity.md#不变式); one at a disabled Provider is none.
 func (q *Queries) ListProviders(ctx context.Context) ([]ListProvidersRow, error) {
 	rows, err := q.db.Query(ctx, listProviders)
 	if err != nil {
@@ -381,12 +384,19 @@ func (q *Queries) PutProviderSecret(ctx context.Context, arg PutProviderSecretPa
 }
 
 const removeExternalIdentity = `-- name: RemoveExternalIdentity :one
-DELETE FROM external_identities WHERE user_id = $1 AND provider = $2 RETURNING subject, token
+WITH gone AS (
+    DELETE FROM external_identities WHERE user_id = $1 AND provider = $2 RETURNING user_id, provider, subject, token
+), audited AS (
+    INSERT INTO audit_log (event, sub, detail)
+    SELECT 'external_identity.removed', user_id, jsonb_build_object('provider', provider, 'by', $3::text) FROM gone
+)
+SELECT subject, token FROM gone
 `
 
 type RemoveExternalIdentityParams struct {
 	UserID   string
 	Provider string
+	By       string
 }
 
 type RemoveExternalIdentityRow struct {
@@ -394,8 +404,9 @@ type RemoveExternalIdentityRow struct {
 	Token   []byte
 }
 
+// Audited as done by by.
 func (q *Queries) RemoveExternalIdentity(ctx context.Context, arg RemoveExternalIdentityParams) (RemoveExternalIdentityRow, error) {
-	row := q.db.QueryRow(ctx, removeExternalIdentity, arg.UserID, arg.Provider)
+	row := q.db.QueryRow(ctx, removeExternalIdentity, arg.UserID, arg.Provider, arg.By)
 	var i RemoveExternalIdentityRow
 	err := row.Scan(&i.Subject, &i.Token)
 	return i, err
@@ -435,7 +446,7 @@ func (q *Queries) SetProviderEnabled(ctx context.Context, arg SetProviderEnabled
 
 const takeProviderLogin = `-- name: TakeProviderLogin :one
 DELETE FROM provider_logins WHERE state_hash = $1 AND provider = $2 AND expires_at > now()
-RETURNING nonce, verifier, authn_session, session_id, reauth, created_at
+RETURNING nonce, verifier, authn_session, binder_hash, session_id, reauth, created_at
 `
 
 type TakeProviderLoginParams struct {
@@ -447,6 +458,7 @@ type TakeProviderLoginRow struct {
 	Nonce        string
 	Verifier     string
 	AuthnSession string
+	BinderHash   []byte
 	SessionID    pgtype.Text
 	Reauth       bool
 	CreatedAt    pgtype.Timestamptz
@@ -459,6 +471,7 @@ func (q *Queries) TakeProviderLogin(ctx context.Context, arg TakeProviderLoginPa
 		&i.Nonce,
 		&i.Verifier,
 		&i.AuthnSession,
+		&i.BinderHash,
 		&i.SessionID,
 		&i.Reauth,
 		&i.CreatedAt,

@@ -58,8 +58,7 @@ func (s *Service) createProvider(ctx context.Context, in *createProviderInput) (
 		return nil, providerErr(err)
 	}
 	// Audited here: the generic audit only records path parameters.
-	c := ctx.Value(callerKey{}).(caller)
-	detail, _ := json.Marshal(map[string]string{"id": b.ID, "type": b.Type, "by": c.sub})
+	detail, _ := json.Marshal(map[string]string{"id": b.ID, "type": b.Type, "by": callerSub(ctx)})
 	return nil, s.q.Audit(ctx, sqlc.AuditParams{Event: "create-provider", Sub: pgtype.Text{}, Detail: detail})
 }
 
@@ -108,17 +107,14 @@ func (s *Service) unbindExternalIdentity(ctx context.Context, in *struct {
 	if err := s.mayManage(ctx, in.Sub); err != nil {
 		return nil, err
 	}
-	err := s.providers.Unbind(ctx, in.Sub, in.Provider)
+	err := s.providers.Unbind(ctx, in.Sub, in.Provider, callerSub(ctx))
 	switch {
 	case errors.Is(err, identity.ErrNotBound):
 		return nil, huma.Error404NotFound("该用户没有绑定这个 Provider")
 	case errors.Is(err, identity.ErrLastLoginPath):
 		return nil, huma.Error409Conflict(err.Error())
-	case err != nil:
-		return nil, err
 	}
-	detail, _ := json.Marshal(map[string]string{"provider": in.Provider, "by": callerSub(ctx)})
-	return nil, s.q.Audit(ctx, sqlc.AuditParams{Event: "external_identity.removed", Sub: pgtype.Text{String: in.Sub, Valid: true}, Detail: detail})
+	return nil, err
 }
 
 func providerErr(err error) error {

@@ -164,6 +164,16 @@ func TestProviderWithBindingsCanOnlyBeDisabled(t *testing.T) {
 	if p := byID()["corp"]; p.Bound != 1 || p.OnlyLoginPath != 0 {
 		t.Errorf("corp counts: %+v", p)
 	}
+	// A disabled Provider is no other way to sign in.
+	if code := e.call("POST", owner, "/providers/corp/disable", nil, nil); code != 204 {
+		t.Fatalf("disable corp: %d", code)
+	}
+	if p := byID()["google"]; p.Bound != 3 || p.OnlyLoginPath != 2 {
+		t.Errorf("google counts with corp disabled: %+v", p)
+	}
+	if code := e.call("POST", owner, "/providers/corp/enable", nil, nil); code != 204 {
+		t.Fatalf("enable corp: %d", code)
+	}
 
 	if code := e.call("DELETE", owner, "/providers/google", nil, nil); code != 409 {
 		t.Errorf("delete bound: %d, want 409", code)
@@ -338,5 +348,33 @@ func TestUnbindingAnAdminNeedsAdminRolesAssign(t *testing.T) {
 	}
 	if code := e.call("DELETE", owner, "/users/OPS/external-identities/google", nil, nil); code != 204 {
 		t.Errorf("owner unbinds an admin: %d", code)
+	}
+}
+
+// Deleting a User tells each of their Providers that asks, as 注销 does.
+func TestAdminDeletingUserRevokes(t *testing.T) {
+	e := start(t)
+	owner := e.token(e.owner, nil)
+	if code := e.call("POST", owner, "/providers", map[string]any{"id": "apple", "type": "unlinking", "name": "Apple", "config": map[string]string{}}, nil); code != 204 {
+		t.Fatalf("add apple: %d", code)
+	}
+	e.user("CAROL", nil)
+	keyring, err := crypt.NewKeyring(1, map[byte][]byte{1: bytes.Repeat([]byte{7}, 32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := keyring.Seal([]byte("refresh-c"), []byte("external_identity:apple:c"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.pool.Exec(context.Background(), `INSERT INTO external_identities (provider, subject, user_id, token) VALUES ('apple', 'c', 'CAROL', $1)`, sealed); err != nil {
+		t.Fatal(err)
+	}
+	unlinked = nil
+	if code := e.call("DELETE", owner, "/users/CAROL", nil, nil); code != 204 {
+		t.Fatalf("delete CAROL: %d", code)
+	}
+	if !slices.Equal(unlinked, []string{"refresh-c"}) {
+		t.Errorf("unlinked: %v", unlinked)
 	}
 }

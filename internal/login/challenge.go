@@ -16,7 +16,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/identity"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
-	providers "github.com/zibyn/stars-auth/internal/provider"
+	"github.com/zibyn/stars-auth/internal/provider"
 	"github.com/zibyn/stars-auth/internal/twofactor"
 )
 
@@ -280,9 +280,9 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 		}
 		sub, err := s.providers.SignInWithClientToken(ctx, r.PostFormValue("provider"), r.PostFormValue("authorization_code"))
 		switch {
-		case errors.Is(err, providers.ErrNotFound):
+		case errors.Is(err, provider.ErrNotFound):
 			return "", invalid("provider is not one an App can sign in with")
-		case errors.Is(err, providers.ErrLogin):
+		case errors.Is(err, provider.ErrLogin):
 			slog.Info("client token login", "provider", r.PostFormValue("provider"), "err", err)
 			return "", &challengeError{status: http.StatusBadRequest, Code: errInvalidGrant, Description: "the Provider turned authorization_code down: sign in with it again"}
 		case err != nil:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -233,11 +234,14 @@ func (s *Store) Buttons(ctx context.Context) ([]Button, error) {
 }
 
 // Begin starts signing in at the enabled Provider id for the OIDC
-// authorization authnSession, and returns where to send the browser.
-func (s *Store) Begin(ctx context.Context, issuer, id, authnSession string) (string, error) {
+// authorization authnSession, and returns where to send the browser. binder
+// is a secret the browser keeps in a cookie: the login finishes only where
+// it is sent back.
+func (s *Store) Begin(ctx context.Context, issuer, id, authnSession, binder string) (string, error) {
 	return s.begin(ctx, issuer, id, func(stateHash []byte, nonce, verifier string) error {
 		return s.q.InsertProviderLogin(ctx, sqlc.InsertProviderLoginParams{
 			StateHash: stateHash, Provider: id, Nonce: nonce, Verifier: verifier, AuthnSession: authnSession,
+			BinderHash: hash(binder),
 		})
 	})
 }
@@ -267,10 +271,12 @@ type Finished struct {
 }
 
 // Finish takes the Provider's callback parameters for a redirect Begin or
-// BeginAccount started. A login finds its OIDC authorization and the User
-// signed in: the one bound to the External Identity, or a new User (logging
-// in is signing up). Each redirect finishes once.
-func (s *Store) Finish(ctx context.Context, issuer, id string, params url.Values) (Finished, error) {
+// BeginAccount started, in a browser holding binder (Begin's) and the live
+// Session session ("" for none). A login finds its OIDC authorization and
+// the User signed in: the one bound to the External Identity, or a new User
+// (logging in is signing up); a redirect from the account center finishes
+// only in the Session that started it. Each redirect finishes once.
+func (s *Store) Finish(ctx context.Context, issuer, id string, params url.Values, binder, session string) (Finished, error) {
 	var f Finished
 	login, err := s.q.TakeProviderLogin(ctx, sqlc.TakeProviderLoginParams{StateHash: hash(params.Get("state")), Provider: id})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -280,6 +286,11 @@ func (s *Store) Finish(ctx context.Context, issuer, id string, params url.Values
 	}
 	if login.SessionID.Valid {
 		f.Account = map[bool]string{false: "bound", true: "reauthenticated"}[login.Reauth]
+		if session != login.SessionID.String {
+			return f, fmt.Errorf("%w: another browser", ErrLogin)
+		}
+	} else if binder == "" || subtle.ConstantTimeCompare(hash(binder), login.BinderHash) != 1 {
+		return f, fmt.Errorf("%w: another browser", ErrLogin)
 	}
 	p, err := s.provider(ctx, id)
 	if err != nil {
@@ -317,12 +328,9 @@ func (s *Store) SignInWithClientToken(ctx context.Context, id, value string) (st
 }
 
 func (s *Store) signIn(ctx context.Context, id string, ident Identity) (string, error) {
-	var token []byte
-	if ident.Token != "" {
-		var err error
-		if token, err = s.keyring.Seal([]byte(ident.Token), tokenAAD(id, ident.Subject)); err != nil {
-			return "", err
-		}
+	token, err := s.sealToken(id, ident)
+	if err != nil {
+		return "", err
 	}
 	u, err := s.q.UserByExternalIdentity(ctx, sqlc.UserByExternalIdentityParams{Provider: id, Subject: ident.Subject})
 	switch {
@@ -351,6 +359,7 @@ func (s *Store) signIn(ctx context.Context, id string, ident Identity) (string, 
 type ExternalIdentity struct {
 	Provider  string    `json:"provider" doc:"Provider ID"`
 	Name      string    `json:"name" doc:"The Provider's name"`
+	Enabled   bool      `json:"enabled" doc:"Whether the Provider is enabled: it signs in only then"`
 	CreatedAt time.Time `json:"createdAt" doc:"When it was bound"`
 }
 
@@ -359,7 +368,7 @@ func (s *Store) ExternalIdentities(ctx context.Context, userID string) ([]Extern
 	rows, err := s.q.ExternalIdentities(ctx, userID)
 	out := []ExternalIdentity{}
 	for _, r := range rows {
-		out = append(out, ExternalIdentity{Provider: r.Provider, Name: r.Name, CreatedAt: r.CreatedAt.Time})
+		out = append(out, ExternalIdentity{Provider: r.Provider, Name: r.Name, Enabled: r.Enabled, CreatedAt: r.CreatedAt.Time})
 	}
 	return out, err
 }
@@ -394,8 +403,9 @@ func (s *Store) build(ctx context.Context, id string, enabledOnly bool) (Redirec
 
 // Unbind removes the User's External Identity at the Provider id, unless it
 // is their last way to sign in, then runs the Provider's unlink hook.
-func (s *Store) Unbind(ctx context.Context, userID, id string) error {
-	row, err := identity.New(s.pool, s.keyring).RemoveExternalIdentity(ctx, userID, id)
+// Audited as done by by: the User, or an admin.
+func (s *Store) Unbind(ctx context.Context, userID, id, by string) error {
+	row, err := identity.New(s.pool, s.keyring).RemoveExternalIdentity(ctx, userID, id, by)
 	if err != nil {
 		return err
 	}
@@ -450,6 +460,14 @@ func (s *Store) unlink(ctx context.Context, userID, id, subject string, sealed [
 	if err := s.q.Audit(ctx, sqlc.AuditParams{Event: "provider.unlink_failed", Sub: pgtype.Text{String: userID, Valid: true}, Detail: detail}); err != nil {
 		slog.Error("provider unlink: audit", "err", err)
 	}
+}
+
+// sealToken seals the token ident keeps at the Provider id, nil for none.
+func (s *Store) sealToken(id string, ident Identity) ([]byte, error) {
+	if ident.Token == "" {
+		return nil, nil
+	}
+	return s.keyring.Seal([]byte(ident.Token), tokenAAD(id, ident.Subject))
 }
 
 // secrets opens a Provider's stored secret fields.

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/zibyn/stars-auth/internal/db/sqlc"
@@ -17,9 +16,9 @@ import (
 const (
 	// ErrTaken: the External Identity is another User's (ADR 0003).
 	ErrTaken         identity.Invalid = "这个外部账号已绑定其他账号,请先在那边解绑或注销"
-	ErrBoundAnother  identity.Invalid = "已绑定这个服务商的另一个账号,请先解绑"
+	ErrBoundAnother  identity.Invalid = "已绑定这个外部登录方式的另一个账号,请先解绑"
 	ErrNotYours      identity.Invalid = "这不是你绑定的外部账号"
-	ErrNotAfreshAuth identity.Invalid = "请在服务商重新登录后再试"
+	ErrNotAfreshAuth identity.Invalid = "请在外部登录页重新登录后再试"
 )
 
 // BeginAccount starts a redirect from the account center to the enabled
@@ -83,21 +82,21 @@ func (s *Store) finishAccount(ctx context.Context, id string, login sqlc.TakePro
 		}
 		return s.q.Reauthenticate(ctx, sqlc.ReauthenticateParams{ID: session, UserID: user, Amr: []string{"fed"}})
 	}
-	var token []byte
-	if ident.Token != "" {
-		if token, err = s.keyring.Seal([]byte(ident.Token), tokenAAD(id, ident.Subject)); err != nil {
-			return err
-		}
-	}
-	err = s.q.BindExternalIdentity(ctx, sqlc.BindExternalIdentityParams{Provider: id, Subject: ident.Subject, UserID: user, Token: token})
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+	token, err := s.sealToken(id, ident)
+	if err != nil {
 		return err
 	}
-	if pgErr.ConstraintName != "external_identities_pkey" {
-		return ErrBoundAnother
+	err = s.q.BindExternalIdentity(ctx, sqlc.BindExternalIdentityParams{Provider: id, Subject: ident.Subject, UserID: user, Token: token})
+	if !isCode(err, "23505") {
+		return err
 	}
-	if owner, err := s.q.UserByExternalIdentity(ctx, sqlc.UserByExternalIdentityParams{Provider: id, Subject: ident.Subject}); err == nil && owner.UserID == user {
+	owner, err := s.q.UserByExternalIdentity(ctx, sqlc.UserByExternalIdentityParams{Provider: id, Subject: ident.Subject})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows): // the User has another at this Provider
+		return ErrBoundAnother
+	case err != nil:
+		return err
+	case owner.UserID == user:
 		return nil // bound already
 	}
 	return ErrTaken

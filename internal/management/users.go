@@ -80,8 +80,10 @@ func (s *Service) deleteUser(ctx context.Context, in *subPath) (*struct{}, error
 	if err := s.mayManage(ctx, in.Sub); err != nil {
 		return nil, err
 	}
-	return nil, s.ownersGuard(ctx, func(q *sqlc.Queries) (int64, error) {
-		return q.DeleteUser(ctx, sqlc.DeleteUserParams{UserID: in.Sub, By: callerSub(ctx)})
+	return nil, s.providers.DeleteUser(ctx, in.Sub, func(ctx context.Context, sub string) error {
+		return s.ownersGuard(ctx, func(q *sqlc.Queries) (int64, error) {
+			return q.DeleteUser(ctx, sqlc.DeleteUserParams{UserID: sub, By: callerSub(ctx)})
+		})
 	})
 }
 

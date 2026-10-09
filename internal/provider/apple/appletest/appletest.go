@@ -38,6 +38,8 @@ type Fake struct {
 	Sub string
 	// FailToken and FailRevoke make those endpoints answer 400.
 	FailToken, FailRevoke bool
+	// NoExp leaves exp out of the id_token.
+	NoExp bool
 
 	mu    sync.Mutex
 	codes map[string]url.Values // code → the authorization request
@@ -150,11 +152,15 @@ func (f *Fake) token(w http.ResponseWriter, r *http.Request) {
 		f.t.Fatal(err)
 	}
 	now := time.Now()
-	idToken, err := jwt.Signed(signer).Claims(map[string]any{
+	claims := map[string]any{
 		"iss": "https://appleid.apple.com", "aud": req.Get("client_id"), "sub": f.Sub,
 		"iat": now.Unix(), "exp": now.Add(10 * time.Minute).Unix(), "nonce": req.Get("nonce"),
 		"email": "ann@privaterelay.appleid.com",
-	}).Serialize()
+	}
+	if f.NoExp {
+		delete(claims, "exp")
+	}
+	idToken, err := jwt.Signed(signer).Claims(claims).Serialize()
 	if err != nil {
 		f.t.Fatal(err)
 	}

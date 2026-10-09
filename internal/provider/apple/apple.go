@@ -143,6 +143,8 @@ func (a *upstream) exchange(ctx context.Context, clientID, code, redirectURI, no
 		return provider.Identity{}, fmt.Errorf("apple id_token: %w", err)
 	}
 	switch {
+	case claims.Expiry == nil:
+		return provider.Identity{}, errors.New("apple id_token: no exp")
 	case claims.Subject == "":
 		return provider.Identity{}, errors.New("apple id_token: no sub")
 	case nonce != "" && extra.Nonce != nonce:

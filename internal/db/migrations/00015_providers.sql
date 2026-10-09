@@ -39,13 +39,16 @@ CREATE TABLE external_identities (
 
 -- A redirect to a Provider in flight, found again by the SHA-256 of its
 -- state: Apple's form_post callback is a cross-site POST, which carries no
--- Lax cookie. authn_session is the OIDC authorization it signs in for.
+-- Lax cookie. authn_session is the OIDC authorization it signs in for, and
+-- binder_hash the SHA-256 of the cookie that ties it to the browser that
+-- started it (no login CSRF).
 CREATE TABLE provider_logins (
     state_hash    bytea PRIMARY KEY,
     provider      text NOT NULL REFERENCES providers (id) ON DELETE CASCADE,
     nonce         text NOT NULL,
     verifier      text NOT NULL,
     authn_session text NOT NULL,
+    binder_hash   bytea,
     expires_at    timestamptz NOT NULL DEFAULT now() + interval '10 minutes'
 );
 CREATE INDEX ON provider_logins (expires_at);

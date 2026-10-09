@@ -7,6 +7,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,9 +29,16 @@ func (e *env) addGoogle() *providertest.Upstream {
 }
 
 // redirect asks the Account API to send the browser to a Provider, follows
-// the browser there and back, and returns where it lands in the account
-// center: its query says how it went.
+// the browser of tok's Session there and back, and returns where it lands in
+// the account center: its query says how it went.
 func (e *env) redirect(tok, path string) url.Values {
+	e.t.Helper()
+	return e.redirectIn(tok, tok, path)
+}
+
+// redirectIn is redirect in the browser of browserTok's Session ("" for a
+// browser signed in nowhere).
+func (e *env) redirectIn(tok, browserTok, path string) url.Values {
 	e.t.Helper()
 	var out struct {
 		URL string `json:"url"`
@@ -44,6 +52,10 @@ func (e *env) redirect(tok, path string) url.Values {
 		if r.URL.Path == "/account" {
 			landed = r.URL
 			return http.ErrUseLastResponse
+		}
+		// The test server is plain HTTP: no jar sends a __Host- cookie.
+		if c := e.cookies[browserTok]; c != "" && strings.HasPrefix(r.URL.String(), e.issuer) {
+			r.Header.Set("Cookie", "__Host-session="+c)
 		}
 		return nil
 	}}
@@ -211,6 +223,24 @@ func TestUnbindExternalIdentity(t *testing.T) {
 	}
 }
 
+// An External Identity at a disabled Provider signs nobody in: it is no
+// way to sign in that removing the last other one could leave.
+func TestDisabledProviderIsNoLoginPath(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", "phone:+8613800138000")
+	e.addGoogle()
+	tok := e.signIn("ALICE", 0)
+	if q := e.redirect(tok, "/v1/account/providers/google/bind"); q.Get("bound") != "google" {
+		t.Fatalf("bind: %v", q)
+	}
+	if err := provider.NewStore(e.pool, e.keyring).SetEnabled(context.Background(), "google", false); err != nil {
+		t.Fatal(err)
+	}
+	if c := e.call("DELETE", tok, "/v1/account/identifiers/phone", nil, nil); c != 422 {
+		t.Errorf("remove the phone, leaving a disabled Google: %d, want 422", c)
+	}
+}
+
 // An External Identity is one User's: binding another's is refused, and so
 // is a second one of the same Provider (ADR 0003).
 func TestBindRefusesAnotherUsersExternalIdentity(t *testing.T) {
@@ -234,8 +264,33 @@ func TestBindRefusesAnotherUsersExternalIdentity(t *testing.T) {
 		t.Errorf("Alice: %+v", got)
 	}
 	up.Sub = "google-user-2"
-	if q := e.redirect(bob, "/v1/account/providers/google/bind"); q.Get("error") != "已绑定这个服务商的另一个账号,请先解绑" {
+	if q := e.redirect(bob, "/v1/account/providers/google/bind"); q.Get("error") != "已绑定这个外部登录方式的另一个账号,请先解绑" {
 		t.Errorf("Bob binds a second Google account: %v", q)
+	}
+}
+
+// Bind CSRF: a redirect from the account center finishes only in the
+// browser Session that started it.
+func TestAccountRedirectFinishesOnlyInItsSession(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", "phone:+8613800138000")
+	e.user("MALLORY", "phone:+8613900139000")
+	e.addGoogle()
+	mallory, alice := e.signIn("MALLORY", 0), e.signIn("ALICE", 0)
+	for name, browser := range map[string]string{"Alice's browser": alice, "a browser signed in nowhere": ""} {
+		if q := e.redirectIn(mallory, browser, "/v1/account/providers/google/bind"); !q.Has("error") {
+			t.Errorf("%s: landed with %v", name, q)
+		}
+	}
+	if got := e.bound(mallory); len(got.ExternalIdentities) != 0 {
+		t.Fatalf("Alice's Google bound to Mallory: %+v", got)
+	}
+
+	if q := e.redirect(mallory, "/v1/account/providers/google/bind"); q.Get("bound") != "google" {
+		t.Fatalf("Mallory binds in her own browser: %v", q)
+	}
+	if q := e.redirectIn(mallory, alice, "/v1/account/providers/google/reauth"); !q.Has("error") {
+		t.Errorf("reauth in Alice's browser: %v", q)
 	}
 }
 
@@ -276,7 +331,7 @@ func TestReauthenticateWithProvider(t *testing.T) {
 	// Signed in at the upstream before the redirect: not afresh.
 	stale()
 	up.AuthTime = time.Now().Add(-time.Hour).Unix()
-	if q := e.redirect(tok, "/v1/account/providers/google/reauth"); q.Get("error") != "请在服务商重新登录后再试" || recent() {
+	if q := e.redirect(tok, "/v1/account/providers/google/reauth"); q.Get("error") != "请在外部登录页重新登录后再试" || recent() {
 		t.Errorf("old auth_time: %v", q)
 	}
 	up.AuthTime = time.Now().Unix()
