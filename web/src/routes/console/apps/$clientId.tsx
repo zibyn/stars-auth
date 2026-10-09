@@ -18,6 +18,7 @@ import {
 import { Check, ChevronRight } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { z } from "zod";
+import { CopyButton } from "#/components/copy-button";
 import { FormField, failed, saved } from "#/components/form";
 import { Alert, AlertDescription } from "#/components/ui/alert";
 import { Badge } from "#/components/ui/badge";
@@ -666,19 +667,6 @@ function WebhookTab({ app, editable }: TabProps) {
 				)}
 			</form.Field>
 		</Section>
-	);
-}
-
-function CopyButton({ value }: { value: string }) {
-	return (
-		<Button
-			type="button"
-			variant="outline"
-			size="sm"
-			onClick={() => navigator.clipboard.writeText(value)}
-		>
-			复制
-		</Button>
 	);
 }
 
