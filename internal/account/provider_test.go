@@ -296,6 +296,26 @@ func TestReauthenticateWithProvider(t *testing.T) {
 	}
 }
 
+// The export names each External Identity's Provider and when it was
+// bound, nothing more.
+func TestExportExternalIdentities(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", "phone:+8613800138000")
+	e.addGoogle()
+	tok := e.signIn("ALICE", 0)
+	e.redirect(tok, "/v1/account/providers/google/bind")
+	var got struct {
+		ExternalIdentities []map[string]any `json:"externalIdentities"`
+	}
+	if c := e.call("GET", tok, "/v1/account/export", nil, &got); c != 200 {
+		t.Fatalf("export: %d", c)
+	}
+	if len(got.ExternalIdentities) != 1 || len(got.ExternalIdentities[0]) != 2 ||
+		got.ExternalIdentities[0]["provider"] != "Google" || got.ExternalIdentities[0]["boundAt"] == nil {
+		t.Errorf("export: %+v", got)
+	}
+}
+
 // With 两步验证 on, a Provider does not reauthenticate: only a TOTP or
 // recovery code does.
 func TestReauthenticateWithProviderNeedsNoTwoFactor(t *testing.T) {
