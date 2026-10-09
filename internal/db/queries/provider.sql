@@ -45,9 +45,16 @@ ON CONFLICT (provider, field) DO UPDATE SET value = excluded.value, updated_at =
 -- name: InsertProviderLogin :exec
 INSERT INTO provider_logins (state_hash, provider, nonce, verifier, authn_session) VALUES ($1, $2, $3, $4, $5);
 
+-- name: InsertProviderAccountLogin :exec
+INSERT INTO provider_logins (state_hash, provider, nonce, verifier, authn_session, session_id, reauth)
+VALUES ($1, $2, $3, $4, '', $5, $6);
+
 -- name: TakeProviderLogin :one
 DELETE FROM provider_logins WHERE state_hash = $1 AND provider = $2 AND expires_at > now()
-RETURNING nonce, verifier, authn_session;
+RETURNING nonce, verifier, authn_session, session_id, reauth, created_at;
+
+-- name: LiveSessionUser :one
+SELECT s.user_id FROM sessions s WHERE s.id = $1 AND s.id IN (SELECT l.id FROM live_sessions l);
 
 -- name: UserByExternalIdentity :one
 SELECT e.user_id, (u.disabled_at IS NOT NULL)::boolean AS disabled
@@ -56,3 +63,23 @@ WHERE e.provider = $1 AND e.subject = $2;
 
 -- name: AddExternalIdentity :exec
 INSERT INTO external_identities (provider, subject, user_id, token) VALUES ($1, $2, $3, $4);
+
+-- name: BindExternalIdentity :exec
+WITH added AS (
+    INSERT INTO external_identities (provider, subject, user_id, token) VALUES (@provider, @subject, @user_id, @token)
+    RETURNING provider, user_id
+)
+INSERT INTO audit_log (event, sub, detail)
+SELECT 'external_identity.bound', user_id, jsonb_build_object('provider', provider, 'by', user_id) FROM added;
+
+-- name: ExternalIdentitySubject :one
+SELECT subject FROM external_identities WHERE user_id = $1 AND provider = $2;
+
+-- name: UserExternalIdentities :many
+SELECT e.provider, p.name, p.enabled, e.created_at
+FROM external_identities e JOIN providers p ON p.id = e.provider
+WHERE e.user_id = $1
+ORDER BY e.created_at;
+
+-- name: DeleteExternalIdentity :one
+DELETE FROM external_identities WHERE user_id = $1 AND provider = $2 RETURNING subject, token;

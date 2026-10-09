@@ -8,6 +8,7 @@ import (
 	"context"
 	"net/url"
 	"slices"
+	"time"
 
 	"github.com/zibyn/stars-auth/internal/channel"
 )
@@ -24,9 +25,19 @@ type Redirect interface {
 	Callback(ctx context.Context, params url.Values, redirectURI, nonce, verifier string) (Identity, error)
 }
 
+// Unlinker is a Provider told when one of its External Identities is
+// unbound, to revoke what it granted (Apple). token is the Identity's
+// Token, "" if none. Best effort: an error is audited, the unbinding stands.
+type Unlinker interface {
+	Unlink(ctx context.Context, token string) error
+}
+
 // Identity is who a Provider says signed in.
 type Identity struct {
 	Subject string
+	// AuthTime is when they authenticated at the Provider; zero when it
+	// did not say.
+	AuthTime time.Time
 	// Token, when set, is kept sealed on the External Identity for the
 	// Provider type's own use (Apple revokes its refresh token on unbinding).
 	Token string

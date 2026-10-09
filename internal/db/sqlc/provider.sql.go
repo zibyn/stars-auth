@@ -32,6 +32,53 @@ func (q *Queries) AddExternalIdentity(ctx context.Context, arg AddExternalIdenti
 	return err
 }
 
+const bindExternalIdentity = `-- name: BindExternalIdentity :exec
+WITH added AS (
+    INSERT INTO external_identities (provider, subject, user_id, token) VALUES ($1, $2, $3, $4)
+    RETURNING provider, user_id
+)
+INSERT INTO audit_log (event, sub, detail)
+SELECT 'external_identity.bound', user_id, jsonb_build_object('provider', provider, 'by', user_id) FROM added
+`
+
+type BindExternalIdentityParams struct {
+	Provider string
+	Subject  string
+	UserID   string
+	Token    []byte
+}
+
+func (q *Queries) BindExternalIdentity(ctx context.Context, arg BindExternalIdentityParams) error {
+	_, err := q.db.Exec(ctx, bindExternalIdentity,
+		arg.Provider,
+		arg.Subject,
+		arg.UserID,
+		arg.Token,
+	)
+	return err
+}
+
+const deleteExternalIdentity = `-- name: DeleteExternalIdentity :one
+DELETE FROM external_identities WHERE user_id = $1 AND provider = $2 RETURNING subject, token
+`
+
+type DeleteExternalIdentityParams struct {
+	UserID   string
+	Provider string
+}
+
+type DeleteExternalIdentityRow struct {
+	Subject string
+	Token   []byte
+}
+
+func (q *Queries) DeleteExternalIdentity(ctx context.Context, arg DeleteExternalIdentityParams) (DeleteExternalIdentityRow, error) {
+	row := q.db.QueryRow(ctx, deleteExternalIdentity, arg.UserID, arg.Provider)
+	var i DeleteExternalIdentityRow
+	err := row.Scan(&i.Subject, &i.Token)
+	return i, err
+}
+
 const deleteProvider = `-- name: DeleteProvider :execrows
 DELETE FROM providers WHERE id = $1
 `
@@ -71,6 +118,22 @@ func (q *Queries) EnabledProviders(ctx context.Context) ([]EnabledProvidersRow, 
 		return nil, err
 	}
 	return items, nil
+}
+
+const externalIdentitySubject = `-- name: ExternalIdentitySubject :one
+SELECT subject FROM external_identities WHERE user_id = $1 AND provider = $2
+`
+
+type ExternalIdentitySubjectParams struct {
+	UserID   string
+	Provider string
+}
+
+func (q *Queries) ExternalIdentitySubject(ctx context.Context, arg ExternalIdentitySubjectParams) (string, error) {
+	row := q.db.QueryRow(ctx, externalIdentitySubject, arg.UserID, arg.Provider)
+	var subject string
+	err := row.Scan(&subject)
+	return subject, err
 }
 
 const getProvider = `-- name: GetProvider :one
@@ -129,6 +192,32 @@ func (q *Queries) InsertProvider(ctx context.Context, arg InsertProviderParams) 
 		arg.Type,
 		arg.Name,
 		arg.Config,
+	)
+	return err
+}
+
+const insertProviderAccountLogin = `-- name: InsertProviderAccountLogin :exec
+INSERT INTO provider_logins (state_hash, provider, nonce, verifier, authn_session, session_id, reauth)
+VALUES ($1, $2, $3, $4, '', $5, $6)
+`
+
+type InsertProviderAccountLoginParams struct {
+	StateHash []byte
+	Provider  string
+	Nonce     string
+	Verifier  string
+	SessionID pgtype.Text
+	Reauth    bool
+}
+
+func (q *Queries) InsertProviderAccountLogin(ctx context.Context, arg InsertProviderAccountLoginParams) error {
+	_, err := q.db.Exec(ctx, insertProviderAccountLogin,
+		arg.StateHash,
+		arg.Provider,
+		arg.Nonce,
+		arg.Verifier,
+		arg.SessionID,
+		arg.Reauth,
 	)
 	return err
 }
@@ -215,6 +304,17 @@ func (q *Queries) ListProviders(ctx context.Context) ([]ListProvidersRow, error)
 	return items, nil
 }
 
+const liveSessionUser = `-- name: LiveSessionUser :one
+SELECT s.user_id FROM sessions s WHERE s.id = $1 AND s.id IN (SELECT l.id FROM live_sessions l)
+`
+
+func (q *Queries) LiveSessionUser(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRow(ctx, liveSessionUser, id)
+	var user_id string
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
 const providerSecrets = `-- name: ProviderSecrets :many
 SELECT field, value FROM provider_secrets WHERE provider = $1
 `
@@ -279,7 +379,7 @@ func (q *Queries) SetProviderEnabled(ctx context.Context, arg SetProviderEnabled
 
 const takeProviderLogin = `-- name: TakeProviderLogin :one
 DELETE FROM provider_logins WHERE state_hash = $1 AND provider = $2 AND expires_at > now()
-RETURNING nonce, verifier, authn_session
+RETURNING nonce, verifier, authn_session, session_id, reauth, created_at
 `
 
 type TakeProviderLoginParams struct {
@@ -291,12 +391,22 @@ type TakeProviderLoginRow struct {
 	Nonce        string
 	Verifier     string
 	AuthnSession string
+	SessionID    pgtype.Text
+	Reauth       bool
+	CreatedAt    pgtype.Timestamptz
 }
 
 func (q *Queries) TakeProviderLogin(ctx context.Context, arg TakeProviderLoginParams) (TakeProviderLoginRow, error) {
 	row := q.db.QueryRow(ctx, takeProviderLogin, arg.StateHash, arg.Provider)
 	var i TakeProviderLoginRow
-	err := row.Scan(&i.Nonce, &i.Verifier, &i.AuthnSession)
+	err := row.Scan(
+		&i.Nonce,
+		&i.Verifier,
+		&i.AuthnSession,
+		&i.SessionID,
+		&i.Reauth,
+		&i.CreatedAt,
+	)
 	return i, err
 }
 
@@ -336,4 +446,43 @@ func (q *Queries) UserByExternalIdentity(ctx context.Context, arg UserByExternal
 	var i UserByExternalIdentityRow
 	err := row.Scan(&i.UserID, &i.Disabled)
 	return i, err
+}
+
+const userExternalIdentities = `-- name: UserExternalIdentities :many
+SELECT e.provider, p.name, p.enabled, e.created_at
+FROM external_identities e JOIN providers p ON p.id = e.provider
+WHERE e.user_id = $1
+ORDER BY e.created_at
+`
+
+type UserExternalIdentitiesRow struct {
+	Provider  string
+	Name      string
+	Enabled   bool
+	CreatedAt pgtype.Timestamptz
+}
+
+func (q *Queries) UserExternalIdentities(ctx context.Context, userID string) ([]UserExternalIdentitiesRow, error) {
+	rows, err := q.db.Query(ctx, userExternalIdentities, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UserExternalIdentitiesRow
+	for rows.Next() {
+		var i UserExternalIdentitiesRow
+		if err := rows.Scan(
+			&i.Provider,
+			&i.Name,
+			&i.Enabled,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

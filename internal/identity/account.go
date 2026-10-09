@@ -73,19 +73,25 @@ func (s *Store) changeLoginPaths(ctx context.Context, sub string, change func(*s
 			return err
 		}
 		paths, err := q.LoginPaths(ctx, sub)
-		if err != nil {
-			return err
+		if err == nil && !CanSignIn(paths) {
+			err = ErrLastLoginPath
 		}
-		if paths.HasExternalIdentity {
-			return nil
-		}
-		for _, kind := range paths.Identifiers {
-			if kind != "username" || paths.HasPassword {
-				return nil
-			}
-		}
-		return ErrLastLoginPath
+		return err
 	})
+}
+
+// CanSignIn says whether a User with paths has a way to sign in
+// (invariant 1).
+func CanSignIn(paths sqlc.LoginPathsRow) bool {
+	if paths.HasExternalIdentity {
+		return true
+	}
+	for _, kind := range paths.Identifiers {
+		if kind != "username" || paths.HasPassword {
+			return true
+		}
+	}
+	return false
 }
 
 // ReplaceIdentifier binds value as the User's Identifier of kind, replacing
