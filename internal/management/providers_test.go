@@ -340,3 +340,31 @@ func TestUnbindingAnAdminNeedsAdminRolesAssign(t *testing.T) {
 		t.Errorf("owner unbinds an admin: %d", code)
 	}
 }
+
+// Deleting a User tells each of their Providers that asks, as 注销 does.
+func TestAdminDeletingUserRevokes(t *testing.T) {
+	e := start(t)
+	owner := e.token(e.owner, nil)
+	if code := e.call("POST", owner, "/providers", map[string]any{"id": "apple", "type": "unlinking", "name": "Apple", "config": map[string]string{}}, nil); code != 204 {
+		t.Fatalf("add apple: %d", code)
+	}
+	e.user("CAROL", nil)
+	keyring, err := crypt.NewKeyring(1, map[byte][]byte{1: bytes.Repeat([]byte{7}, 32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := keyring.Seal([]byte("refresh-c"), []byte("external_identity:apple:c"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.pool.Exec(context.Background(), `INSERT INTO external_identities (provider, subject, user_id, token) VALUES ('apple', 'c', 'CAROL', $1)`, sealed); err != nil {
+		t.Fatal(err)
+	}
+	unlinked = nil
+	if code := e.call("DELETE", owner, "/users/CAROL", nil, nil); code != 204 {
+		t.Fatalf("delete CAROL: %d", code)
+	}
+	if !slices.Equal(unlinked, []string{"refresh-c"}) {
+		t.Errorf("unlinked: %v", unlinked)
+	}
+}
