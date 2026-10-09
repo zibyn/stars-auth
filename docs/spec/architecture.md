@@ -57,7 +57,7 @@
 ### Apple Provider 类型
 
 - **配置**:Team ID、Key ID、`.p8` 私钥(密钥字段)、Services ID(Web)、Bundle ID(原生);issuer 固定为 `https://appleid.apple.com`。client secret 是用 `.p8` 自签的 JWT。
-- **重定向型**:Web 用 Services ID,回调为 `form_post`(跨站 POST,浏览器不会带 SameSite=Lax 的 cookie,登录状态按 `state` 存在服务端)。
+- **重定向型**:Web 用 Services ID,回调为 `form_post`(跨站 POST,浏览器不会带 SameSite=Lax 的 cookie,登录状态按 `state` 存在服务端;回调 POST 先 303 到同一路径的 GET,在带得上 Lax cookie 的 GET 上核对发起登录的浏览器:托管页登录核对 `__Host-provider-login` 绑定 cookie,个人中心绑定/重新验证核对当前 Session,防登录 CSRF)。
 - **客户端令牌型**:原生 App 只提交 `authorization_code`,服务端以 Bundle ID 换码,以换回的 id_token 为认证结果,不需要 identity token 和 nonce(ADR 0011)。
 - **refresh token**:两种形态都在换码时拿到 refresh token,用主密钥加密后存在 External Identity 上;换码失败,这次登录就失败。
 - **撤销**:解绑和注销时调用 Apple `/auth/revoke`,尽力而为,失败只记审计日志,不阻塞解绑或注销。不接 Apple 的服务器到服务器通知。

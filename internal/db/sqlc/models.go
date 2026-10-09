@@ -163,6 +163,7 @@ type ProviderLogin struct {
 	Nonce        string
 	Verifier     string
 	AuthnSession string
+	BinderHash   []byte
 	ExpiresAt    pgtype.Timestamptz
 	SessionID    pgtype.Text
 	Reauth       bool

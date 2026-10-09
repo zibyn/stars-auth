@@ -43,7 +43,7 @@ INSERT INTO provider_secrets (provider, field, value) VALUES ($1, $2, $3)
 ON CONFLICT (provider, field) DO UPDATE SET value = excluded.value, updated_at = now();
 
 -- name: InsertProviderLogin :exec
-INSERT INTO provider_logins (state_hash, provider, nonce, verifier, authn_session) VALUES ($1, $2, $3, $4, $5);
+INSERT INTO provider_logins (state_hash, provider, nonce, verifier, authn_session, binder_hash) VALUES ($1, $2, $3, $4, $5, $6);
 
 -- name: InsertProviderAccountLogin :exec
 INSERT INTO provider_logins (state_hash, provider, nonce, verifier, authn_session, session_id, reauth)
@@ -51,7 +51,7 @@ VALUES ($1, $2, $3, $4, '', $5, $6);
 
 -- name: TakeProviderLogin :one
 DELETE FROM provider_logins WHERE state_hash = $1 AND provider = $2 AND expires_at > now()
-RETURNING nonce, verifier, authn_session, session_id, reauth, created_at;
+RETURNING nonce, verifier, authn_session, binder_hash, session_id, reauth, created_at;
 
 -- name: LiveSessionUser :one
 SELECT s.user_id FROM sessions s WHERE s.id = $1 AND s.id IN (SELECT l.id FROM live_sessions l);

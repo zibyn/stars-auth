@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -233,11 +234,14 @@ func (s *Store) Buttons(ctx context.Context) ([]Button, error) {
 }
 
 // Begin starts signing in at the enabled Provider id for the OIDC
-// authorization authnSession, and returns where to send the browser.
-func (s *Store) Begin(ctx context.Context, issuer, id, authnSession string) (string, error) {
+// authorization authnSession, and returns where to send the browser. binder
+// is a secret the browser keeps in a cookie: the login finishes only where
+// it is sent back.
+func (s *Store) Begin(ctx context.Context, issuer, id, authnSession, binder string) (string, error) {
 	return s.begin(ctx, issuer, id, func(stateHash []byte, nonce, verifier string) error {
 		return s.q.InsertProviderLogin(ctx, sqlc.InsertProviderLoginParams{
 			StateHash: stateHash, Provider: id, Nonce: nonce, Verifier: verifier, AuthnSession: authnSession,
+			BinderHash: hash(binder),
 		})
 	})
 }
@@ -267,10 +271,12 @@ type Finished struct {
 }
 
 // Finish takes the Provider's callback parameters for a redirect Begin or
-// BeginAccount started. A login finds its OIDC authorization and the User
-// signed in: the one bound to the External Identity, or a new User (logging
-// in is signing up). Each redirect finishes once.
-func (s *Store) Finish(ctx context.Context, issuer, id string, params url.Values) (Finished, error) {
+// BeginAccount started, in a browser holding binder (Begin's) and the live
+// Session session ("" for none). A login finds its OIDC authorization and
+// the User signed in: the one bound to the External Identity, or a new User
+// (logging in is signing up); a redirect from the account center finishes
+// only in the Session that started it. Each redirect finishes once.
+func (s *Store) Finish(ctx context.Context, issuer, id string, params url.Values, binder, session string) (Finished, error) {
 	var f Finished
 	login, err := s.q.TakeProviderLogin(ctx, sqlc.TakeProviderLoginParams{StateHash: hash(params.Get("state")), Provider: id})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -280,6 +286,11 @@ func (s *Store) Finish(ctx context.Context, issuer, id string, params url.Values
 	}
 	if login.SessionID.Valid {
 		f.Account = map[bool]string{false: "bound", true: "reauthenticated"}[login.Reauth]
+		if session != login.SessionID.String {
+			return f, fmt.Errorf("%w: another browser", ErrLogin)
+		}
+	} else if binder == "" || subtle.ConstantTimeCompare(hash(binder), login.BinderHash) != 1 {
+		return f, fmt.Errorf("%w: another browser", ErrLogin)
 	}
 	p, err := s.provider(ctx, id)
 	if err != nil {

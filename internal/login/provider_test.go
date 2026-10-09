@@ -225,3 +225,53 @@ func TestDeletedUserLeavesTheirExternalIdentity(t *testing.T) {
 		t.Errorf("signed in as the deleted User %s", sub)
 	}
 }
+
+// pressGoogle presses the Google button on page and signs in at the
+// upstream, returning the callback URL the upstream sends the browser to.
+func (e *env) pressGoogle(page string) string {
+	e.t.Helper()
+	m := providerFormRE.FindStringSubmatch(page)
+	if m == nil {
+		e.t.Fatalf("no Provider buttons:\n%s", page)
+	}
+	resp, _ := e.do("POST", html.UnescapeString(m[1]), url.Values{"op": {"provider"}, "provider": {"google"}})
+	resp, _ = e.do("GET", resp.Header.Get("Location"), nil)
+	return resp.Header.Get("Location")
+}
+
+// Login CSRF: an attacker signs in at Google as themselves and hands the
+// victim's browser the rest of the flow.
+func TestProviderLoginFinishesOnlyInTheBrowserThatStartedIt(t *testing.T) {
+	e := start(t)
+	e.addGoogle()
+	signedIn := func(resp *http.Response) bool {
+		return strings.HasPrefix(resp.Header.Get("Location"), callback) ||
+			slices.ContainsFunc(resp.Cookies(), func(c *http.Cookie) bool { return c.Name == "__Host-session" && c.MaxAge >= 0 })
+	}
+
+	// The callback URL, forwarded.
+	_, page := e.authorize("")
+	cb := e.pressGoogle(page)
+	attacker := e.client
+	e.newBrowser()
+	if resp, body := e.do("GET", cb, nil); resp.StatusCode != 400 || signedIn(resp) {
+		t.Errorf("forwarded callback: %d %s %s", resp.StatusCode, resp.Header.Get("Location"), body)
+	}
+
+	// The login page after the callback, forwarded.
+	e.client = attacker
+	_, page = e.authorize("")
+	resp, _ := e.do("GET", e.pressGoogle(page), nil)
+	next := resp.Header.Get("Location")
+	if !strings.HasPrefix(next, "/authorize/") {
+		t.Fatalf("callback: %d %s", resp.StatusCode, next)
+	}
+	e.newBrowser()
+	if resp, _ := e.do("GET", next, nil); signedIn(resp) {
+		t.Errorf("forwarded %s signed the victim in: %d %s", next, resp.StatusCode, resp.Header.Get("Location"))
+	}
+	e.client = attacker
+	if resp, _ := e.do("GET", next, nil); !strings.HasPrefix(resp.Header.Get("Location"), callback) {
+		t.Errorf("the attacker's own browser: %d %s", resp.StatusCode, resp.Header.Get("Location"))
+	}
+}

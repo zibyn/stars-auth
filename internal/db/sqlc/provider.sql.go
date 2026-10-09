@@ -243,7 +243,7 @@ func (q *Queries) InsertProviderAccountLogin(ctx context.Context, arg InsertProv
 }
 
 const insertProviderLogin = `-- name: InsertProviderLogin :exec
-INSERT INTO provider_logins (state_hash, provider, nonce, verifier, authn_session) VALUES ($1, $2, $3, $4, $5)
+INSERT INTO provider_logins (state_hash, provider, nonce, verifier, authn_session, binder_hash) VALUES ($1, $2, $3, $4, $5, $6)
 `
 
 type InsertProviderLoginParams struct {
@@ -252,6 +252,7 @@ type InsertProviderLoginParams struct {
 	Nonce        string
 	Verifier     string
 	AuthnSession string
+	BinderHash   []byte
 }
 
 func (q *Queries) InsertProviderLogin(ctx context.Context, arg InsertProviderLoginParams) error {
@@ -261,6 +262,7 @@ func (q *Queries) InsertProviderLogin(ctx context.Context, arg InsertProviderLog
 		arg.Nonce,
 		arg.Verifier,
 		arg.AuthnSession,
+		arg.BinderHash,
 	)
 	return err
 }
@@ -435,7 +437,7 @@ func (q *Queries) SetProviderEnabled(ctx context.Context, arg SetProviderEnabled
 
 const takeProviderLogin = `-- name: TakeProviderLogin :one
 DELETE FROM provider_logins WHERE state_hash = $1 AND provider = $2 AND expires_at > now()
-RETURNING nonce, verifier, authn_session, session_id, reauth, created_at
+RETURNING nonce, verifier, authn_session, binder_hash, session_id, reauth, created_at
 `
 
 type TakeProviderLoginParams struct {
@@ -447,6 +449,7 @@ type TakeProviderLoginRow struct {
 	Nonce        string
 	Verifier     string
 	AuthnSession string
+	BinderHash   []byte
 	SessionID    pgtype.Text
 	Reauth       bool
 	CreatedAt    pgtype.Timestamptz
@@ -459,6 +462,7 @@ func (q *Queries) TakeProviderLogin(ctx context.Context, arg TakeProviderLoginPa
 		&i.Nonce,
 		&i.Verifier,
 		&i.AuthnSession,
+		&i.BinderHash,
 		&i.SessionID,
 		&i.Reauth,
 		&i.CreatedAt,
