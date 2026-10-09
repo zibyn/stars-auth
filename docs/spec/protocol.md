@@ -25,7 +25,7 @@ Web / RP ──(OIDC: /authorize + 托管登录页)──┘
 - **路径与版本**:路径带 `/v1` 前缀,主版本内只做向后兼容的改动。challenge 端点为 `POST /v1/auth/challenge`,OpenAPI 在 `/v1/auth/openapi.json`。
 - **challenge 输入**:
   - 一期:手机号或邮箱(请求发码)、验证码、Identifier + 密码;
-  - 二期起:WebAuthn 断言、TOTP、Provider ID + 客户端令牌(Apple 为 `authorization_code`,见 ADR 0011)。
+  - 二期起:WebAuthn 断言、TOTP、Provider ID + 客户端令牌:`provider` + `authorization_code`,只接受启用中、类型声明了客户端令牌型的 Provider(目前只有 Apple:App 只转交 Sign in with Apple 给的 `authorization_code`,服务端以 Bundle ID 换码,见 ADR 0011)。Provider 不是这一类或已停用时返回 `400 invalid_request`;上游换码失败返回 `400 invalid_grant`,App 须让 User 重新用 Apple 登录。之后的两步验证、绑手机号与验证码登录相同,按 `next` 继续;`amr` 为 `fed`。
 - **多步认证**:用草案中的 `auth_session` 串联各步。`403 insufficient_authorization` 多带一个非标准字段 `next`,指明下一步:`code`(输入刚发出的验证码)、`phone`(先绑定手机号)、`totp`(开了两步验证:在同一 `auth_session` 里提交 `totp` 或 `recovery_code`;先于 `phone`)。`totp` / `recovery_code` 输错时返回 `400 invalid_request` 并带回原 `auth_session`;第 5 次输错后返回 `invalid_session`,须从头登录。以后只新增取值,不改名、不删除;客户端遇到不认识的取值按失败处理。(ADR 0010)
 - **每个请求必须携带**:
   - 所同意的协议版本号,见 [security-compliance.md](security-compliance.md#协议同意);
