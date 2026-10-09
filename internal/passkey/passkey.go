@@ -1,0 +1,270 @@
+// Package passkey keeps a User's Passkeys (GLOSSARY.md): their WebAuthn
+// credentials, added and managed from the account center. go-webauthn
+// verifies the ceremonies; storage, flow and names live here.
+package passkey
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"github.com/go-webauthn/webauthn/webauthn"
+	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/zibyn/stars-auth/internal/db/sqlc"
+	"github.com/zibyn/stars-auth/internal/identity"
+)
+
+const (
+	ErrNotBegun   identity.Invalid = "没有正在进行的添加,请重新开始"
+	ErrExpired    identity.Invalid = "验证已过期,请重新添加"
+	ErrDuplicate  identity.Invalid = "这把 Passkey 已经添加过了"
+	ErrNoUV       identity.Invalid = "设备未验证用户身份,不能添加为 Passkey"
+	ErrVerifyFail identity.Invalid = "Passkey 注册未通过验证,请重试"
+	ErrName       identity.Invalid = "名称须为 1–64 个字符"
+)
+
+// ErrGone is a Passkey of the User's that is not; the Account API answers
+// 404 for it.
+var ErrGone = errors.New("no such passkey")
+
+// challengeTTL is how long a registration may take.
+const challengeTTL = 5 * time.Minute
+
+// Store is the Passkey module: the account center (and, later, login and
+// the Management API) go through these operations.
+type Store struct {
+	q      *sqlc.Queries
+	issuer string
+	wa     *webauthn.WebAuthn
+}
+
+// New points the store at an issuer: its origin is the only origin a
+// ceremony may happen at, its hostname the RP ID.
+func New(pool *pgxpool.Pool, issuer string) (*Store, error) {
+	u, err := url.Parse(issuer)
+	if err != nil {
+		return nil, err
+	}
+	// ponytail: origins are just the issuer until native App fingerprints
+	// land; then they are fetched per ceremony, uncached.
+	wa, err := webauthn.New(&webauthn.Config{
+		RPID:             u.Hostname(),
+		RPDisplayName:    "Stars Auth",
+		RPOrigins:        []string{issuer},
+		AttestationPreference: protocol.PreferNoAttestation,
+		AuthenticatorSelection: protocol.AuthenticatorSelection{
+			ResidentKey:     protocol.ResidentKeyRequirementRequired,
+			UserVerification: protocol.VerificationRequired,
+		},
+		Timeouts: webauthn.TimeoutsConfig{
+			Registration: webauthn.TimeoutConfig{Timeout: challengeTTL, Enforce: true},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &Store{q: sqlc.New(pool), issuer: issuer, wa: wa}, nil
+}
+
+// user is a User as go-webauthn sees one: their handle is their sub.
+type user struct{ sub, name string }
+
+func (u user) WebAuthnID() []byte                              { return []byte(u.sub) }
+func (u user) WebAuthnName() string                            { return u.name }
+func (u user) WebAuthnDisplayName() string                     { return u.name }
+func (u user) WebAuthnCredentials() []webauthn.Credential      { return nil }
+
+// Passkey is one of a User's Passkeys as the Account API shows it.
+type Passkey struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt,omitempty" doc:"Null until the Passkey has signed in once"`
+}
+
+// List is the User's Passkeys, oldest first.
+func (s *Store) List(ctx context.Context, sub string) ([]Passkey, error) {
+	rows, err := s.q.UserPasskeys(ctx, sub)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Passkey, 0, len(rows))
+	for _, r := range rows {
+		p := Passkey{ID: r.ID, Name: r.Name, CreatedAt: r.CreatedAt.Time}
+		if r.LastUsedAt.Valid {
+			p.LastUsedAt = &r.LastUsedAt.Time
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// Begin starts adding a Passkey to sub's account, in the Session session:
+// the creation options to hand to the browser or App, whose challenge is
+// kept for Finish. name is how the User is shown in the ceremony, already
+// masked.
+func (s *Store) Begin(ctx context.Context, sub, name, session string) (json.RawMessage, error) {
+	rows, err := s.q.PasskeyExclusions(ctx, sub)
+	if err != nil {
+		return nil, err
+	}
+	exclude := make([]protocol.CredentialDescriptor, len(rows))
+	for i, r := range rows {
+		ts := make([]protocol.AuthenticatorTransport, len(r.Transports))
+		for j, t := range r.Transports {
+			ts[j] = protocol.AuthenticatorTransport(t)
+		}
+		exclude[i] = protocol.CredentialDescriptor{CredentialID: r.CredentialID, Transport: ts}
+	}
+	creation, sd, err := s.wa.BeginRegistration(user{sub, name}, webauthn.WithExclusions(exclude))
+	if err != nil {
+		return nil, err
+	}
+	err = s.q.PutPasskeyChallenge(ctx, sqlc.PutPasskeyChallengeParams{
+		SessionID: session, UserID: sub, Challenge: sd.Challenge,
+		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(challengeTTL), Valid: true},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(creation)
+}
+
+// RegistrationResponse is the RegistrationResponseJSON the browser or App
+// posts back from navigator.credentials.create.
+type RegistrationResponse struct {
+	ID       string `json:"id" doc:"The credential ID, base64url"`
+	RawID    string `json:"rawId" doc:"The credential ID again, base64url"`
+	Type     string `json:"type" enum:"public-key"`
+	Response struct {
+		ClientDataJSON    string   `json:"clientDataJSON" doc:"base64url"`
+		AttestationObject string   `json:"attestationObject" doc:"base64url"`
+		Transports        []string `json:"transports,omitempty"`
+	} `json:"response"`
+}
+
+// Finish checks a registration response against the challenge Begin kept
+// for the Session and saves the Passkey, named after its authenticator.
+func (s *Store) Finish(ctx context.Context, sub, session string, response []byte) (Passkey, error) {
+	ch, err := s.q.TakePasskeyChallenge(ctx, session)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Passkey{}, ErrNotBegun
+	} else if err != nil {
+		return Passkey{}, err
+	}
+	if ch.UserID != sub {
+		return Passkey{}, ErrNotBegun
+	}
+	if !ch.Live {
+		return Passkey{}, ErrExpired
+	}
+	parsed, err := protocol.ParseCredentialCreationResponseBytes(response)
+	if err != nil {
+		return Passkey{}, ErrVerifyFail
+	}
+	// A Passkey is a Passkey because it verified the User every time; the
+	// rest of the ceremony is go-webauthn's to check.
+	if !parsed.Response.AttestationObject.AuthData.Flags.HasUserVerified() {
+		return Passkey{}, ErrNoUV
+	}
+	sd := webauthn.SessionData{
+		Challenge: ch.Challenge, UserID: []byte(sub), RelyingPartyID: s.rpID(),
+		UserVerification: protocol.VerificationRequired, CredParams: webauthn.CredentialParametersDefault(),
+	}
+	cred, err := s.wa.CreateCredential(user{sub, sub}, sd, parsed)
+	if err != nil {
+		return Passkey{}, ErrVerifyFail
+	}
+	row, err := s.q.AddPasskey(ctx, sqlc.AddPasskeyParams{
+		UserID: sub, CredentialID: cred.ID, PublicKey: cred.PublicKey,
+		SignCount: int64(cred.Authenticator.SignCount), Aaguid: uuidToPG(cred.Authenticator.AAGUID),
+		BackupEligible: cred.Flags.BackupEligible, BackupState: cred.Flags.BackupState,
+		Transports: transportsOf(cred.Transport), Name: defaultName(cred.Authenticator.AAGUID), By: sub,
+	})
+	if errors.Is(err, pgx.ErrNoRows) { // the credential is already someone's
+		return Passkey{}, ErrDuplicate
+	}
+	if err != nil {
+		return Passkey{}, err
+	}
+	return Passkey{ID: row.ID, Name: row.Name, CreatedAt: row.CreatedAt.Time}, nil
+}
+
+// Rename gives one of the User's Passkeys a name they know it by.
+func (s *Store) Rename(ctx context.Context, sub, id, name, by string) error {
+	name = strings.TrimSpace(name)
+	if name == "" || utf8.RuneCountInString(name) > 64 {
+		return ErrName
+	}
+	n, err := s.q.RenamePasskey(ctx, sqlc.RenamePasskeyParams{By: by, Name: name, ID: id, UserID: sub})
+	if err == nil && n == 0 {
+		err = ErrGone
+	}
+	return err
+}
+
+// Remove deletes one of the User's Passkeys.
+func (s *Store) Remove(ctx context.Context, sub, id, by string) error {
+	n, err := s.q.DeletePasskey(ctx, sqlc.DeletePasskeyParams{By: by, ID: id, UserID: sub})
+	if err == nil && n == 0 {
+		err = ErrGone
+	}
+	return err
+}
+
+// RegisterWellKnown serves /.well-known/passkey-endpoints, where password
+// managers look up where to add and manage Passkeys.
+func (s *Store) RegisterWellKnown(mux *http.ServeMux) {
+	mux.HandleFunc("GET /.well-known/passkey-endpoints", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"enroll": s.issuer + "/account#passkeys",
+			"manage": s.issuer + "/account#passkeys",
+		})
+	})
+}
+
+// DeleteExpired drops registration challenges past their TTL; the hourly
+// cleanup runs it.
+func DeleteExpired(ctx context.Context, pool *pgxpool.Pool) error {
+	return sqlc.New(pool).DeleteExpiredPasskeyChallenges(ctx)
+}
+
+func (s *Store) rpID() string { return s.wa.Config.RPID }
+
+// defaultName is a new Passkey's: its authenticator's name, or "Passkey"
+// when the AAGUID says none.
+func defaultName(aaguid []byte) string {
+	if len(aaguid) == 16 {
+		if name, ok := aaguidNames[uuid.UUID(*(*[16]byte)(aaguid)).String()]; ok {
+			return name
+		}
+	}
+	return "Passkey"
+}
+
+func uuidToPG(b []byte) pgtype.UUID {
+	var u pgtype.UUID
+	if len(b) == 16 {
+		u.Bytes, u.Valid = *(*[16]byte)(b), true
+	}
+	return u
+}
+
+func transportsOf(ts []protocol.AuthenticatorTransport) []string {
+	out := make([]string, len(ts))
+	for i, t := range ts {
+		out[i] = string(t)
+	}
+	return out
+}

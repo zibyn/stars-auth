@@ -52,6 +52,10 @@ _Avoid_: 社交账号, 第三方账号, Identity
 User 持有、用于证明身份的秘密,如密码、Passkey、TOTP、恢复码;本身不能定位 User,须配合 Identifier 或由设备提供。
 _Avoid_: 密钥, 因子
 
+**Passkey**:
+User 保存在设备或密码管理器里的一把 Credential,只对 Stars Auth 的域名有效;登录时由设备提供,不用先输 Identifier,设备每次都要求生物识别或 PIN,所以本身就满足两步验证。只能由已登录的 User 添加,不能用来注册;一个 User 可以有多把。
+_Avoid_: 通行密钥, 安全密钥, WebAuthn 凭证, FIDO 凭证
+
 **两步验证**(2FA):
 User 自愿开启的状态:开启后,除 Passkey 外,任何第一因素登录都还要输入 TOTP 或一个恢复码。
 _Avoid_: MFA, 二次验证, 双因素认证(界面和文档里);协议值 `amr` 的 `mfa` 和审计事件名 `mfa.*` 是标识符,保留不改

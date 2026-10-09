@@ -34,6 +34,7 @@ import { UserAvatar } from "#/components/user-avatar";
 import {
 	bindSchema,
 	deleteSchema,
+	passkeyNameSchema,
 	passwordSchema,
 	providerReturn,
 	type ReauthMethod,
@@ -51,6 +52,12 @@ import {
 	type Session,
 	type TOTPSetup,
 } from "#/lib/account-api";
+import {
+	type CreationOptions,
+	createPasskey,
+	type Passkey,
+	passkeySupported,
+} from "#/lib/passkey";
 import { kindName, primaryIdentifier } from "#/lib/users";
 import { meQuery } from "#/routes/account/route";
 import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
@@ -58,13 +65,21 @@ import { Panel } from "#/routes/console/-components/panel";
 import { DangerZone, Section } from "#/routes/console/-components/section";
 
 export const Route = createFileRoute("/account/")({
-	loader: ({ context }) => context.queryClient.ensureQueryData(sessionsQuery),
+	loader: ({ context }) =>
+		context.queryClient
+			.ensureQueryData(passkeysQuery)
+			.then(() => context.queryClient.ensureQueryData(sessionsQuery)),
 	component: Account,
 });
 
 const sessionsQuery = queryOptions({
 	queryKey: ["account", "sessions"],
 	queryFn: () => api<{ sessions: Session[] }>("/sessions"),
+});
+
+const passkeysQuery = queryOptions({
+	queryKey: ["account", "passkeys"],
+	queryFn: () => api<{ passkeys: Passkey[] }>("/passkeys"),
 });
 
 const date = (s: string) => new Date(s).toLocaleString("zh-CN");
@@ -408,7 +423,7 @@ function Security({ me, guard }: { me: Me; guard: Guard }) {
 		onError: failed("删除密码失败"),
 	});
 	return (
-		<Section title="安全">
+		<Section title="安全" id="passkeys">
 			<ItemList>
 				{me.passwordAllowed && (
 					<Row
@@ -438,10 +453,151 @@ function Security({ me, guard }: { me: Me; guard: Guard }) {
 						</Button>
 					</Row>
 				)}
+				<Passkeys guard={guard} />
 				<TwoFactor me={me} guard={guard} />
 			</ItemList>
 			{editing && <SetPassword onClose={() => setEditing(false)} />}
 		</Section>
+	);
+}
+
+// Passkeys lists the User's Passkeys and adds one through the browser's
+// system dialog; renaming is anyone's business, deleting a guarded one.
+function Passkeys({ guard }: { guard: Guard }) {
+	const queryClient = useQueryClient();
+	const { passkeys } = useSuspenseQuery(passkeysQuery).data;
+	const [renaming, setRenaming] = useState<Passkey | null>(null);
+	const [deleting, setDeleting] = useState<Passkey | null>(null);
+	const add = useMutation({
+		mutationFn: async () => {
+			const { options } = await api<{ options: CreationOptions }>(
+				"/passkeys/options",
+				{ method: "POST" },
+			);
+			return api("/passkeys", {
+				method: "POST",
+				body: await createPasskey(options),
+			});
+		},
+		onSuccess: async () => {
+			await queryClient.invalidateQueries(passkeysQuery);
+			saved();
+		},
+		onError: failed("添加 Passkey 失败"),
+	});
+	const remove = useMutation({
+		mutationFn: (id: string) => api(`/passkeys/${id}`, { method: "DELETE" }),
+		onSuccess: () => queryClient.invalidateQueries(passkeysQuery),
+		onError: failed("删除 Passkey 失败"),
+	});
+	return (
+		<>
+			{passkeys.map((p) => (
+				<Row
+					key={p.id}
+					label={p.name}
+					hint={`添加于 ${date(p.createdAt)} · ${
+						p.lastUsedAt ? `最后使用 ${date(p.lastUsedAt)}` : "尚未使用"
+					}`}
+				>
+					<Button variant="ghost" size="sm" onClick={() => setRenaming(p)}>
+						重命名
+					</Button>
+					<Button
+						variant="ghost"
+						size="sm"
+						disabled={remove.isPending}
+						onClick={() => guard(() => setDeleting(p))}
+					>
+						删除
+					</Button>
+				</Row>
+			))}
+			{passkeySupported && (
+				<Row label="Passkey" hint="在设备或密码管理器里各存一把,登录免验证码">
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={add.isPending}
+						onClick={() => guard(() => add.mutate())}
+					>
+						添加 Passkey
+					</Button>
+				</Row>
+			)}
+			{renaming && (
+				<RenamePasskey passkey={renaming} onClose={() => setRenaming(null)} />
+			)}
+			<ConfirmDialog
+				open={deleting !== null}
+				onOpenChange={(open) => !open && setDeleting(null)}
+				title="删除 Passkey?"
+				action="删除"
+				onConfirm={() => {
+					if (deleting) remove.mutate(deleting.id);
+					setDeleting(null);
+				}}
+			>
+				删除后这把 Passkey 不能再用来登录;丢了设备时在这里删掉它。
+			</ConfirmDialog>
+		</>
+	);
+}
+
+// RenamePasskey gives a Passkey a name its owner knows it by.
+function RenamePasskey({
+	passkey,
+	onClose,
+}: {
+	passkey: Passkey;
+	onClose: () => void;
+}) {
+	const queryClient = useQueryClient();
+	const save = useMutation({
+		mutationFn: (name: string) =>
+			api(`/passkeys/${passkey.id}`, { method: "PATCH", body: { name } }),
+		onSuccess: async () => {
+			await queryClient.invalidateQueries(passkeysQuery);
+			saved();
+			onClose();
+		},
+	});
+	const form = useForm({
+		defaultValues: { name: passkey.name },
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: passkeyNameSchema },
+		onSubmit: ({ value }) => save.mutate(value.name.trim()),
+	});
+	return (
+		<Dialog open onOpenChange={(open) => !open && onClose()}>
+			<DialogContent>
+				<DialogTitle>重命名 Passkey</DialogTitle>
+				<form
+					noValidate
+					className="space-y-3"
+					onSubmit={(e) => {
+						e.preventDefault();
+						form.handleSubmit();
+					}}
+				>
+					<form.Field name="name">
+						{(field) => (
+							<FormField field={field} label="名称">
+								{(control) => (
+									<Input {...control} placeholder="工作电脑" maxLength={64} />
+								)}
+							</FormField>
+						)}
+					</form.Field>
+					<FormError error={save.error} />
+					<div className="flex justify-end">
+						<Button type="submit" disabled={save.isPending}>
+							保存
+						</Button>
+					</div>
+				</form>
+			</DialogContent>
+		</Dialog>
 	);
 }
 

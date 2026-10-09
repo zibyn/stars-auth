@@ -13,6 +13,7 @@ import { FieldSet } from "#/components/ui/field";
 export function Section({
 	title,
 	intro,
+	id,
 	editable = true,
 	form,
 	extra,
@@ -21,6 +22,7 @@ export function Section({
 }: {
 	title: string;
 	intro?: ReactNode;
+	id?: string; // an anchor target, such as #passkeys from passkey-endpoints
 	editable?: boolean;
 	form?: { handleSubmit: () => unknown };
 	extra?: ReactNode;
@@ -28,7 +30,7 @@ export function Section({
 	children: ReactNode;
 }) {
 	return (
-		<section>
+		<section id={id}>
 			<SectionHeading title={title} intro={intro} />
 			{form ? (
 				<form

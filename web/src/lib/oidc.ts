@@ -125,7 +125,7 @@ export function oidcClient({
 	// api calls an API path, signing in first when needed; body goes as JSON.
 	async function api<T>(
 		path: string,
-		init?: { method: "POST" | "PUT" | "DELETE"; body?: unknown },
+		init?: { method: "POST" | "PUT" | "PATCH" | "DELETE"; body?: unknown },
 	): Promise<T> {
 		const token = accessToken();
 		if (!token) {

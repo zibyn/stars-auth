@@ -26,6 +26,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/identity"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
 	"github.com/zibyn/stars-auth/internal/otp"
+	"github.com/zibyn/stars-auth/internal/passkey"
 	"github.com/zibyn/stars-auth/internal/provider"
 	"github.com/zibyn/stars-auth/internal/twofactor"
 )
@@ -50,14 +51,20 @@ type Service struct {
 	codes     *otp.Service
 	twoFactor *twofactor.Store
 	providers *provider.Store
+	passkeys  *passkey.Store
 }
 
-func New(pool *pgxpool.Pool, keyring *crypt.Keyring, issuer string) *Service {
+func New(pool *pgxpool.Pool, keyring *crypt.Keyring, issuer string) (*Service, error) {
+	passkeys, err := passkey.New(pool, issuer)
+	if err != nil {
+		return nil, err
+	}
 	return &Service{
 		issuer: issuer, pool: pool, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring),
 		ids: identity.New(pool, keyring), codes: otp.New(pool, channel.NewStore(pool, keyring)),
 		twoFactor: twofactor.New(pool, keyring), providers: provider.NewStore(pool, keyring),
-	}
+		passkeys: passkeys,
+	}, nil
 }
 
 type callerKey struct{}
@@ -71,9 +78,10 @@ type caller struct {
 
 func callerOf(ctx context.Context) caller { return ctx.Value(callerKey{}).(caller) }
 
-// Register adds the Account API, its OpenAPI document and the direct auth
-// API's account deletion to mux.
+// Register adds the Account API, its OpenAPI document, the direct auth
+// API's account deletion and the Passkey endpoints discovery to mux.
 func (s *Service) Register(mux *http.ServeMux) {
+	s.passkeys.RegisterWellKnown(mux)
 	cfg := huma.DefaultConfig("Stars Auth Account API", "1")
 	cfg.DocsPath = ""
 	cfg.SchemasPath = ""
@@ -109,6 +117,11 @@ func (s *Service) Register(mux *http.ServeMux) {
 	op(api, http.MethodPost, "reauth-with-provider", "/providers/{id}/reauth", "Where to send the browser to reauthenticate at the bound Provider; 422 with 两步验证 on", s.reauthWithProvider, http.StatusNotFound)
 	op(api, http.MethodDelete, "unbind-provider", "/providers/{id}", "Unbind the User's External Identity of the Provider", s.unbindProvider, http.StatusForbidden)
 	op(api, http.MethodPost, "regenerate-recovery-codes", "/2fa/recovery-codes", "Replace the recovery codes with a new set", s.regenerateRecoveryCodes, http.StatusForbidden)
+	op(api, http.MethodGet, "list-passkeys", "/passkeys", "The User's Passkeys", s.listPasskeys)
+	op(api, http.MethodPost, "begin-passkey", "/passkeys/options", "Begin adding a Passkey: creation options for the browser or native App", s.beginPasskey, http.StatusForbidden)
+	op(api, http.MethodPost, "add-passkey", "/passkeys", "Finish adding a Passkey with its registration response", s.addPasskey, http.StatusForbidden, http.StatusConflict)
+	op(api, http.MethodPatch, "rename-passkey", "/passkeys/{id}", "Rename one of the User's Passkeys; no reauthentication needed", s.renamePasskey, http.StatusNotFound)
+	op(api, http.MethodDelete, "remove-passkey", "/passkeys/{id}", "Delete one of the User's Passkeys", s.removePasskey, http.StatusForbidden, http.StatusNotFound)
 }
 
 // op registers an operation; errs are its errors beyond the usual.
@@ -641,4 +654,105 @@ func clientIP(r *http.Request) string {
 		return ap.Addr().Unmap().String()
 	}
 	return strings.TrimSpace(r.RemoteAddr)
+}
+
+// passkeyErr is fail plus 404 for a Passkey that is not the User's.
+func passkeyErr(err error) error {
+	if errors.Is(err, passkey.ErrGone) {
+		return huma.Error404NotFound("没有这把 Passkey")
+	}
+	return fail(err)
+}
+
+type passkeysOutput struct {
+	Body struct {
+		Passkeys []passkey.Passkey `json:"passkeys" nullable:"false" doc:"Oldest first"`
+	}
+}
+
+func (s *Service) listPasskeys(ctx context.Context, _ *struct{}) (*passkeysOutput, error) {
+	list, err := s.passkeys.List(ctx, callerOf(ctx).sub)
+	if err != nil {
+		return nil, err
+	}
+	out := &passkeysOutput{}
+	out.Body.Passkeys = list
+	return out, nil
+}
+
+type passkeyOptionsOutput struct {
+	Body struct {
+		Options json.RawMessage `json:"options" doc:"Creation options as sent to the browser: PublicKeyCredentialCreationOptionsJSON under publicKey, which goes to navigator.credentials.create or the system credential API"`
+	}
+}
+
+// beginPasskey starts adding a Passkey; the options exclude the User's
+// existing credentials so an authenticator offers no second copy of one.
+func (s *Service) beginPasskey(ctx context.Context, _ *struct{}) (*passkeyOptionsOutput, error) {
+	if err := fresh(ctx); err != nil {
+		return nil, err
+	}
+	c := callerOf(ctx)
+	ids, err := s.q.UserIdentifiers(ctx, c.sub)
+	if err != nil {
+		return nil, err
+	}
+	js, err := s.passkeys.Begin(ctx, c.sub, masked(c.sub, ids), c.session)
+	if err != nil {
+		return nil, err
+	}
+	out := &passkeyOptionsOutput{}
+	out.Body.Options = js
+	return out, nil
+}
+
+type addPasskeyInput struct {
+	Body passkey.RegistrationResponse
+}
+
+type passkeyOutput struct {
+	Body passkey.Passkey
+}
+
+// addPasskey finishes what beginPasskey began, with the registration
+// response the browser or App got back.
+func (s *Service) addPasskey(ctx context.Context, in *addPasskeyInput) (*passkeyOutput, error) {
+	if err := fresh(ctx); err != nil {
+		return nil, err
+	}
+	c := callerOf(ctx)
+	response, err := json.Marshal(in.Body)
+	if err != nil {
+		return nil, err
+	}
+	added, err := s.passkeys.Finish(ctx, c.sub, c.session, response)
+	if errors.Is(err, passkey.ErrDuplicate) {
+		return nil, huma.Error409Conflict(err.Error())
+	}
+	if err != nil {
+		return nil, passkeyErr(err)
+	}
+	out := &passkeyOutput{}
+	out.Body = added
+	return out, nil
+}
+
+type renamePasskeyInput struct {
+	ID string `path:"id"`
+	Body struct {
+		Name string `json:"name" doc:"How the User knows this Passkey, such as 工作电脑"`
+	}
+}
+
+func (s *Service) renamePasskey(ctx context.Context, in *renamePasskeyInput) (*struct{}, error) {
+	c := callerOf(ctx)
+	return nil, passkeyErr(s.passkeys.Rename(ctx, c.sub, in.ID, in.Body.Name, c.sub))
+}
+
+func (s *Service) removePasskey(ctx context.Context, in *providerPath) (*struct{}, error) {
+	if err := fresh(ctx); err != nil {
+		return nil, err
+	}
+	c := callerOf(ctx)
+	return nil, passkeyErr(s.passkeys.Remove(ctx, c.sub, in.ID, c.sub))
 }

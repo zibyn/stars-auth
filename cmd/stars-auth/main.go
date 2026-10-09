@@ -31,6 +31,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/management"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
 	"github.com/zibyn/stars-auth/internal/otp"
+	"github.com/zibyn/stars-auth/internal/passkey"
 	"github.com/zibyn/stars-auth/internal/pow"
 	_ "github.com/zibyn/stars-auth/internal/provider/apple"
 	_ "github.com/zibyn/stars-auth/internal/provider/github"
@@ -96,10 +97,14 @@ func serve() error {
 	if err != nil {
 		return err
 	}
+	accountSvc, err := account.New(pool, keyring, cfg.Issuer)
+	if err != nil {
+		return err
+	}
 	srv := &http.Server{
 		Addr: cfg.Listen,
 		Handler: server.New(pool.Ping, spa, cfg.TrustedProxies, auth.Register,
-			management.New(pool, keyring, cfg.Issuer).Register, account.New(pool, keyring, cfg.Issuer).Register),
+			management.New(pool, keyring, cfg.Issuer).Register, accountSvc.Register),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go runCleanup(ctx, pool)
@@ -147,6 +152,7 @@ var cleanupTasks = []func(context.Context, *pgxpool.Pool) error{
 	login.DeleteOldSessions,
 	otp.DeleteExpired,
 	pow.DeleteExpired,
+	passkey.DeleteExpired,
 	management.DeleteOldAudit,
 	identity.DeleteOldLoginFailures,
 }

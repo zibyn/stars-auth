@@ -13,10 +13,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -70,12 +72,19 @@ func start(t *testing.T) *env {
 	}
 	ts := httptest.NewServer(nil)
 	t.Cleanup(ts.Close)
-	auth, err := login.New(ctx, pool, keyring, ts.URL) // Providers come back to its callback
+	// A Passkey's RP ID is the issuer's hostname, which may not be an IP
+	// address; the test server is reached at localhost.
+	issuer := "http://localhost:" + strconv.Itoa(ts.Listener.Addr().(*net.TCPAddr).Port)
+	auth, err := login.New(ctx, pool, keyring, issuer) // Providers come back to its callback
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts.Config.Handler = server.New(pool.Ping, http.NotFoundHandler(), nil, auth.Register, account.New(pool, keyring, ts.URL).Register)
-	e := &env{t: t, pool: pool, keyring: keyring, issuer: ts.URL, keys: keys, inbox: &inbox{codes: map[string]string{}}, cookies: map[string]string{}}
+	accountSvc, err := account.New(pool, keyring, issuer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts.Config.Handler = server.New(pool.Ping, http.NotFoundHandler(), nil, auth.Register, accountSvc.Register)
+	e := &env{t: t, pool: pool, keyring: keyring, issuer: issuer, keys: keys, inbox: &inbox{codes: map[string]string{}}, cookies: map[string]string{}}
 	hook := httptest.NewServer(e.inbox)
 	t.Cleanup(hook.Close)
 	for _, kind := range []string{"phone", "email"} {

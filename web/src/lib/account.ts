@@ -98,6 +98,17 @@ export const reauthSchema = (method: ReauthMethod, sent: boolean) =>
 // totpSchema checks a code from the authenticator, confirming the TOTP.
 export const totpSchema = z.object({ code: totp });
 
+// passkeyNameSchema checks a Passkey's new name.
+export const passkeyNameSchema = z.object({
+	name: z
+		.string()
+		.trim()
+		.refine(
+			(v) => [...v].length >= 1 && [...v].length <= 64,
+			"名称须为 1–64 个字符",
+		),
+});
+
 // providerReturn is what to tell the User on coming back from a Provider
 // the account center sent them to (internal/login/provider.go), or null.
 export const providerReturn = (

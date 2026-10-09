@@ -31,7 +31,7 @@
 
 - **记录**:
   - Management API 的全部写操作;
-  - User 安全事件:绑定或解绑、开关两步验证、重新生成恢复码、用掉恢复码(`recovery_code.used`)、增删 Passkey、改密码、下线 Session、注销;
+  - User 安全事件:绑定或解绑、开关两步验证、重新生成恢复码、用掉恢复码(`recovery_code.used`)、增删改 Passkey(`passkey.added` / `passkey.removed` / `passkey.renamed`)、改密码、下线 Session、注销;
   - 登录锁定;
   - 触发每日发送上限。
 - **不记录**:普通的登录成功(这些信息已体现在 Session 中)。

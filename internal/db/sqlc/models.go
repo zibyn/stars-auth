@@ -131,6 +131,28 @@ type OidcSpentRefreshToken struct {
 	GrantID string
 }
 
+type Passkey struct {
+	ID             string
+	UserID         string
+	CredentialID   []byte
+	PublicKey      []byte
+	SignCount      int64
+	Aaguid         pgtype.UUID
+	BackupEligible bool
+	BackupState    bool
+	Transports     []string
+	Name           string
+	CreatedAt      pgtype.Timestamptz
+	LastUsedAt     pgtype.Timestamptz
+}
+
+type PasskeyChallenge struct {
+	SessionID string
+	UserID    string
+	Challenge string
+	ExpiresAt pgtype.Timestamptz
+}
+
 type Password struct {
 	UserID string
 	Hash   string
