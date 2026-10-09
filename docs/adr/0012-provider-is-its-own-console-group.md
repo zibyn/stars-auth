@@ -10,6 +10,6 @@
 
 ## Consequences
 
-- 界面用语 `Provider` 从「外部登录」改成「认证源」;`External Identity` 仍叫「外部账号」;`GLOSSARY.md` 的领域术语 Provider / Provider 类型不变(界面叫法归 `consoles.md` 的对照表)。
+- 管理端(导航、页面、审计)的界面用语 `Provider` 从「外部登录」改成「认证源」;登录页和账号中心面向最终用户,仍叫「外部登录」,「认证源」是管理员的配置术语。`External Identity` 仍叫「外部账号」;`GLOSSARY.md` 的领域术语 Provider / Provider 类型不变(界面叫法归 `consoles.md` 的对照表)。
 - 旧的 `/console/settings?tab=login` 不做重定向。
 - 权限不变,仍用 `config:read` / `config:write`,与设置同一粒度;国内商业产品没有一家为 IdP 配置单设权限点。
