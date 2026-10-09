@@ -33,6 +33,8 @@ import (
 	"github.com/zibyn/stars-auth/internal/otp"
 	"github.com/zibyn/stars-auth/internal/pow"
 	_ "github.com/zibyn/stars-auth/internal/provider/apple"
+	_ "github.com/zibyn/stars-auth/internal/provider/google"
+	_ "github.com/zibyn/stars-auth/internal/provider/microsoft"
 	_ "github.com/zibyn/stars-auth/internal/provider/oidc"
 	"github.com/zibyn/stars-auth/internal/server"
 	"github.com/zibyn/stars-auth/internal/webhook"

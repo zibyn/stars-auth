@@ -1,6 +1,8 @@
 // Package oidc is the generic OIDC Provider type: any upstream with
 // discovery, signed in to by authorization code + PKCE, its id_token checked
 // against the issuer's JWKS (docs/spec/architecture.md#通用-oidc-provider-类型).
+// The named providers (Google, Microsoft) are built on the same
+// implementation through Type, not by copying it.
 package oidc
 
 import (
@@ -26,7 +28,7 @@ import (
 )
 
 func init() {
-	provider.Register(provider.Type{
+	provider.Register(Type(Options{
 		Key:  "oidc",
 		Name: "通用 OIDC",
 		Fields: []provider.ConfigField{
@@ -35,18 +37,59 @@ func init() {
 			{Field: channel.Field{Key: "client_id", Label: "Client ID", Type: "text"}},
 			{Field: channel.Field{Key: "client_secret", Label: "Client secret", Type: "text", Secret: true}},
 		},
-		New: func(c map[string]string) (provider.Redirect, error) {
-			return &upstream{issuer: strings.TrimSuffix(c["issuer"], "/"), clientID: c["client_id"], secret: c["client_secret"]}, nil
-		},
-	})
+		Issuer: func(c map[string]string) (string, error) { return c["issuer"], nil },
+	}))
 }
 
-type upstream struct{ issuer, clientID, secret string }
+// Options describe a Provider type that signs in with the generic OIDC
+// flow: what the admin is asked for, and which issuer is acceptable.
+type Options struct {
+	Key, Name string
+	Fields    []provider.ConfigField
+	// Issuer is what the type is configured for, built from settings that
+	// passed the Fields checks: a constant for a named provider, the
+	// admin's own issuer for the generic one.
+	Issuer func(config map[string]string) (string, error)
+	// IssuerMatches replaces the exact comparison with the configured
+	// issuer, for a type whose upstream reports something else: Microsoft
+	// names the tenant it signed (ADR 0013). claims are the id_token's,
+	// nil wherever there is no id_token to anchor against — in discovery
+	// and for the callback's iss parameter.
+	IssuerMatches func(configured, reported string, claims map[string]any) bool
+}
+
+// Type builds the Provider type the Options describe.
+func Type(o Options) provider.Type {
+	return provider.Type{
+		Key: o.Key, Name: o.Name, Fields: o.Fields,
+		New: func(c map[string]string) (provider.Redirect, error) {
+			issuer, err := o.Issuer(c)
+			if err != nil {
+				return nil, err
+			}
+			u := &upstream{issuer: strings.TrimSuffix(issuer, "/"), clientID: c["client_id"], secret: c["client_secret"]}
+			u.matches = o.IssuerMatches
+			if u.matches == nil {
+				u.matches = sameIssuer
+			}
+			return u, nil
+		},
+	}
+}
+
+// sameIssuer is the default: the upstream reports exactly what it was
+// configured with.
+func sameIssuer(configured, reported string, _ map[string]any) bool { return configured == reported }
+
+type upstream struct {
+	issuer, clientID, secret string
+	matches                  func(configured, reported string, claims map[string]any) bool
+}
 
 var client = &http.Client{Timeout: 10 * time.Second}
 
 func (u *upstream) AuthURL(ctx context.Context, redirectURI, state, nonce, verifier string) (string, error) {
-	d, err := discover(ctx, u.issuer)
+	d, err := u.discovery(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -72,10 +115,10 @@ func (u *upstream) Callback(ctx context.Context, params url.Values, redirectURI,
 	if e := params.Get("error"); e != "" {
 		return provider.Identity{}, fmt.Errorf("upstream: %s %s", e, params.Get("error_description"))
 	}
-	if iss := params.Get("iss"); iss != "" && iss != u.issuer { // RFC 9207
+	if iss := params.Get("iss"); iss != "" && !u.matches(u.issuer, iss, nil) { // RFC 9207
 		return provider.Identity{}, fmt.Errorf("callback from issuer %q", iss)
 	}
-	d, err := discover(ctx, u.issuer)
+	d, err := u.discovery(ctx)
 	if err != nil {
 		return provider.Identity{}, err
 	}
@@ -138,12 +181,16 @@ func (u *upstream) verify(ctx context.Context, d *discovery, idToken, nonce stri
 		Nonce    string           `json:"nonce"`
 		AZP      string           `json:"azp"`
 		AuthTime *jwt.NumericDate `json:"auth_time"`
+		Tid      string           `json:"tid"`
 	}
 	if err := tok.Claims(key, &claims, &extra); err != nil {
 		return id, fmt.Errorf("id_token: %w", err)
 	}
-	if err := claims.ValidateWithLeeway(jwt.Expected{Issuer: u.issuer, AnyAudience: jwt.Audience{u.clientID}}, time.Minute); err != nil {
+	if err := claims.ValidateWithLeeway(jwt.Expected{AnyAudience: jwt.Audience{u.clientID}}, time.Minute); err != nil {
 		return id, fmt.Errorf("id_token: %w", err)
+	}
+	if !u.matches(u.issuer, claims.Issuer, map[string]any{"tid": extra.Tid}) {
+		return id, fmt.Errorf("id_token: issuer %q is not ours", claims.Issuer)
 	}
 	if claims.Expiry == nil {
 		return id, errors.New("id_token: no exp")
@@ -180,6 +227,19 @@ type discovery struct {
 	jwksAt  time.Time
 }
 
+// discovery is the issuer's discovery document, once this Provider has
+// checked it is the one it accepts.
+func (u *upstream) discovery(ctx context.Context) (*discovery, error) {
+	d, err := discover(ctx, u.issuer)
+	if err != nil {
+		return nil, err
+	}
+	if !u.matches(u.issuer, d.Issuer, nil) {
+		return nil, fmt.Errorf("discovery of %s: issuer %q", u.issuer, d.Issuer)
+	}
+	return d, nil
+}
+
 // cacheFor is how long a discovery document and JWKS are reused.
 const cacheFor = time.Hour
 
@@ -198,8 +258,8 @@ func discover(ctx context.Context, issuer string) (*discovery, error) {
 	if err := fetch(req, d); err != nil {
 		return nil, fmt.Errorf("discovery: %w", err)
 	}
-	if d.Issuer != issuer || d.AuthorizationEndpoint == "" || d.TokenEndpoint == "" || d.JWKSURI == "" {
-		return nil, fmt.Errorf("discovery of %s: wrong issuer or endpoints missing", issuer)
+	if d.AuthorizationEndpoint == "" || d.TokenEndpoint == "" || d.JWKSURI == "" {
+		return nil, fmt.Errorf("discovery of %s: endpoints missing", issuer)
 	}
 	d.fetched = time.Now()
 	cache.Store(issuer, d)
