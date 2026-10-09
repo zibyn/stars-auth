@@ -64,7 +64,9 @@
 ## 密码管理器适配
 
 - **`/.well-known/` 文件**:
-  - 按 Application 登记的 Team ID + Bundle ID、包名 + 签名指纹,动态生成 `apple-app-site-association` 和 `assetlinks.json`;
+  - `apple-app-site-association`:`webcredentials.apps` 汇总所有 Application 登记的 Team ID + Bundle ID;以 `application/json` 返回,不重定向。
+  - `assetlinks.json`:每个登记的 Android 应用一条,`relation` 含 `delegate_permission/common.get_login_creds` 和 `delegate_permission/common.handle_all_urls`。
+  - 还没登记任何原生 App 时,两个文件返回空列表的合法 JSON;这两个关联文件也不受 Passkey 开关影响,密码自动填充同样要用。
   - 提供 `passkey-endpoints`(指向账号中心);
   - `change-password` 只在密码开关打开时提供;
   - 不做 `/.well-known/webauthn`。

@@ -1,6 +1,10 @@
 package management_test
 
 import (
+	"encoding/json"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -137,5 +141,79 @@ func TestManageApplications(t *testing.T) {
 	}
 	if code := e.get(ro, path, nil); code != 404 {
 		t.Errorf("deleted Application: %d", code)
+	}
+}
+
+// wellKnown fetches a /.well-known/ file without following redirects: what
+// Apple's and Google's crawlers do.
+func wellKnown(t *testing.T, issuer, path string) (*http.Response, string) {
+	t.Helper()
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Get(issuer + path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	body, _ := io.ReadAll(resp.Body)
+	return resp, string(body)
+}
+
+// TestWellKnownAssociation is the two files iOS and Android read to allow
+// this domain's Passkeys and password autofill in the registered native
+// Apps (docs/spec/authentication.md「密码管理器适配」).
+func TestWellKnownAssociation(t *testing.T) {
+	e := start(t)
+	owner := e.token(e.owner, nil)
+
+	// Nothing registered yet: both files are still valid JSON, empty.
+	for path, want := range map[string]string{
+		"/.well-known/apple-app-site-association": `{"webcredentials":{"apps":[]}}`,
+		"/.well-known/assetlinks.json":            `[]`,
+	} {
+		resp, body := wellKnown(t, e.issuer, path)
+		if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("%s: %d %s", path, resp.StatusCode, resp.Header.Get("Content-Type"))
+		}
+		var got any
+		if json.Unmarshal([]byte(body), &got) != nil || strings.TrimSpace(body) != want {
+			t.Errorf("%s: %s, want %s", path, body, want)
+		}
+	}
+
+	// Register a native App's association; both files answer with it.
+	settings := map[string]any{"name": "星选 App", "redirectUris": []string{}, "postLogoutRedirectUris": []string{},
+		"refreshTokens": true, "appleAppIds": []string{"ABCDE12345.com.example.app"},
+		"androidApps": []any{map[string]any{"packageName": "com.example.app", "sha256CertFingerprints": []string{fingerprint}}}}
+	if code := e.call("POST", owner, "/applications", map[string]any{"type": "public", "settings": settings}, nil); code != 200 {
+		t.Fatalf("create: %d", code)
+	}
+
+	_, body := wellKnown(t, e.issuer, "/.well-known/apple-app-site-association")
+	var aasa struct {
+		Webcredentials struct {
+			Apps []string `json:"apps"`
+		} `json:"webcredentials"`
+	}
+	if json.Unmarshal([]byte(body), &aasa) != nil || len(aasa.Webcredentials.Apps) != 1 || aasa.Webcredentials.Apps[0] != "ABCDE12345.com.example.app" {
+		t.Errorf("apple-app-site-association: %s", body)
+	}
+
+	_, body = wellKnown(t, e.issuer, "/.well-known/assetlinks.json")
+	var statements []struct {
+		Relation []string `json:"relation"`
+		Target   struct {
+			Namespace              string   `json:"namespace"`
+			PackageName            string   `json:"package_name"`
+			SHA256CertFingerprints []string `json:"sha256_cert_fingerprints"`
+		} `json:"target"`
+	}
+	if json.Unmarshal([]byte(body), &statements) != nil || len(statements) != 1 {
+		t.Fatalf("assetlinks.json: %s", body)
+	}
+	s := statements[0]
+	if len(s.Relation) != 2 || s.Relation[0] != "delegate_permission/common.get_login_creds" || s.Relation[1] != "delegate_permission/common.handle_all_urls" ||
+		s.Target.Namespace != "android_app" || s.Target.PackageName != "com.example.app" ||
+		len(s.Target.SHA256CertFingerprints) != 1 || s.Target.SHA256CertFingerprints[0] != fingerprint {
+		t.Errorf("statement: %+v", s)
 	}
 }

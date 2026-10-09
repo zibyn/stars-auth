@@ -48,8 +48,11 @@ import { Switch } from "#/components/ui/switch";
 import { TabsContent } from "#/components/ui/tabs";
 import { Textarea } from "#/components/ui/textarea";
 import {
+	androidApps,
+	androidLines,
 	basicSchema,
 	loginSchema,
+	nativeSchema,
 	typeName,
 	typeWhy,
 	webhookSchema,
@@ -120,9 +123,14 @@ export const Route = createFileRoute("/console/apps/$clientId")({
 
 const day = 86400;
 
+// fingerprintHint is what a SHA-256 certificate fingerprint looks like in
+// the Android App textarea.
+const fingerprintHint =
+	"14:6D:E9:83:C5:73:06:50:D8:EE:B9:95:2F:34:FC:64:16:A0:83:42:E6:1D:BE:A8:8A:04:96:B2:3F:CF:44:E5";
+
 // settings is what PUT takes back: every value as it was, the webhook key
-// left out so the stored one stays. iOS / Android links are off the page
-// until phase two but still go back unchanged.
+// left out so the stored one stays. iOS / Android links come back
+// unchanged unless the 原生 App 关联 form is the one saving.
 const currentSettings = (a: Application): ApplicationSettings => ({
 	name: a.name,
 	redirectUris: a.redirectUris,
@@ -493,101 +501,173 @@ function LoginTab({ app, editable }: TabProps) {
 			),
 	});
 	return (
+		<div className="space-y-10">
+			<Section
+				title="登录跳转"
+				editable={editable}
+				form={form}
+				footer={editable && <SaveBar save={save} />}
+			>
+				<form.Field name="redirectUris">
+					{(field) => (
+						<FormField
+							field={field}
+							label="回调地址"
+							en="redirect URI"
+							help="登录完成后跳回应用的地址。只接受这里登记过的地址。"
+						>
+							{(control) => (
+								<Textarea
+									{...control}
+									className="font-mono"
+									placeholder="每行一个，如 https://shop.example.com/callback"
+								/>
+							)}
+						</FormField>
+					)}
+				</form.Field>
+				{/* keepMounted: a folded field's error still shows when unfolded. */}
+				<Collapsible>
+					<CollapsibleTrigger className="flex items-center gap-1 font-medium text-[13px] [&[data-panel-open]>svg]:rotate-90">
+						<ChevronRight className="size-4 transition-transform" />
+						高级
+					</CollapsibleTrigger>
+					<CollapsibleContent keepMounted className="mt-6 space-y-6">
+						<form.Field name="postLogoutRedirectUris">
+							{(field) => (
+								<FormField
+									field={field}
+									label="退出后跳转地址"
+									en="post-logout redirect URI"
+									help="用户退出后回到的页面。同样只接受登记过的地址。"
+								>
+									{(control) => (
+										<Textarea
+											{...control}
+											className="font-mono"
+											placeholder="每行一个，可不填"
+										/>
+									)}
+								</FormField>
+							)}
+						</form.Field>
+						<form.Field name="refreshTokens">
+							{(field) => (
+								<FormField
+									field={field}
+									label="允许 App 保持登录"
+									en="签发 refresh token，每次刷新都给会话续期"
+									help="开启后，App 可在后台续期，用户不用反复登录。关闭后，大约 10 分钟就要重新登录。App 能保持登录多久，由这一项和下面的闲置时长共同决定。"
+								>
+									{({ id }) => (
+										<Switch
+											id={id}
+											disabled={!editable}
+											checked={field.state.value}
+											onCheckedChange={field.handleChange}
+										/>
+									)}
+								</FormField>
+							)}
+						</form.Field>
+						<form.Field name="idleDays">
+							{(field) => (
+								<FormField
+									field={field}
+									label="闲置多久需重新登录"
+									help="用户连续这么多天没用这个应用，下次打开就要重新登录。改动只对之后新登录的会话生效。"
+								>
+									{(control) => (
+										<div className="flex items-center gap-2">
+											<Input
+												{...control}
+												type="number"
+												min={1}
+												max={365}
+												className="w-28"
+												placeholder={
+													app.type === "public" ? "默认 90" : "默认 30"
+												}
+											/>
+											<span className="text-sm">天</span>
+										</div>
+									)}
+								</FormField>
+							)}
+						</form.Field>
+					</CollapsibleContent>
+				</Collapsible>
+			</Section>
+			{app.type === "public" && <NativeApps app={app} editable={editable} />}
+		</div>
+	);
+}
+
+// NativeApps is the 原生 App 关联 section: what makes iOS and Android
+// allow this domain's Passkeys and password autofill in the App. Only
+// 无后端应用 have it; a web Application is never a native App.
+function NativeApps({ app, editable }: TabProps) {
+	const save = useSave(app);
+	const form = useForm({
+		defaultValues: {
+			apple: app.appleAppIds.join("\n"),
+			android: androidLines(app.androidApps),
+		},
+		validationLogic: revalidateLogic(),
+		validators: { onDynamic: nativeSchema },
+		onSubmit: ({ value }) =>
+			save.mutate(
+				{
+					appleAppIds: lines(value.apple),
+					androidApps: androidApps(value.android),
+				},
+				{ onSuccess: saved },
+			),
+	});
+	return (
 		<Section
-			title="登录跳转"
+			title="原生 App 关联"
+			intro="登记 iOS 和 Android 应用后，它们就能用这个域名的通行密钥和密码自动填充。认证服务会据此自动生成关联文件，立即生效。"
 			editable={editable}
 			form={form}
 			footer={editable && <SaveBar save={save} />}
 		>
-			<form.Field name="redirectUris">
+			<form.Field name="apple">
 				{(field) => (
 					<FormField
 						field={field}
-						label="回调地址"
-						en="redirect URI"
-						help="登录完成后跳回应用的地址。只接受这里登记过的地址。"
+						label="iOS App"
+						en="Team ID.Bundle ID"
+						help="在 Apple 开发者后台的 Membership 和 Identifiers 里能找到。"
 					>
 						{(control) => (
 							<Textarea
 								{...control}
 								className="font-mono"
-								placeholder="每行一个，如 https://shop.example.com/callback"
+								placeholder="每行一个，如 ABCDE12345.com.example.app"
 							/>
 						)}
 					</FormField>
 				)}
 			</form.Field>
-			{/* keepMounted: a folded field's error still shows when unfolded. */}
-			<Collapsible>
-				<CollapsibleTrigger className="flex items-center gap-1 font-medium text-[13px] [&[data-panel-open]>svg]:rotate-90">
-					<ChevronRight className="size-4 transition-transform" />
-					高级
-				</CollapsibleTrigger>
-				<CollapsibleContent keepMounted className="mt-6 space-y-6">
-					<form.Field name="postLogoutRedirectUris">
-						{(field) => (
-							<FormField
-								field={field}
-								label="退出后跳转地址"
-								en="post-logout redirect URI"
-								help="用户退出后回到的页面。同样只接受登记过的地址。"
-							>
-								{(control) => (
-									<Textarea
-										{...control}
-										className="font-mono"
-										placeholder="每行一个，可不填"
-									/>
-								)}
-							</FormField>
+			<form.Field name="android">
+				{(field) => (
+					<FormField
+						field={field}
+						label="Android App"
+						en="包名 + SHA-256 签名指纹"
+						help="在 Android Studio 里用 gradlew signingReport 查签名指纹。"
+					>
+						{(control) => (
+							<Textarea
+								{...control}
+								className="font-mono"
+								placeholder={`每行一个，先包名后指纹（可多个，空格分隔），如 com.example.app ${fingerprintHint}`}
+							/>
 						)}
-					</form.Field>
-					<form.Field name="refreshTokens">
-						{(field) => (
-							<FormField
-								field={field}
-								label="允许 App 保持登录"
-								en="签发 refresh token，每次刷新都给会话续期"
-								help="开启后，App 可在后台续期，用户不用反复登录。关闭后，大约 10 分钟就要重新登录。App 能保持登录多久，由这一项和下面的闲置时长共同决定。"
-							>
-								{({ id }) => (
-									<Switch
-										id={id}
-										disabled={!editable}
-										checked={field.state.value}
-										onCheckedChange={field.handleChange}
-									/>
-								)}
-							</FormField>
-						)}
-					</form.Field>
-					<form.Field name="idleDays">
-						{(field) => (
-							<FormField
-								field={field}
-								label="闲置多久需重新登录"
-								help="用户连续这么多天没用这个应用，下次打开就要重新登录。改动只对之后新登录的会话生效。"
-							>
-								{(control) => (
-									<div className="flex items-center gap-2">
-										<Input
-											{...control}
-											type="number"
-											min={1}
-											max={365}
-											className="w-28"
-											placeholder={
-												app.type === "public" ? "默认 90" : "默认 30"
-											}
-										/>
-										<span className="text-sm">天</span>
-									</div>
-								)}
-							</FormField>
-						)}
-					</form.Field>
-				</CollapsibleContent>
-			</Collapsible>
+					</FormField>
+				)}
+			</form.Field>
 		</Section>
 	);
 }

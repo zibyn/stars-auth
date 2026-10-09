@@ -1,6 +1,6 @@
 // Application list and detail logic. Pure TypeScript: tested with node --test.
 import { z } from "zod";
-import type { Application } from "./console-api.ts";
+import type { AndroidApp, Application } from "./console-api.ts";
 import { lines } from "./onboarding.ts";
 
 // onlyBuiltin reports whether the list holds nothing but built-in
@@ -85,3 +85,51 @@ export const webhookSchema = (secretSet: boolean) =>
 			path: ["webhookSecret"],
 			message: "请设置 Webhook 密钥。填写通知地址后，必须同时设置密钥。",
 		});
+
+// The 原生 App 关联 formats, as the server's validate() checks them too.
+const appleAppId = /^[A-Z0-9]{10}\.[A-Za-z0-9.-]+$/;
+const packageName = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$/;
+const certSHA256 = /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/;
+
+// androidLines is the Android App textarea: one per line, the package name
+// then its fingerprints, space-separated. androidApps parses it back.
+export const androidLines = (apps: AndroidApp[]): string =>
+	apps
+		.map((a) => [a.packageName, ...a.sha256CertFingerprints].join(" "))
+		.join("\n");
+
+export const androidApps = (v: string): AndroidApp[] =>
+	lines(v).map((l) => {
+		const [p, ...sha256CertFingerprints] = l.split(/\s+/);
+		return { packageName: p, sha256CertFingerprints };
+	});
+
+// nativeSchema checks the 原生 App 关联 section: Apple app IDs and Android
+// package + fingerprint lines, each as the server wants them.
+export const nativeSchema = z.object({
+	apple: z.string().superRefine((v, ctx) => {
+		const bad = lines(v).find((l) => !appleAppId.test(l));
+		if (bad) {
+			ctx.addIssue({
+				code: "custom",
+				message: `「${bad}」须为 Team ID.Bundle ID，如 ABCDE12345.com.example.app。`,
+			});
+		}
+	}),
+	android: z.string().superRefine((v, ctx) => {
+		const bad = lines(v).find((l) => {
+			const [p, ...fps] = l.split(/\s+/);
+			return (
+				!packageName.test(p) ||
+				fps.length === 0 ||
+				fps.some((f) => !certSHA256.test(f))
+			);
+		});
+		if (bad) {
+			ctx.addIssue({
+				code: "custom",
+				message: `「${bad}」须为包名加签名指纹，指纹形如 AB:CD:…（十六进制，32 字节），可多个、空格分隔。`,
+			});
+		}
+	}),
+});

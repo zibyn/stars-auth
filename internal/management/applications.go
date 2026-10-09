@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/url"
 	"regexp"
 	"time"
@@ -251,6 +252,55 @@ func (s *Service) deleteApplication(ctx context.Context, in *clientIDPath) (*str
 		return nil, err
 	}
 	return nil, s.q.DeleteApplication(ctx, in.ClientID)
+}
+
+// registerAssociation serves the /.well-known/ association files iOS and
+// Android read to let the registered native Apps use this domain's
+// Passkeys and password autofill. Not behind the Passkey switch: password
+// autofill needs them too (docs/spec/authentication.md「密码管理器适配」).
+func (s *Service) registerAssociation(mux *http.ServeMux) {
+	mux.HandleFunc("GET /.well-known/apple-app-site-association", func(w http.ResponseWriter, r *http.Request) {
+		apps, err := s.applications(r.Context(), "")
+		if err != nil {
+			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		ids := []string{}
+		for _, a := range apps {
+			ids = append(ids, a.AppleAppIDs...)
+		}
+		writeJSON(w, map[string]map[string][]string{"webcredentials": {"apps": ids}})
+	})
+	mux.HandleFunc("GET /.well-known/assetlinks.json", func(w http.ResponseWriter, r *http.Request) {
+		apps, err := s.applications(r.Context(), "")
+		if err != nil {
+			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		statements := []map[string]any{}
+		for _, a := range apps {
+			for _, android := range a.AndroidApps {
+				statements = append(statements, map[string]any{
+					"relation": []string{
+						"delegate_permission/common.get_login_creds",
+						"delegate_permission/common.handle_all_urls",
+					},
+					"target": map[string]any{
+						"namespace":                "android_app",
+						"package_name":             android.PackageName,
+						"sha256_cert_fingerprints": android.SHA256CertFingerprints,
+					},
+				})
+			}
+		}
+		writeJSON(w, statements)
+	})
+}
+
+// writeJSON answers with a JSON body, no redirect.
+func writeJSON(w http.ResponseWriter, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(body)
 }
 
 type newSecretOutput struct {
