@@ -5,7 +5,6 @@ import (
 	"html"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -98,22 +97,24 @@ func TestPendingLoginGoesOnOnlyInTheBrowserThatStartedIt(t *testing.T) {
 			}
 		}},
 	}
-	cases := [][2]string{
+	// Password and code logins agree to the terms with the first factor;
+	// only a live Session or a Provider login stops at them.
+	cases := []struct{ factor, step string }{
 		{"password", "totp"}, {"password", "phone"},
 		{"code", "totp"}, {"code", "phone"},
 		{"google", "totp"}, {"google", "phone"}, {"google", "consent"},
 		{"session", "consent"},
 	}
 	for _, c := range cases {
-		f, s := factors[c[0]], steps[c[1]]
-		t.Run(c[0]+"/"+c[1], func(t *testing.T) {
+		f, s := factors[c.factor], steps[c.step]
+		t.Run(c.factor+"/"+c.step, func(t *testing.T) {
 			e := start(t)
 			sub := f.user(e)
 			advance := s.setup(e, sub)
 			_, page := e.authorize("")
 			_, page = f.login(e, page)
 			if !strings.Contains(page, s.marker) {
-				t.Fatalf("want the %s step:\n%s", c[1], page)
+				t.Fatalf("want the %s step:\n%s", c.step, page)
 			}
 			attacker := e.client
 
@@ -123,14 +124,17 @@ func TestPendingLoginGoesOnOnlyInTheBrowserThatStartedIt(t *testing.T) {
 			}
 			action := html.UnescapeString(actionRE.FindStringSubmatch(page)[1])
 			resp, body := e.do("GET", action, nil)
-			if signedIn(resp) || slices.ContainsFunc([]string{totpForm, "绑定手机号", `value="consent"`}, func(m string) bool { return strings.Contains(body, m) }) {
-				t.Errorf("forwarded page showed the step: %d %s", resp.StatusCode, body)
+			for _, other := range steps {
+				if signedIn(resp) || strings.Contains(body, other.marker) {
+					t.Errorf("forwarded page showed a step: %d %s", resp.StatusCode, body)
+				}
 			}
-			if resp := advance(e, page); signedIn(resp) {
-				t.Errorf("forwarded page went on: %d %s", resp.StatusCode, resp.Header.Get("Location"))
+			if resp := advance(e, page); signedIn(resp) || len(e.consents(sub)) > 0 {
+				t.Errorf("forwarded page went on: %v %v", resp, e.consents(sub))
 			}
 
-			// The attacker's browser still goes on, with the TOTP code unspent.
+			// The attacker's browser still goes on: the TOTP code is unspent, the
+			// phone number unbound.
 			e.client = attacker
 			if got := e.idToken(e.code(advance(e, page)))["sub"]; got != sub {
 				t.Errorf("signed in as %v, want %s", got, sub)
