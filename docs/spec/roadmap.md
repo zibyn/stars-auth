@@ -27,7 +27,7 @@
 - Passkey(托管页 conditional UI、直连 API 的 WebAuthn challenge、SDK 调用系统 API)。
 - TOTP 2FA 与恢复码;"管理员必须启用 2FA 或 Passkey"开关(**已实现**,#79、#86;Passkey 落地前这个开关只管两步验证)。
 - 动态生成 `/.well-known/` 文件:`apple-app-site-association`、`assetlinks.json`、`passkey-endpoints`、`change-password`。
-- Provider 框架落地:通用 OIDC、通用 OAuth2、Apple(含注销回调),以及 Google、Microsoft、GitHub 三个具名供应商;管理端把它们收进独立的「认证源」分组(**已实现**,#87、#99、#100;#99 与 #100 的实机验收未关)。
+- Provider 框架落地:通用 OIDC、通用 OAuth2、Apple(含注销回调),以及 Google、Microsoft、GitHub 三个具名供应商;管理端把它们收进独立的「认证源」分组(**已实现**,#87、#98、#99、#100)。
 - `client_credentials` 与服务账号、默认 Role、Management API 对外文档。
 - 审计导出 CSV;主密钥轮换命令。
 
