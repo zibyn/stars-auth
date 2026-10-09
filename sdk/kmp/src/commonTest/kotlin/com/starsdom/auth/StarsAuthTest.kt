@@ -83,6 +83,27 @@ class StarsAuthTest {
     assertEquals("id1", auth.tokens()?.idToken)
   }
 
+  // Sign in with Apple: the App hands over the code as is, no PoW, and
+  // goes on by next like any sign-in (ADR 0011).
+  @Test
+  fun providerSignInForwardsTheCode() = runTest {
+    server.handlers["/v1/auth/challenge"] = { form ->
+      when {
+        form["authorization_code"] == "spent" -> json("""{"error":"invalid_grant"}""", HttpStatusCode.BadRequest)
+        form["provider"] == "apple" && form["authorization_code"] == "ac1" -> json(insufficient("s1", "totp"), HttpStatusCode.Forbidden)
+        else -> error("unexpected $form")
+      }
+    }
+    val auth = server.auth()
+
+    assertIs<SignInStep.TotpRequired>(auth.signInWithProvider("apple", "ac1", termsVersion = "2026-01"))
+    assertEquals("invalid_grant", assertFailsWith<StarsAuthException> { auth.signInWithProvider("apple", "spent", "2026-01") }.error)
+    val (_, challenge) = server.forms.first { it.first == "/v1/auth/challenge" }
+    assertEquals("2026-01", challenge["terms_version"])
+    assertEquals("S256", challenge["code_challenge_method"])
+    assertEquals(0, server.calls("/altcha/challenge"))
+  }
+
   // 两步验证: a TOTP code or a 恢复码 in the same auth_session; a wrong one
   // can be entered again.
   @Test
