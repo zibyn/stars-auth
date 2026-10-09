@@ -26,6 +26,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/identity"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
 	"github.com/zibyn/stars-auth/internal/otp"
+	"github.com/zibyn/stars-auth/internal/provider"
 	"github.com/zibyn/stars-auth/internal/twofactor"
 )
 
@@ -48,13 +49,14 @@ type Service struct {
 	ids       *identity.Store
 	codes     *otp.Service
 	twoFactor *twofactor.Store
+	providers *provider.Store
 }
 
 func New(pool *pgxpool.Pool, keyring *crypt.Keyring, issuer string) *Service {
 	return &Service{
 		issuer: issuer, pool: pool, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring),
 		ids: identity.New(pool, keyring), codes: otp.New(pool, channel.NewStore(pool, keyring)),
-		twoFactor: twofactor.New(pool, keyring),
+		twoFactor: twofactor.New(pool, keyring), providers: provider.NewStore(pool, keyring),
 	}
 }
 
@@ -509,12 +511,12 @@ func twoFactorErr(err error) error {
 
 // deleteAccount deletes the User for good (docs/spec/identity.md#注销): their
 // Sessions and refresh tokens go with them, and their Identifiers are free
-// at once.
+// at once. Their Providers' unlink hooks run after (Apple revokes).
 func (s *Service) deleteAccount(ctx context.Context, _ *struct{}) (*struct{}, error) {
 	if err := fresh(ctx); err != nil {
 		return nil, err
 	}
-	err := s.ids.Delete(ctx, callerOf(ctx).sub)
+	err := s.providers.DeleteUser(ctx, callerOf(ctx).sub, s.ids.Delete)
 	if errors.Is(err, identity.ErrLastOwner) {
 		return nil, huma.Error409Conflict(err.Error())
 	}
@@ -533,7 +535,7 @@ func (s *Service) directDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err == nil {
-		err = s.ids.Delete(ctx, c.sub)
+		err = s.providers.DeleteUser(ctx, c.sub, s.ids.Delete)
 	}
 	switch {
 	case err == nil:
