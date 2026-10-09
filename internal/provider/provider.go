@@ -15,7 +15,8 @@ import (
 
 // Redirect is a Provider the browser signs in at: the hosted login page sends
 // it to AuthURL, and the Provider sends it back to the callback URL. Asks for
-// openid only; whatever else the Provider says (email, name) is dropped.
+// the scope its type needs (openid, or the admin's for OAuth2); whatever else
+// the Provider says (email, name) is dropped.
 type Redirect interface {
 	// AuthURL is where to send the browser, with state, nonce and the PKCE
 	// challenge of verifier.
@@ -39,6 +40,15 @@ type ClientToken interface {
 type Unlinker interface {
 	// Unlink is given the Identity.Token kept on the External Identity.
 	Unlink(ctx context.Context, token string) error
+}
+
+// NoReauthPrompt is a Provider a reauthentication cannot ask to sign the
+// User in afresh: a standard OAuth2 upstream has no prompt=login and no
+// max_age, so the store puts neither on the redirect, and the
+// reauthentication only proves the External Identity is still signed in
+// there (ADR 0013).
+type NoReauthPrompt interface {
+	NoReauthPrompt()
 }
 
 // Identity is who a Provider says signed in.

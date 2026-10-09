@@ -25,7 +25,8 @@ const (
 // Provider id, for the Session session of User userID: to bind the External
 // Identity it gives, or with reauth, to reauthenticate the Session with the
 // one bound. A reauthentication asks the Provider to sign the User in
-// afresh (OIDC Core §3.1.2.1 prompt=login, max_age=0).
+// afresh (OIDC Core §3.1.2.1 prompt=login, max_age=0), where it is a
+// Provider that can be asked.
 func (s *Store) BeginAccount(ctx context.Context, issuer, id, userID, session string, reauth bool) (string, error) {
 	if reauth {
 		if _, err := s.q.ExternalIdentitySubject(ctx, sqlc.ExternalIdentitySubjectParams{UserID: userID, Provider: id}); errors.Is(err, pgx.ErrNoRows) {
@@ -34,7 +35,7 @@ func (s *Store) BeginAccount(ctx context.Context, issuer, id, userID, session st
 			return "", err
 		}
 	}
-	to, err := s.begin(ctx, issuer, id, func(stateHash []byte, nonce, verifier string) error {
+	to, p, err := s.begin(ctx, issuer, id, func(stateHash []byte, nonce, verifier string) error {
 		return s.q.InsertProviderAccountLogin(ctx, sqlc.InsertProviderAccountLoginParams{
 			StateHash: stateHash, Provider: id, Nonce: nonce, Verifier: verifier,
 			SessionID: pgtype.Text{String: session, Valid: true}, Reauth: reauth,
@@ -42,6 +43,9 @@ func (s *Store) BeginAccount(ctx context.Context, issuer, id, userID, session st
 	})
 	if err != nil || !reauth {
 		return to, err
+	}
+	if _, ok := p.(NoReauthPrompt); ok {
+		return to, nil
 	}
 	u, err := url.Parse(to)
 	if err != nil {
@@ -72,11 +76,9 @@ func (s *Store) finishAccount(ctx context.Context, id string, login sqlc.TakePro
 			return err
 		}
 		// max_age=0: they signed in after the redirect started, give or take
-		// the clocks' skew.
-		// ponytail: no auth_time is taken as the Provider honouring
-		// prompt=login and max_age=0; one that ignores both reauthenticates
-		// with a remembered sign-in. Refuse a missing auth_time for a
-		// Provider type that turns out to.
+		// the clocks' skew. A Provider that says no auth_time at all passes:
+		// OAuth2 has none, and its reauthentication is taken as proof that
+		// the External Identity is still signed in upstream (ADR 0013).
 		if !ident.AuthTime.IsZero() && ident.AuthTime.Before(login.CreatedAt.Time.Add(-time.Minute)) {
 			return ErrNotAfreshAuth
 		}

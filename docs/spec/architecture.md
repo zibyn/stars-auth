@@ -46,7 +46,7 @@
 ### Provider 的配置与身份
 
 - **Provider ID**:管理员创建时填写的 slug(如 `google`),出现在回调 URL `/login/providers/{id}/callback` 和直连 API 的请求里,创建后不可改。
-- **身份锚点**:External Identity 是 (Provider, 上游的用户 ID)——通用 OIDC 是 id_token 的 `sub`,通用 OAuth2 是配置里指定的 userinfo 字段。锚定它的字段创建后不可改:Provider ID、通用 OIDC 的 issuer、Microsoft 的租户;client_id 和密钥可以改。
+- **身份锚点**:External Identity 是 (Provider, 上游的用户 ID)——通用 OIDC 是 id_token 的 `sub`,通用 OAuth2 是配置里指定的 userinfo 字段。锚定它的字段创建后不可改:Provider ID、通用 OIDC 的 issuer、通用 OAuth2 的用户 ID 字段、Microsoft 的租户;client_id 和密钥可以改。
 - **停用与删除**:停用后托管页不再显示,已绑定的 User 也不能用它登录。还有 External Identity 绑定时只能停用,不能删除。
 - **请求的信息**:OIDC 只请求 `openid`;Apple 不请求 `name email`,首次登录返回的姓名直接丢弃;通用 OAuth2 的 scope 由管理员按服务商要求填写(GitHub 预设已写死)。
 

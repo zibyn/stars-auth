@@ -13,6 +13,8 @@ import (
 
 	"github.com/zibyn/stars-auth/internal/channel"
 	"github.com/zibyn/stars-auth/internal/provider"
+	_ "github.com/zibyn/stars-auth/internal/provider/oauth2"
+	"github.com/zibyn/stars-auth/internal/provider/oauth2/oauth2test"
 	_ "github.com/zibyn/stars-auth/internal/provider/oidc"
 	"github.com/zibyn/stars-auth/internal/provider/providertest"
 )
@@ -26,6 +28,16 @@ func (e *env) addGoogle() *providertest.Upstream {
 		e.t.Fatal(err)
 	}
 	return up
+}
+
+// addOAuth2 adds an in-process OAuth2 upstream as the Provider "oauth2".
+func (e *env) addOAuth2() *oauth2test.Fake {
+	e.t.Helper()
+	f := oauth2test.Start(e.t)
+	if err := provider.NewStore(e.pool, e.keyring).Create(context.Background(), "oauth2", "oauth2", "OAuth2", f.Config()); err != nil {
+		e.t.Fatal(err)
+	}
+	return f
 }
 
 // redirect asks the Account API to send the browser to a Provider, follows
@@ -352,6 +364,40 @@ func TestReauthenticateWithProvider(t *testing.T) {
 	}
 	if c := e.call("POST", tok, "/v1/account/providers/nope/reauth", nil, nil); c != 422 && c != 404 {
 		t.Errorf("reauth at no Provider: %d", c)
+	}
+}
+
+// Reauthenticating at an OAuth2 Provider asks it for nothing: it has no
+// prompt=login and no max_age, and it says no auth_time, so we take its
+// word that the External Identity is still signed in there and give no
+// discount for how long ago that was (ADR 0013).
+func TestReauthenticateWithOAuth2Provider(t *testing.T) {
+	e := start(t)
+	ctx := context.Background()
+	e.user("ALICE", "phone:+8613800138000")
+	f := e.addOAuth2()
+	tok := e.signIn("ALICE", 0)
+	if q := e.redirect(tok, "/v1/account/providers/oauth2/bind"); q.Get("bound") != "oauth2" {
+		t.Fatalf("bind: %v", q)
+	}
+	if _, err := e.pool.Exec(ctx, "UPDATE sessions SET auth_time = now() - interval '1 hour'"); err != nil {
+		t.Fatal(err)
+	}
+	if q := e.redirect(tok, "/v1/account/providers/oauth2/reauth"); q.Get("reauthenticated") != "oauth2" {
+		t.Fatalf("reauth: %v", q)
+	}
+	if f.Last.Has("prompt") || f.Last.Has("max_age") || f.Last.Has("nonce") {
+		t.Errorf("asked the upstream for %v", f.Last)
+	}
+	var amr []string
+	if err := e.pool.QueryRow(ctx, "SELECT amr FROM sessions").Scan(&amr); err != nil || !slices.Equal(amr, []string{"fed"}) {
+		t.Errorf("amr %v: %v", amr, err)
+	}
+
+	// Another upstream account is not the one bound.
+	f.Userinfo = map[string]any{"id": 43, "login": "someone-else"}
+	if q := e.redirect(tok, "/v1/account/providers/oauth2/reauth"); q.Get("error") != "这不是你绑定的外部账号" {
+		t.Errorf("another account: %v", q)
 	}
 }
 

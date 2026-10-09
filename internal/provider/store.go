@@ -238,26 +238,28 @@ func (s *Store) Buttons(ctx context.Context) ([]Button, error) {
 // is a secret the browser keeps in a cookie: the login finishes only where
 // it is sent back.
 func (s *Store) Begin(ctx context.Context, issuer, id, authnSession, binder string) (string, error) {
-	return s.begin(ctx, issuer, id, func(stateHash []byte, nonce, verifier string) error {
+	to, _, err := s.begin(ctx, issuer, id, func(stateHash []byte, nonce, verifier string) error {
 		return s.q.InsertProviderLogin(ctx, sqlc.InsertProviderLoginParams{
 			StateHash: stateHash, Provider: id, Nonce: nonce, Verifier: verifier, AuthnSession: authnSession,
 			BinderHash: hash(binder),
 		})
 	})
+	return to, err
 }
 
 // begin keeps a new redirect to the enabled Provider id with save and
-// returns where to send the browser.
-func (s *Store) begin(ctx context.Context, issuer, id string, save func(stateHash []byte, nonce, verifier string) error) (string, error) {
+// returns where to send the browser, and the Provider it built.
+func (s *Store) begin(ctx context.Context, issuer, id string, save func(stateHash []byte, nonce, verifier string) error) (string, Redirect, error) {
 	p, err := s.provider(ctx, id)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	state, nonce, verifier := rand.Text()+rand.Text(), rand.Text(), rand.Text()+rand.Text()
 	if err := save(hash(state), nonce, verifier); err != nil {
-		return "", err
+		return "", nil, err
 	}
-	return p.AuthURL(ctx, CallbackURL(issuer, id), state, nonce, verifier)
+	to, err := p.AuthURL(ctx, CallbackURL(issuer, id), state, nonce, verifier)
+	return to, p, err
 }
 
 // Finished is how a Provider's callback went.
