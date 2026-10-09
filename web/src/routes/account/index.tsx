@@ -6,9 +6,10 @@ import {
 	useSuspenseQuery,
 } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { encode } from "uqr";
+import { CopyButton } from "#/components/copy-button";
 import { FormError, FormField, failed, saved } from "#/components/form";
 import { ItemList } from "#/components/item-list";
 import { Star } from "#/components/star";
@@ -34,6 +35,7 @@ import {
 	bindSchema,
 	deleteSchema,
 	passwordSchema,
+	providerReturn,
 	type ReauthMethod,
 	reauthMethods,
 	reauthSchema,
@@ -77,6 +79,17 @@ function Account() {
 	const queryClient = useQueryClient();
 	const [pending, setPending] = useState<(() => void) | null>(null);
 	const [deleted, setDeleted] = useState(false);
+	// Back from a Provider: say how it went, once.
+	useEffect(() => {
+		const back = providerReturn(
+			location.search,
+			(id) => user.providers.find((p) => p.id === id)?.name ?? id,
+		);
+		if (!back) return;
+		history.replaceState(null, "", location.pathname);
+		if ("error" in back) toast.error(back.error);
+		else toast.success(back.success);
+	}, [user.providers]);
 
 	if (deleted) {
 		return (
@@ -166,6 +179,12 @@ async function exportData(sub: string) {
 	);
 }
 
+// toProvider sends the browser to a Provider; it comes back to /account.
+const toProvider = (id: string, action: "bind" | "reauth") =>
+	api<{ url: string }>(`/providers/${id}/${action}`, { method: "POST" }).then(
+		(r) => location.assign(r.url),
+	);
+
 // saveFile hands the browser a file to download.
 function saveFile(name: string, blob: Blob) {
 	const a = document.createElement("a");
@@ -183,6 +202,15 @@ function LoginMethods({ me, guard }: { me: Me; guard: Guard }) {
 			api(`/identifiers/${kind}`, { method: "DELETE" }),
 		onSuccess: () => queryClient.invalidateQueries(meQuery),
 		onError: failed("解绑失败"),
+	});
+	const unbindProvider = useMutation({
+		mutationFn: (id: string) => api(`/providers/${id}`, { method: "DELETE" }),
+		onSuccess: () => queryClient.invalidateQueries(meQuery),
+		onError: failed("解绑失败"),
+	});
+	const bindProvider = useMutation({
+		mutationFn: (id: string) => toProvider(id, "bind"),
+		onError: failed("绑定失败"),
 	});
 	const username = me.identifiers.find((i) => i.kind === "username");
 	return (
@@ -227,6 +255,38 @@ function LoginMethods({ me, guard }: { me: Me; guard: Guard }) {
 						{null}
 					</Row>
 				)}
+				{me.externalIdentities.map((x) => (
+					<Row
+						key={x.provider}
+						label={x.name}
+						hint={`已绑定外部账号 · ${date(x.boundAt)}${x.enabled ? "" : " · 已停用"}`}
+					>
+						<Button
+							variant="ghost"
+							size="sm"
+							disabled={unbindProvider.isPending}
+							onClick={() => guard(() => unbindProvider.mutate(x.provider))}
+						>
+							解绑
+						</Button>
+					</Row>
+				))}
+				{me.providers
+					.filter(
+						(p) => !me.externalIdentities.some((x) => x.provider === p.id),
+					)
+					.map((p) => (
+						<Row key={p.id} label={p.name} hint="未绑定外部账号">
+							<Button
+								variant="outline"
+								size="sm"
+								disabled={bindProvider.isPending}
+								onClick={() => guard(() => bindProvider.mutate(p.id))}
+							>
+								绑定
+							</Button>
+						</Row>
+					))}
 			</ItemList>
 			{editing && (
 				<BindIdentifier kind={editing} onClose={() => setEditing(null)} />
@@ -575,23 +635,6 @@ function QRCode({ value, className }: { value: string; className?: string }) {
 	);
 }
 
-function CopyButton({ value }: { value: string }) {
-	return (
-		<Button
-			type="button"
-			variant="outline"
-			size="sm"
-			onClick={() =>
-				navigator.clipboard
-					.writeText(value)
-					.then(() => toast.success("已复制"), failed("复制失败"))
-			}
-		>
-			复制
-		</Button>
-	);
-}
-
 // RecoveryCodes shows a new set of recovery codes, the only time they are
 // shown.
 function RecoveryCodes({
@@ -843,6 +886,13 @@ function Reauth({
 					? (["password"] as const)
 					: []),
 			];
+	// A Provider the User bound signs them in afresh, without 两步验证.
+	const viaProvider = twoFactor
+		? []
+		: me.externalIdentities.filter((x) => x.enabled);
+	const leave = useMutation({
+		mutationFn: (id: string) => toProvider(id, "reauth"),
+	});
 	const [method, setMethod] = useState<ReauthMethod | undefined>();
 	const current =
 		method && (twoFactor ? method === "recovery" : methods.includes(method))
@@ -879,7 +929,7 @@ function Reauth({
 		onSubmit: ({ value }) =>
 			byCode && !sent ? send.mutate() : verify.mutate(value.secret),
 	});
-	const error = send.error ?? verify.error;
+	const error = send.error ?? verify.error ?? leave.error;
 	const target = me.identifiers.find((i) => i.kind === current)?.value;
 	return (
 		<Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -905,7 +955,7 @@ function Reauth({
 					</div>
 				)}
 				{current === undefined ? (
-					<p>没有可用的验证方式,请联系管理员。</p>
+					viaProvider.length === 0 && <p>没有可用的验证方式,请联系管理员。</p>
 				) : (
 					<form
 						noValidate
@@ -955,6 +1005,22 @@ function Reauth({
 						</div>
 					</form>
 				)}
+				{viaProvider.length > 0 && (
+					<div className="flex flex-wrap gap-2">
+						{viaProvider.map((x) => (
+							<Button
+								key={x.provider}
+								variant="outline"
+								size="sm"
+								disabled={leave.isPending}
+								onClick={() => leave.mutate(x.provider)}
+							>
+								用 {x.name} 验证
+							</Button>
+						))}
+					</div>
+				)}
+				{current === undefined && <FormError error={leave.error} />}
 			</DialogContent>
 		</Dialog>
 	);

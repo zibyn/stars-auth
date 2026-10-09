@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"errors"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
@@ -53,6 +54,25 @@ func (s *Store) RemoveIdentifier(ctx context.Context, sub, kind string) error {
 	})
 }
 
+// RemoveExternalIdentity unbinds the User's External Identity at provider,
+// unless it is their last way to sign in, and returns what it was. Audited
+// as done by by.
+func (s *Store) RemoveExternalIdentity(ctx context.Context, sub, provider, by string) (sqlc.RemoveExternalIdentityRow, error) {
+	var row sqlc.RemoveExternalIdentityRow
+	err := s.changeLoginPaths(ctx, sub, func(q *sqlc.Queries) error {
+		var err error
+		row, err = q.RemoveExternalIdentity(ctx, sqlc.RemoveExternalIdentityParams{UserID: sub, Provider: provider, By: by})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotBound
+		}
+		return err
+	})
+	if errors.Is(err, pgx.ErrNoRows) { // no such User
+		err = ErrNotBound
+	}
+	return row, err
+}
+
 func bound(n int64, err error) error {
 	if err == nil && n == 0 {
 		return ErrNotBound
@@ -62,7 +82,8 @@ func bound(n int64, err error) error {
 
 // changeLoginPaths runs change with the User locked, and undoes it if it
 // leaves them no way to sign in (invariant 1): a phone number, an email,
-// or a username with a password.
+// a username with a password, or an External Identity at an enabled
+// Provider.
 func (s *Store) changeLoginPaths(ctx context.Context, sub string, change func(*sqlc.Queries) error) error {
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
@@ -75,6 +96,9 @@ func (s *Store) changeLoginPaths(ctx context.Context, sub string, change func(*s
 		paths, err := q.LoginPaths(ctx, sub)
 		if err != nil {
 			return err
+		}
+		if paths.HasExternalIdentity {
+			return nil
 		}
 		for _, kind := range paths.Identifiers {
 			if kind != "username" || paths.HasPassword {

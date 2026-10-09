@@ -4,6 +4,7 @@ import {
 	bindSchema,
 	deleteSchema,
 	passwordSchema,
+	providerReturn,
 	reauthSchema,
 	recoveryCodesText,
 	totpSchema,
@@ -119,6 +120,20 @@ test("confirming the TOTP takes the authenticator's 6 digits", () => {
 	assert.deepEqual(fieldErrors(totpSchema.safeParse({ code: "12345" })), {
 		code: "请输入验证器中的 6 位数字",
 	});
+});
+
+test("coming back from a Provider says how it went", () => {
+	const name = (id: string) => ({ google: "Google" })[id] ?? id;
+	assert.deepEqual(providerReturn("?bound=google", name), {
+		success: "已绑定 Google",
+	});
+	assert.deepEqual(providerReturn("?reauthenticated=google", name), {
+		success: "已验证身份,请继续操作",
+	});
+	assert.deepEqual(providerReturn("?error=%E5%87%BA%E9%94%99", name), {
+		error: "出错",
+	});
+	assert.equal(providerReturn("", name), null);
 });
 
 test("recovery codes download as a text file, one per line", () => {

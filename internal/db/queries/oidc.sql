@@ -94,7 +94,8 @@ SELECT data FROM oidc_logout_sessions WHERE id = $1 AND expires_at > now();
 -- name: DeleteExpiredOIDC :exec
 WITH g AS (DELETE FROM oidc_grants WHERE oidc_grants.expires_at < now()),
      a AS (DELETE FROM oidc_authn_sessions WHERE oidc_authn_sessions.expires_at < now()),
-     c AS (DELETE FROM oidc_challenge_sessions WHERE oidc_challenge_sessions.expires_at < now())
+     c AS (DELETE FROM oidc_challenge_sessions WHERE oidc_challenge_sessions.expires_at < now()),
+     p AS (DELETE FROM provider_logins WHERE provider_logins.expires_at < now())
 DELETE FROM oidc_logout_sessions WHERE oidc_logout_sessions.expires_at < now();
 
 -- name: InsertSigningKey :exec

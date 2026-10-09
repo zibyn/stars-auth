@@ -27,10 +27,11 @@ import (
 	"github.com/zibyn/stars-auth/internal/db/sqlc"
 	"github.com/zibyn/stars-auth/internal/identity"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
-	"github.com/zibyn/stars-auth/internal/oidc/provider"
+	oidcop "github.com/zibyn/stars-auth/internal/oidc/provider"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
 	"github.com/zibyn/stars-auth/internal/otp"
 	"github.com/zibyn/stars-auth/internal/pow"
+	"github.com/zibyn/stars-auth/internal/provider"
 	"github.com/zibyn/stars-auth/internal/twofactor"
 )
 
@@ -52,6 +53,11 @@ const (
 	// Set, to the mistakes so far, while the pending login waits for a TOTP
 	// code or a 恢复码.
 	storeTOTPFailures = "totp_failures"
+	// Set, to the User a Provider just signed in, by the Provider's
+	// callback before it sends the browser back to the login; with the
+	// hash of the binder of the browser it is for.
+	storeFederated = "federated_sub"
+	storeBinder    = "federated_binder"
 )
 
 // totpTries is how many wrong TOTP codes or 恢复码 end a login.
@@ -60,6 +66,9 @@ const totpTries = 5
 // amrMFA marks a login that passed 两步验证 (RFC 8176).
 const amrMFA = "mfa"
 
+// amrFed marks a login through a Provider (docs/spec/protocol.md).
+const amrFed = "fed"
+
 type Service struct {
 	issuer    string
 	q         *sqlc.Queries
@@ -67,7 +76,9 @@ type Service struct {
 	twoFactor *twofactor.Store
 	codes     *otp.Service
 	pow       *pow.PoW
-	op        *provider.Provider
+	op        *oidcop.Provider
+	store     *oidcstore.Store
+	providers *provider.Store
 	origin    *http.CrossOriginProtection
 }
 
@@ -100,59 +111,61 @@ func New(ctx context.Context, pool *pgxpool.Pool, keyring *crypt.Keyring, issuer
 		twoFactor: twofactor.New(pool, keyring),
 		codes:     otp.New(pool, channel.NewStore(pool, keyring)),
 		pow:       work,
+		providers: provider.NewStore(pool, keyring),
 		origin:    http.NewCrossOriginProtection(),
 	}
 	store := oidcstore.New(pool, keyring)
+	s.store = store
 	store.Scopes = strings.Join([]string{goidc.ScopeOpenID.ID, goidc.ScopeOfflineAccess.ID, goidc.ScopePhone.ID, goidc.ScopeEmail.ID}, " ")
-	op, err := provider.New(
-		provider.Config{
+	op, err := oidcop.New(
+		oidcop.Config{
 			Issuer:      issuer,
 			Manager:     store,
 			JWKS:        oidcstore.NewKeys(pool, keyring).JWKS,
 			IDTokenAlgs: []goidc.SignatureAlgorithm{goidc.SigAlgRS256},
 		},
-		provider.WithScopes(goidc.ScopeOpenID, goidc.ScopeOfflineAccess, goidc.ScopePhone, goidc.ScopeEmail),
-		provider.WithClaims(goidc.ClaimPhoneNumber, goidc.ClaimPhoneNumberVerified, goidc.ClaimEmail, goidc.ClaimEmailVerified),
-		provider.WithNoneAuthn(),
-		provider.WithSecretBasicAuthn(),
-		provider.WithSecretPostAuthn(),
-		provider.WithClientManager(store),
-		provider.WithClientSecretVerifier(oidcstore.VerifyClientSecret),
-		provider.WithAuthCodeGrant(
-			provider.AuthCodeGrantConfig{Manager: store, ResponseTypes: []goidc.ResponseType{goidc.ResponseTypeCode}},
-			provider.WithPKCE([]goidc.CodeChallengeMethod{goidc.CodeChallengeMethodSHA256}),
-			provider.WithIssuerResponseParameter(),
-			provider.WithAuthorizationChallengeEndpoint(ChallengePath),
-			provider.WithAuthPolicies(goidc.NewPolicy("password",
+		oidcop.WithScopes(goidc.ScopeOpenID, goidc.ScopeOfflineAccess, goidc.ScopePhone, goidc.ScopeEmail),
+		oidcop.WithClaims(goidc.ClaimPhoneNumber, goidc.ClaimPhoneNumberVerified, goidc.ClaimEmail, goidc.ClaimEmailVerified),
+		oidcop.WithNoneAuthn(),
+		oidcop.WithSecretBasicAuthn(),
+		oidcop.WithSecretPostAuthn(),
+		oidcop.WithClientManager(store),
+		oidcop.WithClientSecretVerifier(oidcstore.VerifyClientSecret),
+		oidcop.WithAuthCodeGrant(
+			oidcop.AuthCodeGrantConfig{Manager: store, ResponseTypes: []goidc.ResponseType{goidc.ResponseTypeCode}},
+			oidcop.WithPKCE([]goidc.CodeChallengeMethod{goidc.CodeChallengeMethodSHA256}),
+			oidcop.WithIssuerResponseParameter(),
+			oidcop.WithAuthorizationChallengeEndpoint(ChallengePath),
+			oidcop.WithAuthPolicies(goidc.NewPolicy("password",
 				func(*http.Request, *goidc.AuthnSession, *goidc.Client) bool { return true },
 				s.authenticate)),
 		),
-		provider.WithRefreshTokenGrant(store, provider.WithRefreshTokenRotation()),
+		oidcop.WithRefreshTokenGrant(store, oidcop.WithRefreshTokenRotation()),
 		// Access tokens are JWTs and not stored: revoking one does nothing,
 		// and they lapse within their 10 minutes.
-		provider.WithTokenRevocation(func(context.Context, *goidc.Client) bool { return true }),
-		provider.WithTokenOptions(func(context.Context, *goidc.Grant, *goidc.Client) goidc.TokenOptions {
+		oidcop.WithTokenRevocation(func(context.Context, *goidc.Client) bool { return true }),
+		oidcop.WithTokenOptions(func(context.Context, *goidc.Grant, *goidc.Client) goidc.TokenOptions {
 			return goidc.NewJWTTokenOptions(goidc.SigAlgRS256, 600)
 		}),
-		provider.WithTokenClaims(s.audience),
-		provider.WithIDTokenClaims(func(ctx context.Context, g *goidc.Grant) map[string]any {
+		oidcop.WithTokenClaims(s.audience),
+		oidcop.WithIDTokenClaims(func(ctx context.Context, g *goidc.Grant) map[string]any {
 			claims := s.userClaims(ctx, g)
 			claims[goidc.ClaimAuthTime] = g.Store[storeAuthTime]
 			claims[goidc.ClaimAMR] = g.Store[storeAMR]
 			return claims
 		}),
-		provider.WithUserInfoClaims(s.userClaims),
-		provider.WithLogout(provider.LogoutConfig{
+		oidcop.WithUserInfoClaims(s.userClaims),
+		oidcop.WithLogout(oidcop.LogoutConfig{
 			Manager: store,
 			HandleFunc: func(w http.ResponseWriter, _ *http.Request, _ *goidc.LogoutSession) error {
 				page(w, http.StatusOK, "message", "已退出登录")
 				return nil
 			},
-		}, provider.WithLogoutPolicies(goidc.NewLogoutPolicy("session",
+		}, oidcop.WithLogoutPolicies(goidc.NewLogoutPolicy("session",
 			func(*http.Request, *goidc.LogoutSession) bool { return true },
 			s.logout))),
-		provider.WithErrorRenderer(renderError),
-		provider.WithErrorHandler(func(_ context.Context, err error) { slog.Info("oidc", "err", err) }),
+		oidcop.WithErrorRenderer(renderError),
+		oidcop.WithErrorHandler(func(_ context.Context, err error) { slog.Info("oidc", "err", err) }),
 	)
 	if err != nil {
 		return nil, err
@@ -175,6 +188,8 @@ func (s *Service) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/auth/openapi.json", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFileFS(w, r, pagesFS, "challenge.openapi.json")
 	})
+	mux.HandleFunc("GET /login/providers/{id}/callback", s.providerCallback)
+	mux.HandleFunc("POST /login/providers/{id}/callback", s.providerCallback)
 	mux.HandleFunc("GET /setup", s.setupPage)
 	mux.HandleFunc("POST /setup", s.setup)
 }
@@ -218,6 +233,9 @@ func (s *Service) authenticate(w http.ResponseWriter, r *http.Request, as *goidc
 	// itself may arrive as a cross-site POST.
 	if r.Method == http.MethodPost && r.PathValue("callback") != "" {
 		return s.submit(w, r, as, c)
+	}
+	if sub, ok := as.Store[storeFederated].(string); ok && sameBinder(r, as.Store[storeBinder]) {
+		return s.login(w, r, as, c, sub, amrFed, "")
 	}
 	prompts := strings.Fields(string(as.Prompt))
 	none := slices.Contains(prompts, string(goidc.PromptTypeNone))
@@ -400,6 +418,21 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		}
 		return s.login(w, r, as, c, sub, goidc.AMRPassword, terms.TermsVersion)
 
+	case "provider":
+		if pending != "" {
+			break
+		}
+		id := r.PostFormValue("provider")
+		to, err := s.providers.Begin(ctx, s.issuer, id, as.ID, binder(w, r))
+		if errors.Is(err, provider.ErrNotFound) {
+			return fail(errNoProvider)
+		} else if err != nil {
+			slog.Warn("provider login", "provider", id, "err", err)
+			return fail(errProviderDown)
+		}
+		http.Redirect(w, r, to, http.StatusSeeOther)
+		return goidc.StatusPending, nil
+
 	case "consent":
 		if pending == "" {
 			break
@@ -425,7 +458,9 @@ var (
 	errAgree  = identity.Invalid("请先阅读并同意用户协议和隐私政策")
 	errNoCode = identity.Invalid("该账号不能用验证码登录")
 	// The 5th wrong TOTP code or 恢复码 ends the login.
-	errTOTPTries = identity.Invalid("两步验证错误次数过多,请重新登录")
+	errTOTPTries    = identity.Invalid("两步验证错误次数过多,请重新登录")
+	errNoProvider   = identity.Invalid("这个外部登录方式已停用")
+	errProviderDown = identity.Invalid("暂时无法连接这个外部登录方式,请稍后重试")
 )
 
 // needsTOTP reports whether sub, signed in with amr, must still enter a
@@ -675,6 +710,8 @@ type loginPage struct {
 	// PasswordOn: password login is not off.
 	CodeKinds, IdentifierLabel string
 	PasswordOn                 bool
+	// Providers are the buttons of the first step.
+	Providers []provider.Button
 	// The steps: the first asks for an Identifier, then a code was sent to
 	// it (CodeSent) or it was a Username, which takes a password.
 	// PasswordForm takes both at once.
@@ -726,6 +763,11 @@ func (s *Service) render(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		p.CodeKinds = "手机号或邮箱"
 	}
 	p.IdentifierLabel = p.CodeKinds
+	if _, pending := as.Store[storeBindSub]; !pending && !p.TOTP {
+		if p.Providers, err = s.providers.Buttons(ctx); err != nil {
+			return goidc.StatusFailure, err
+		}
+	}
 	if p.PasswordOn && !p.Bind {
 		p.IdentifierLabel = strings.Replace(p.CodeKinds, "或", "、", 1) + "或用户名"
 	}

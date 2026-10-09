@@ -100,7 +100,7 @@ func (e *env) newBrowser() {
 func (e *env) do(method, path string, form url.Values) (*http.Response, string) {
 	e.t.Helper()
 	u := path
-	if !strings.HasPrefix(u, "https://") {
+	if !strings.Contains(u, "://") {
 		u = e.issuer + path
 	}
 	req, err := http.NewRequest(method, u, strings.NewReader(form.Encode()))

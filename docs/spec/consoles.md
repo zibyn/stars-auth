@@ -275,6 +275,7 @@ Management API 不改,后端没拦的写在备注列。
 | | recovery_codes.regenerated / recovery_code.used | 重新生成恢复码 / 使用恢复码 |
 | | session.ended | 下线会话 |
 | | roles.assigned | 设置角色 |
+| | external_identity.added / removed | 绑定外部账号 / 解绑外部账号 |
 | 应用 | create / update / delete-application | 创建应用 / 修改应用 / 删除应用 |
 | | new-application-secret | 重新生成 client secret |
 | | webhook.failed | 用户删除通知发送失败 |
@@ -284,6 +285,8 @@ Management API 不改,后端没拦的写在备注列。
 | 登录与通道 | settings.updated | 修改登录设置 |
 | | put-channel / delete-channel / test-channel | 配置验证码通道 / 停用验证码通道 / 发送测试验证码 |
 | | send.daily_cap_reached | 验证码达到每日发送上限 |
+| | create / update / enable / disable / delete-provider | 添加外部登录 / 修改外部登录 / 启用外部登录 / 停用外部登录 / 删除外部登录 |
+| | provider.unlink_failed | 外部账号吊销授权失败 |
 | 设置 | keys.rotated | 轮换令牌签名密钥 |
 | 安全 | login.password_locked | 密码输错次数过多,暂时锁定 |
 | | login.ip_locked | 同一 IP 登录失败过多,暂时锁定 |
@@ -298,6 +301,7 @@ Management API 不改,后端没拦的写在备注列。
 - `clientId`、API 资源标识符、角色 key:前端用 `/applications`、`/apis` 映射成名称;对象已删除,或读者没有 `applications:read` 时,退回等宽的原 ID。
 - `kind` 映射为 手机号 / 邮箱 / 用户名;`limit` 写进句子(「每日上限 N 条」);`ip` 原样写进句子。
 - `session`(会话 ID)不显示;Webhook 的 `id`(投递 ID)只放在悬浮提示里。
+- Provider ID(`id`、`provider`)显示为等宽的原 ID;吊销失败的 `error` 只放在悬浮提示里。
 - `settings.updated` 不记录改了什么,句子只写「修改了登录设置」。
 
 ### 空状态

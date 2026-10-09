@@ -98,6 +98,21 @@ export const reauthSchema = (method: ReauthMethod, sent: boolean) =>
 // totpSchema checks a code from the authenticator, confirming the TOTP.
 export const totpSchema = z.object({ code: totp });
 
+// providerReturn is what to tell the User on coming back from a Provider
+// the account center sent them to (internal/login/provider.go), or null.
+export const providerReturn = (
+	search: string,
+	name: (id: string) => string,
+): { success: string } | { error: string } | null => {
+	const q = new URLSearchParams(search);
+	const error = q.get("error");
+	const bound = q.get("bound");
+	if (error !== null) return { error };
+	if (bound !== null) return { success: `已绑定 ${name(bound)}` };
+	if (q.has("reauthenticated")) return { success: "已验证身份,请继续操作" };
+	return null;
+};
+
 // recoveryCodesText is the file the recovery codes download as.
 export const recoveryCodesText = (host: string, codes: string[]) =>
 	`${host} 两步验证恢复码\n每个只能用一次。\n\n${codes.join("\n")}\n`;

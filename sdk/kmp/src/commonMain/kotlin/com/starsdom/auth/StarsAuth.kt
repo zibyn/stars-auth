@@ -148,6 +148,19 @@ public class StarsAuth(
     }
   }
 
+  /**
+   * Signs in at the Provider [provider] (its Provider ID) with what its SDK
+   * gave the App, which this SDK forwards as is: for Sign in with Apple, the
+   * `authorizationCode` of the credential. Throws `invalid_grant` when the
+   * Provider turns it down: have the User sign in with it again.
+   */
+  @Throws(Exception::class)
+  public suspend fun signInWithProvider(provider: String, authorizationCode: String, termsVersion: String): SignInStep =
+    challenge(null, termsVersion) {
+      append("provider", provider)
+      append("authorization_code", authorizationCode)
+    }
+
   // About a second of hashing: off the caller's (often the main) thread.
   private suspend fun altcha(): String {
     val challenge = http.get("$issuer/altcha/challenge").bodyAsText()

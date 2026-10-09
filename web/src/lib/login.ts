@@ -146,3 +146,35 @@ export const rotatedRecently = (lastRotatedAt: string, now = new Date()) =>
 export const lastRotation = (
 	keys: Pick<SigningKey, "createdAt" | "current">[],
 ) => (keys.length > 1 ? (keys.find((k) => k.current)?.createdAt ?? "") : "");
+
+// providerSchema checks a Provider's form: its ID only when adding (it is
+// in the callback URL and never changes), its name, and its type's fields
+// as a channel's.
+export const providerSchema = (
+	fields: readonly ChannelField[],
+	secrets: Record<string, string>,
+	adding: boolean,
+) =>
+	z.object({
+		id: adding
+			? z
+					.string()
+					.trim()
+					.regex(
+						/^[a-z0-9][a-z0-9-]{0,31}$/,
+						"Provider ID 只能用小写字母、数字和 -，以字母或数字开头，最多 32 位。",
+					)
+			: z.string(),
+		name: z
+			.string()
+			.trim()
+			.min(1, "请填写名称。")
+			.max(64, "名称最多 64 个字。"),
+		config: channelSchema(fields, secrets),
+	});
+
+// disableImpact is what disabling a Provider does to the Users bound to it.
+export const disableImpact = (p: { bound: number; onlyLoginPath: number }) =>
+	p.bound
+		? `${p.bound} 个用户已绑定，其中 ${p.onlyLoginPath} 个没有其他登录方式，停用后他们无法登录。`
+		: "还没有用户绑定。停用后登录页不再显示这个按钮。";

@@ -16,6 +16,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/identity"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
+	"github.com/zibyn/stars-auth/internal/provider"
 	"github.com/zibyn/stars-auth/internal/twofactor"
 )
 
@@ -27,6 +28,8 @@ const ChallengePath = "/v1/auth/challenge"
 const (
 	errInvalidSession            = "invalid_session"
 	errInsufficientAuthorization = "insufficient_authorization"
+	// RFC 6749's: a Provider turned the client token down.
+	errInvalidGrant = "invalid_grant"
 )
 
 // Values of next (ADR 0010): only ever added to, never renamed or removed.
@@ -271,6 +274,22 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 		st.Identifier = value
 		return next(nextCode, "code sent: enter it")
 
+	case r.PostFormValue("provider") != "":
+		if st.Pending != nil {
+			return "", invalid("a phone number must be bound")
+		}
+		sub, err := s.providers.SignInWithClientToken(ctx, r.PostFormValue("provider"), r.PostFormValue("authorization_code"))
+		switch {
+		case errors.Is(err, provider.ErrNotFound):
+			return "", invalid("provider is not one an App can sign in with")
+		case errors.Is(err, provider.ErrLogin):
+			slog.Info("client token login", "provider", r.PostFormValue("provider"), "err", err)
+			return "", &challengeError{status: http.StatusBadRequest, Code: errInvalidGrant, Description: "the Provider turned authorization_code down: sign in with it again"}
+		case err != nil:
+			return mistake(err)
+		}
+		return signedIn(sub, time.Now(), []string{amrFed})
+
 	case r.PostFormValue("username") != "":
 		if st.Pending != nil {
 			return "", invalid("a phone number must be bound")
@@ -287,7 +306,7 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 		}
 		return signedIn(sub, time.Now(), []string{string(goidc.AMRPassword)})
 	}
-	return "", invalid("send identifier, code, or username and password")
+	return "", invalid("send identifier, code, username and password, or provider and authorization_code")
 }
 
 // terms tells Apps what their consent checkbox links to and which version

@@ -27,6 +27,15 @@ export type Me = {
 		enabledAt?: string;
 		recoveryCodesLeft: number;
 	};
+	externalIdentities: ExternalIdentity[];
+	// The enabled Providers, to bind.
+	providers: { id: string; name: string }[];
+};
+export type ExternalIdentity = {
+	provider: string;
+	name: string;
+	enabled: boolean;
+	boundAt: string;
 };
 export type TOTPSetup = { uri: string; secret: string };
 export type Session = {
