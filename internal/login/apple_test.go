@@ -121,6 +121,17 @@ func TestAppleTokenFailureFailsTheLogin(t *testing.T) {
 	}
 }
 
+func TestAppleIDTokenWithoutExpFailsTheLogin(t *testing.T) {
+	e := start(t)
+	f := e.addApple()
+	f.NoExp = true
+
+	_, page := e.authorize("")
+	if resp, body, _ := e.signInWithApple(f, page); resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("callback: %d %s", resp.StatusCode, body)
+	}
+}
+
 func TestUnbindingAppleRevokesItsToken(t *testing.T) {
 	e := start(t)
 	f := e.addApple()
