@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"regexp"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/zibyn/stars-auth/internal/crypt"
@@ -218,14 +220,14 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 }
 
 // Button is an enabled Provider on the login page.
-type Button struct{ ID, Name string }
+type Button struct{ ID, Type, Name string }
 
 // Buttons lists the enabled Providers, oldest first.
 func (s *Store) Buttons(ctx context.Context) ([]Button, error) {
 	rows, err := s.q.EnabledProviders(ctx)
 	var out []Button
 	for _, r := range rows {
-		out = append(out, Button{ID: r.ID, Name: r.Name})
+		out = append(out, Button{ID: r.ID, Type: r.Type, Name: r.Name})
 	}
 	return out, err
 }
@@ -270,17 +272,21 @@ func (s *Store) Finish(ctx context.Context, issuer, id string, params url.Values
 }
 
 func (s *Store) signIn(ctx context.Context, id string, ident Identity) (string, error) {
-	u, err := s.q.UserByExternalIdentity(ctx, sqlc.UserByExternalIdentityParams{Provider: id, Subject: ident.Subject})
-	if err == nil && u.Disabled {
-		return "", identity.ErrDisabled
-	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return u.UserID, err
-	}
 	var token []byte
 	if ident.Token != "" {
+		var err error
 		if token, err = s.keyring.Seal([]byte(ident.Token), tokenAAD(id, ident.Subject)); err != nil {
 			return "", err
 		}
+	}
+	u, err := s.q.UserByExternalIdentity(ctx, sqlc.UserByExternalIdentityParams{Provider: id, Subject: ident.Subject})
+	switch {
+	case err == nil && u.Disabled:
+		return "", identity.ErrDisabled
+	case err == nil && token != nil: // keep the newest token, the one sure to be live
+		return u.UserID, s.q.SetExternalIdentityToken(ctx, sqlc.SetExternalIdentityTokenParams{Provider: id, Subject: ident.Subject, Token: token})
+	case !errors.Is(err, pgx.ErrNoRows):
+		return u.UserID, err
 	}
 	sub := rand.Text()
 	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
@@ -298,8 +304,14 @@ func (s *Store) signIn(ctx context.Context, id string, ident Identity) (string, 
 
 // provider builds the enabled Provider id.
 func (s *Store) provider(ctx context.Context, id string) (Redirect, error) {
+	return s.build(ctx, id, true)
+}
+
+// build builds the Provider id; with enabledOnly, a disabled one is
+// ErrNotFound.
+func (s *Store) build(ctx context.Context, id string, enabledOnly bool) (Redirect, error) {
 	r, err := s.q.GetProvider(ctx, id)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && !r.Enabled {
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && enabledOnly && !r.Enabled {
 		return nil, ErrNotFound
 	} else if err != nil {
 		return nil, err
@@ -316,6 +328,66 @@ func (s *Store) provider(ctx context.Context, id string) (Redirect, error) {
 		return nil, err
 	}
 	return t.New(config)
+}
+
+// Unbind removes the User's External Identity at the Provider id, unless it
+// is their last way to sign in, then runs the Provider's unlink hook.
+func (s *Store) Unbind(ctx context.Context, userID, id string) error {
+	row, err := identity.New(s.pool, s.keyring).RemoveExternalIdentity(ctx, userID, id)
+	if err != nil {
+		return err
+	}
+	s.unlink(ctx, userID, id, row.Subject, row.Token)
+	return nil
+}
+
+// DeleteUser deletes the User by del (account deletion, 注销), which takes
+// their External Identities with them, then runs each one's unlink hook.
+func (s *Store) DeleteUser(ctx context.Context, userID string, del func(context.Context, string) error) error {
+	rows, err := s.q.UserExternalIdentities(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if err := del(ctx, userID); err != nil {
+		return err
+	}
+	for _, r := range rows {
+		s.unlink(ctx, userID, r.Provider, r.Subject, r.Token)
+	}
+	return nil
+}
+
+// unlink runs the unlink hook of the Provider id, enabled or not, for an
+// External Identity just removed. Best effort: a failure is audited, and
+// the External Identity stays gone.
+func (s *Store) unlink(ctx context.Context, userID, id, subject string, sealed []byte) {
+	if sealed == nil {
+		return
+	}
+	ctx = context.WithoutCancel(ctx)
+	err := func() error {
+		p, err := s.build(ctx, id, false)
+		if err != nil {
+			return err
+		}
+		u, ok := p.(Unlinker)
+		if !ok {
+			return nil
+		}
+		token, err := s.keyring.Open(sealed, tokenAAD(id, subject))
+		if err != nil {
+			return err
+		}
+		return u.Unlink(ctx, string(token))
+	}()
+	if err == nil {
+		return
+	}
+	slog.Warn("provider unlink", "provider", id, "err", err)
+	detail, _ := json.Marshal(map[string]string{"provider": id, "error": err.Error()})
+	if err := s.q.Audit(ctx, sqlc.AuditParams{Event: "provider.unlink_failed", Sub: pgtype.Text{String: userID, Valid: true}, Detail: detail}); err != nil {
+		slog.Error("provider unlink: audit", "err", err)
+	}
 }
 
 // secrets opens a Provider's stored secret fields.

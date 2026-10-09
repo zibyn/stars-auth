@@ -45,11 +45,12 @@ func (q *Queries) DeleteProvider(ctx context.Context, id string) (int64, error) 
 }
 
 const enabledProviders = `-- name: EnabledProviders :many
-SELECT id, name FROM providers WHERE enabled ORDER BY created_at
+SELECT id, type, name FROM providers WHERE enabled ORDER BY created_at
 `
 
 type EnabledProvidersRow struct {
 	ID   string
+	Type string
 	Name string
 }
 
@@ -62,7 +63,7 @@ func (q *Queries) EnabledProviders(ctx context.Context) ([]EnabledProvidersRow, 
 	var items []EnabledProvidersRow
 	for rows.Next() {
 		var i EnabledProvidersRow
-		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+		if err := rows.Scan(&i.ID, &i.Type, &i.Name); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -260,6 +261,42 @@ func (q *Queries) PutProviderSecret(ctx context.Context, arg PutProviderSecretPa
 	return err
 }
 
+const removeExternalIdentity = `-- name: RemoveExternalIdentity :one
+DELETE FROM external_identities WHERE user_id = $1 AND provider = $2 RETURNING subject, token
+`
+
+type RemoveExternalIdentityParams struct {
+	UserID   string
+	Provider string
+}
+
+type RemoveExternalIdentityRow struct {
+	Subject string
+	Token   []byte
+}
+
+func (q *Queries) RemoveExternalIdentity(ctx context.Context, arg RemoveExternalIdentityParams) (RemoveExternalIdentityRow, error) {
+	row := q.db.QueryRow(ctx, removeExternalIdentity, arg.UserID, arg.Provider)
+	var i RemoveExternalIdentityRow
+	err := row.Scan(&i.Subject, &i.Token)
+	return i, err
+}
+
+const setExternalIdentityToken = `-- name: SetExternalIdentityToken :exec
+UPDATE external_identities SET token = $3 WHERE provider = $1 AND subject = $2
+`
+
+type SetExternalIdentityTokenParams struct {
+	Provider string
+	Subject  string
+	Token    []byte
+}
+
+func (q *Queries) SetExternalIdentityToken(ctx context.Context, arg SetExternalIdentityTokenParams) error {
+	_, err := q.db.Exec(ctx, setExternalIdentityToken, arg.Provider, arg.Subject, arg.Token)
+	return err
+}
+
 const setProviderEnabled = `-- name: SetProviderEnabled :execrows
 UPDATE providers SET enabled = $2 WHERE id = $1
 `
@@ -336,4 +373,34 @@ func (q *Queries) UserByExternalIdentity(ctx context.Context, arg UserByExternal
 	var i UserByExternalIdentityRow
 	err := row.Scan(&i.UserID, &i.Disabled)
 	return i, err
+}
+
+const userExternalIdentities = `-- name: UserExternalIdentities :many
+SELECT provider, subject, token FROM external_identities WHERE user_id = $1
+`
+
+type UserExternalIdentitiesRow struct {
+	Provider string
+	Subject  string
+	Token    []byte
+}
+
+func (q *Queries) UserExternalIdentities(ctx context.Context, userID string) ([]UserExternalIdentitiesRow, error) {
+	rows, err := q.db.Query(ctx, userExternalIdentities, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UserExternalIdentitiesRow
+	for rows.Next() {
+		var i UserExternalIdentitiesRow
+		if err := rows.Scan(&i.Provider, &i.Subject, &i.Token); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"errors"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
@@ -51,6 +52,21 @@ func (s *Store) RemoveIdentifier(ctx context.Context, sub, kind string) error {
 	return s.changeLoginPaths(ctx, sub, func(q *sqlc.Queries) error {
 		return bound(q.RemoveIdentifier(ctx, sqlc.RemoveIdentifierParams{UserID: sub, Kind: kind}))
 	})
+}
+
+// RemoveExternalIdentity unbinds the User's External Identity at provider,
+// unless it is their last way to sign in, and returns what it was.
+func (s *Store) RemoveExternalIdentity(ctx context.Context, sub, provider string) (sqlc.RemoveExternalIdentityRow, error) {
+	var row sqlc.RemoveExternalIdentityRow
+	err := s.changeLoginPaths(ctx, sub, func(q *sqlc.Queries) error {
+		var err error
+		row, err = q.RemoveExternalIdentity(ctx, sqlc.RemoveExternalIdentityParams{UserID: sub, Provider: provider})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotBound
+		}
+		return err
+	})
+	return row, err
 }
 
 func bound(n int64, err error) error {

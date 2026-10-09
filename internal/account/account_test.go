@@ -35,6 +35,8 @@ import (
 	"github.com/zibyn/stars-auth/internal/identity"
 	"github.com/zibyn/stars-auth/internal/login"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
+	"github.com/zibyn/stars-auth/internal/provider"
+	"github.com/zibyn/stars-auth/internal/provider/apple/appletest"
 	"github.com/zibyn/stars-auth/internal/server"
 	"github.com/zibyn/stars-auth/internal/webhook"
 )
@@ -898,5 +900,35 @@ func TestReauthenticationWithTwoFactor(t *testing.T) {
 	// Wrong TOTP and recovery codes count toward the IP lockout.
 	if err := e.pool.QueryRow(context.Background(), "SELECT count(*) FROM login_failures WHERE key LIKE 'ip:%'").Scan(&failures); err != nil || failures != 3 {
 		t.Errorf("%d IP failures: %v", failures, err)
+	}
+}
+
+func TestDeleteAccountRevokesApple(t *testing.T) {
+	e := start(t)
+	ctx := context.Background()
+	apple := appletest.Start(t)
+	providers := provider.NewStore(e.pool, e.keyring)
+	if err := providers.Create(ctx, "apple", "apple", "Apple", apple.Config()); err != nil {
+		t.Fatal(err)
+	}
+	// Signed up with Apple, which is then disabled: deleting still revokes.
+	to, err := providers.Begin(ctx, e.issuer, "apple", "authorization")
+	if err != nil {
+		t.Fatal(err)
+	}
+	form := apple.Approve(to)
+	_, sub, err := providers.Finish(ctx, e.issuer, "apple", form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := providers.SetEnabled(ctx, "apple", false); err != nil {
+		t.Fatal(err)
+	}
+
+	if c := e.call("DELETE", e.signIn(sub, 0), "/v1/account/me", nil, nil); c != 204 {
+		t.Fatalf("delete: %d", c)
+	}
+	if len(apple.Revoked) != 1 || apple.Revoked[0].Get("token") != "rt-"+form.Get("code") {
+		t.Errorf("revoked: %v", apple.Revoked)
 	}
 }
