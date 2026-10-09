@@ -1,8 +1,6 @@
 package login
 
 import (
-	"crypto/rand"
-	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"log/slog"
@@ -13,28 +11,6 @@ import (
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/provider"
 )
-
-// binderCookie ties a Provider login to the browser that started it.
-const binderCookie = "__Host-provider-login"
-
-// binder returns the browser's binder, giving it one if it has none; one
-// per browser, so that logins in several tabs each find theirs.
-func binder(w http.ResponseWriter, r *http.Request) string {
-	if c, err := r.Cookie(binderCookie); err == nil && c.Value != "" {
-		return c.Value
-	}
-	v := rand.Text()
-	http.SetCookie(w, &http.Cookie{Name: binderCookie, Value: v, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
-	return v
-}
-
-// sameBinder reports whether the browser holds the binder stored hashed
-// as want.
-func sameBinder(r *http.Request, want any) bool {
-	c, err := r.Cookie(binderCookie)
-	w, _ := want.(string)
-	return err == nil && w != "" && subtle.ConstantTimeCompare([]byte(hex.EncodeToString(hash(c.Value))), []byte(w)) == 1
-}
 
 // providerCallback is where a Provider sends the browser back to, by GET or
 // (Apple's form_post) a cross-site POST, which carries no Lax cookie: a

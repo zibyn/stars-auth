@@ -7,7 +7,9 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"embed"
+	"encoding/hex"
 	"errors"
 	"html/template"
 	"log/slog"
@@ -54,10 +56,11 @@ const (
 	// code or a 恢复码.
 	storeTOTPFailures = "totp_failures"
 	// Set, to the User a Provider just signed in, by the Provider's
-	// callback before it sends the browser back to the login; with the
-	// hash of the binder of the browser it is for.
+	// callback before it sends the browser back to the login.
 	storeFederated = "federated_sub"
-	storeBinder    = "federated_binder"
+	// Set with pending_sub or federated_sub: the hash of the binder of the
+	// browser the login is for.
+	storeBinder = "binder"
 )
 
 // totpTries is how many wrong TOTP codes or 恢复码 end a login.
@@ -229,6 +232,11 @@ func DeleteOldSessions(ctx context.Context, pool *pgxpool.Pool) error {
 // silently unless the request demands a fresh login; otherwise the code and
 // password forms.
 func (s *Service) authenticate(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession, c *goidc.Client) (goidc.Status, error) {
+	// A login past its first factor goes on only in its own browser.
+	if _, ok := as.Store[storeBindSub]; ok && !sameBinder(r, as.Store[storeBinder]) {
+		page(w, http.StatusForbidden, "message", "登录已在其他浏览器中进行,请返回应用重新登录")
+		return goidc.StatusPending, nil
+	}
 	// Only the login form posts to the callback; the authorization request
 	// itself may arrive as a cross-site POST.
 	if r.Method == http.MethodPost && r.PathValue("callback") != "" {
@@ -520,7 +528,7 @@ func (s *Service) complete(w http.ResponseWriter, r *http.Request, as *goidc.Aut
 		return goidc.StatusFailure, err
 	}
 	if totp || phone || consent {
-		as.Store = map[string]any{storeBindSub: sub, storeAuthTime: authTime.Unix(), storeAMR: amr}
+		as.Store = map[string]any{storeBindSub: sub, storeAuthTime: authTime.Unix(), storeAMR: amr, storeBinder: hex.EncodeToString(hash(binder(w, r)))}
 		if session != "" {
 			as.Store[oidcstore.SessionKey] = session
 		}
@@ -536,6 +544,29 @@ func (s *Service) complete(w http.ResponseWriter, r *http.Request, as *goidc.Aut
 	}
 	grant(as, session, sub, authTime, amr)
 	return goidc.StatusSuccess, nil
+}
+
+// binderCookie ties a login past its first factor, or through a Provider,
+// to the browser that started it.
+const binderCookie = "__Host-login"
+
+// binder returns the browser's binder, giving it one if it has none; one
+// per browser, so that logins in several tabs each find theirs.
+func binder(w http.ResponseWriter, r *http.Request) string {
+	if c, err := r.Cookie(binderCookie); err == nil && c.Value != "" {
+		return c.Value
+	}
+	v := rand.Text()
+	http.SetCookie(w, &http.Cookie{Name: binderCookie, Value: v, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
+	return v
+}
+
+// sameBinder reports whether the browser holds the binder stored hashed
+// as want.
+func sameBinder(r *http.Request, want any) bool {
+	c, err := r.Cookie(binderCookie)
+	w, _ := want.(string)
+	return err == nil && w != "" && subtle.ConstantTimeCompare([]byte(hex.EncodeToString(hash(c.Value))), []byte(w)) == 1
 }
 
 // logout is RP-Initiated Logout: it ends the browser Session, and with it
