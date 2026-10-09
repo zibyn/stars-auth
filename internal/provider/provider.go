@@ -24,6 +24,13 @@ type Redirect interface {
 	Callback(ctx context.Context, params url.Values, redirectURI, nonce, verifier string) (Identity, error)
 }
 
+// Unlinker is a Provider that wants to hear when an External Identity of it
+// is unbound, or its User deleted: Apple revokes the token kept for it.
+type Unlinker interface {
+	// Unlink is given the token the Identity kept ("" for none).
+	Unlink(ctx context.Context, token string) error
+}
+
 // Identity is who a Provider says signed in.
 type Identity struct {
 	Subject string

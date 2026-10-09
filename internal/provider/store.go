@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"regexp"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/zibyn/stars-auth/internal/crypt"
@@ -296,6 +298,82 @@ func (s *Store) signIn(ctx context.Context, id string, ident Identity) (string, 
 	return sub, err
 }
 
+// ExternalIdentity is one of a User's bindings, as an admin sees it.
+type ExternalIdentity struct {
+	Provider  string    `json:"provider" doc:"Provider ID"`
+	Name      string    `json:"name" doc:"The Provider's name"`
+	CreatedAt time.Time `json:"createdAt" doc:"When it was bound"`
+}
+
+// ExternalIdentities lists the User's bindings in the login page's order.
+func (s *Store) ExternalIdentities(ctx context.Context, userID string) ([]ExternalIdentity, error) {
+	rows, err := s.q.ExternalIdentities(ctx, userID)
+	out := []ExternalIdentity{}
+	for _, r := range rows {
+		out = append(out, ExternalIdentity{Provider: r.Provider, Name: r.Name, CreatedAt: r.CreatedAt.Time})
+	}
+	return out, err
+}
+
+// Unbind removes the User's External Identity of Provider providerID,
+// unless it is their last way to sign in, then tells the Provider if it is
+// an Unlinker. That is best effort: a failure is audited, the binding
+// stays gone.
+func (s *Store) Unbind(ctx context.Context, userID, providerID string) error {
+	var gone sqlc.RemoveExternalIdentityRow
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		if _, err := q.LockUser(ctx, userID); errors.Is(err, pgx.ErrNoRows) {
+			return identity.ErrNotBound
+		} else if err != nil {
+			return err
+		}
+		var err error
+		gone, err = q.RemoveExternalIdentity(ctx, sqlc.RemoveExternalIdentityParams{UserID: userID, Provider: providerID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return identity.ErrNotBound
+		} else if err != nil {
+			return err
+		}
+		return identity.CheckLoginPaths(ctx, q, userID)
+	})
+	if err != nil {
+		return err
+	}
+	ctx = context.WithoutCancel(ctx)
+	if err := s.unlink(ctx, providerID, gone); err != nil {
+		slog.Warn("unlink", "provider", providerID, "err", err)
+		detail, _ := json.Marshal(map[string]string{"provider": providerID, "error": err.Error()})
+		if err := s.q.Audit(ctx, sqlc.AuditParams{Event: "provider.unlink_failed", Sub: pgtype.Text{String: userID, Valid: true}, Detail: detail}); err != nil {
+			slog.Error("audit", "event", "provider.unlink_failed", "err", err)
+		}
+	}
+	return nil
+}
+
+func (s *Store) unlink(ctx context.Context, providerID string, gone sqlc.RemoveExternalIdentityRow) error {
+	r, err := s.q.GetProvider(ctx, providerID)
+	if err != nil {
+		return err
+	}
+	// Disabled or not, its tokens are still good upstream.
+	p, err := s.build(ctx, providerID, r)
+	if err != nil {
+		return err
+	}
+	u, ok := p.(Unlinker)
+	if !ok {
+		return nil
+	}
+	var token []byte
+	if gone.Token != nil {
+		if token, err = s.keyring.Open(gone.Token, tokenAAD(providerID, gone.Subject)); err != nil {
+			return err
+		}
+	}
+	return u.Unlink(ctx, string(token))
+}
+
 // provider builds the enabled Provider id.
 func (s *Store) provider(ctx context.Context, id string) (Redirect, error) {
 	r, err := s.q.GetProvider(ctx, id)
@@ -304,6 +382,10 @@ func (s *Store) provider(ctx context.Context, id string) (Redirect, error) {
 	} else if err != nil {
 		return nil, err
 	}
+	return s.build(ctx, id, r)
+}
+
+func (s *Store) build(ctx context.Context, id string, r sqlc.GetProviderRow) (Redirect, error) {
 	t := GetType(r.Type)
 	if t == nil {
 		return nil, fmt.Errorf("provider type %q is not in this build", r.Type)

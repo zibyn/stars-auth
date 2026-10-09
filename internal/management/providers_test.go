@@ -1,11 +1,16 @@
 package management_test
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"net/url"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/zibyn/stars-auth/internal/crypt"
+	"github.com/zibyn/stars-auth/internal/provider"
 	_ "github.com/zibyn/stars-auth/internal/provider/oidc"
 )
 
@@ -196,5 +201,142 @@ func TestProviderWithBindingsCanOnlyBeDisabled(t *testing.T) {
 		if !slices.Contains(events, want) {
 			t.Errorf("audit lacks %s: %v", want, events)
 		}
+	}
+}
+
+// unlinking is a Provider type that revokes on unbinding, as Apple does:
+// it records the tokens it was given and fails on "fail".
+type unlinking struct{}
+
+var unlinked []string
+
+func (unlinking) AuthURL(context.Context, string, string, string, string) (string, error) {
+	return "", nil
+}
+
+func (unlinking) Callback(context.Context, url.Values, string, string, string) (provider.Identity, error) {
+	return provider.Identity{}, nil
+}
+
+func (unlinking) Unlink(_ context.Context, token string) error {
+	unlinked = append(unlinked, token)
+	if token == "fail" {
+		return errors.New("upstream said no")
+	}
+	return nil
+}
+
+func init() {
+	provider.Register(provider.Type{Key: "unlinking", Name: "Unlinking",
+		New: func(map[string]string) (provider.Redirect, error) { return unlinking{}, nil }})
+}
+
+type externalIdentity struct {
+	Provider, Name string
+	CreatedAt      time.Time
+}
+
+func TestAdminUnbindsExternalIdentity(t *testing.T) {
+	e := start(t)
+	e.user("RO", []string{"readonly"})
+	owner, ro := e.token(e.owner, nil), e.token("RO", nil)
+	if code := e.call("POST", owner, "/providers", google(nil), nil); code != 204 {
+		t.Fatalf("add google: %d", code)
+	}
+	if code := e.call("POST", owner, "/providers", map[string]any{"id": "apple", "type": "unlinking", "name": "Apple", "config": map[string]string{}}, nil); code != 204 {
+		t.Fatalf("add apple: %d", code)
+	}
+	// ALICE has a phone too, BOB only Google, CAROL Google and Apple.
+	e.user("ALICE", nil, "phone:+8613800001111")
+	e.user("BOB", nil)
+	e.user("CAROL", nil)
+	keyring, err := crypt.NewKeyring(1, map[byte][]byte{1: bytes.Repeat([]byte{7}, 32)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed := func(subject, token string) []byte {
+		b, err := keyring.Seal([]byte(token), []byte("external_identity:apple:"+subject))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	if _, err := e.pool.Exec(context.Background(), `INSERT INTO external_identities (provider, subject, user_id, token) VALUES
+		('google', 'a', 'ALICE', NULL), ('google', 'b', 'BOB', NULL), ('google', 'c', 'CAROL', NULL),
+		('apple', 'a', 'ALICE', $1), ('apple', 'c', 'CAROL', $2)`, sealed("a", "fail"), sealed("c", "refresh-c")); err != nil {
+		t.Fatal(err)
+	}
+	list := func(sub string) []externalIdentity {
+		var got struct{ ExternalIdentities []externalIdentity }
+		if code := e.get(ro, "/users/"+sub+"/external-identities", &got); code != 200 {
+			t.Fatalf("list %s: %d", sub, code)
+		}
+		return got.ExternalIdentities
+	}
+	if got := list("CAROL"); len(got) != 2 || got[0].Provider != "google" || got[0].Name != "Google" ||
+		got[1].Provider != "apple" || got[1].Name != "Apple" || got[0].CreatedAt.IsZero() {
+		t.Errorf("CAROL's: %+v", got)
+	}
+
+	if code := e.call("DELETE", ro, "/users/CAROL/external-identities/google", nil, nil); code != 403 {
+		t.Errorf("readonly unbinds: %d, want 403", code)
+	}
+	if code := e.call("DELETE", owner, "/users/BOB/external-identities/google", nil, nil); code != 409 {
+		t.Errorf("BOB's last login path: %d, want 409", code)
+	}
+	if len(list("BOB")) != 1 {
+		t.Error("BOB lost Google")
+	}
+	if code := e.call("DELETE", owner, "/users/BOB/external-identities/apple", nil, nil); code != 404 {
+		t.Errorf("not bound: %d, want 404", code)
+	}
+
+	// CAROL keeps Google; Apple is told to revoke her token.
+	unlinked = nil
+	if code := e.call("DELETE", owner, "/users/CAROL/external-identities/apple", nil, nil); code != 204 {
+		t.Fatalf("unbind CAROL's Apple: %d", code)
+	}
+	if got := list("CAROL"); len(got) != 1 || got[0].Provider != "google" {
+		t.Errorf("CAROL after: %+v", got)
+	}
+	if !slices.Equal(unlinked, []string{"refresh-c"}) {
+		t.Errorf("unlinked: %v", unlinked)
+	}
+	if ev := e.audited("external_identity.removed"); ev.Sub != "CAROL" || ev.Detail["provider"] != "apple" || ev.Detail["by"] != e.owner {
+		t.Errorf("audit: %+v", ev)
+	}
+
+	// Revoking fails: the binding goes all the same, and the failure is audited.
+	if code := e.call("DELETE", owner, "/users/ALICE/external-identities/apple", nil, nil); code != 204 {
+		t.Fatalf("unbind ALICE's Apple: %d", code)
+	}
+	if ev := e.audited("provider.unlink_failed"); ev.Sub != "ALICE" || ev.Detail["provider"] != "apple" {
+		t.Errorf("unlink failure audit: %+v", ev)
+	}
+	if code := e.call("DELETE", owner, "/users/ALICE/external-identities/google", nil, nil); code != 204 {
+		t.Errorf("ALICE still has her phone: %d", code)
+	}
+	if len(list("ALICE")) != 0 {
+		t.Error("ALICE still bound")
+	}
+}
+
+func TestUnbindingAnAdminNeedsAdminRolesAssign(t *testing.T) {
+	e := start(t)
+	owner := e.token(e.owner, nil)
+	if code := e.call("POST", owner, "/providers", google(nil), nil); code != 204 {
+		t.Fatalf("add google: %d", code)
+	}
+	e.user("ADMIN", []string{"admin"}, "phone:+8613800001111")
+	e.user("OPS", []string{"readonly"}, "phone:+8613800002222")
+	if _, err := e.pool.Exec(context.Background(),
+		`INSERT INTO external_identities (provider, subject, user_id) VALUES ('google', 'o', 'OPS')`); err != nil {
+		t.Fatal(err)
+	}
+	if code := e.call("DELETE", e.token("ADMIN", nil), "/users/OPS/external-identities/google", nil, nil); code != 403 {
+		t.Errorf("admin unbinds an admin: %d, want 403", code)
+	}
+	if code := e.call("DELETE", owner, "/users/OPS/external-identities/google", nil, nil); code != 204 {
+		t.Errorf("owner unbinds an admin: %d", code)
 	}
 }

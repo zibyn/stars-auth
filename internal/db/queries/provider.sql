@@ -56,3 +56,14 @@ WHERE e.provider = $1 AND e.subject = $2;
 
 -- name: AddExternalIdentity :exec
 INSERT INTO external_identities (provider, subject, user_id, token) VALUES ($1, $2, $3, $4);
+
+-- name: ExternalIdentities :many
+-- A User's External Identities, in the login page's order of their Providers.
+SELECT e.provider, p.name, e.created_at
+FROM external_identities e JOIN providers p ON p.id = e.provider
+WHERE e.user_id = $1
+ORDER BY p.created_at;
+
+-- name: RemoveExternalIdentity :one
+DELETE FROM external_identities WHERE user_id = $1 AND provider = $2
+RETURNING subject, token;

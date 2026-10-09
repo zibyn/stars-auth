@@ -61,8 +61,7 @@ func bound(n int64, err error) error {
 }
 
 // changeLoginPaths runs change with the User locked, and undoes it if it
-// leaves them no way to sign in (invariant 1): a phone number, an email,
-// a username with a password, or an External Identity.
+// leaves them no way to sign in.
 func (s *Store) changeLoginPaths(ctx context.Context, sub string, change func(*sqlc.Queries) error) error {
 	return pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
@@ -72,20 +71,27 @@ func (s *Store) changeLoginPaths(ctx context.Context, sub string, change func(*s
 		if err := change(q); err != nil {
 			return err
 		}
-		paths, err := q.LoginPaths(ctx, sub)
-		if err != nil {
-			return err
-		}
-		if paths.HasExternalIdentity {
+		return CheckLoginPaths(ctx, q, sub)
+	})
+}
+
+// CheckLoginPaths fails with ErrLastLoginPath if the User has no way left
+// to sign in (invariant 1): a phone number, an email, a username with a
+// password, or an External Identity.
+func CheckLoginPaths(ctx context.Context, q *sqlc.Queries, sub string) error {
+	paths, err := q.LoginPaths(ctx, sub)
+	if err != nil {
+		return err
+	}
+	if paths.HasExternalIdentity {
+		return nil
+	}
+	for _, kind := range paths.Identifiers {
+		if kind != "username" || paths.HasPassword {
 			return nil
 		}
-		for _, kind := range paths.Identifiers {
-			if kind != "username" || paths.HasPassword {
-				return nil
-			}
-		}
-		return ErrLastLoginPath
-	})
+	}
+	return ErrLastLoginPath
 }
 
 // ReplaceIdentifier binds value as the User's Identifier of kind, replacing
