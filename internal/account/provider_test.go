@@ -223,6 +223,24 @@ func TestUnbindExternalIdentity(t *testing.T) {
 	}
 }
 
+// An External Identity at a disabled Provider signs nobody in: it is no
+// way to sign in that removing the last other one could leave.
+func TestDisabledProviderIsNoLoginPath(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", "phone:+8613800138000")
+	e.addGoogle()
+	tok := e.signIn("ALICE", 0)
+	if q := e.redirect(tok, "/v1/account/providers/google/bind"); q.Get("bound") != "google" {
+		t.Fatalf("bind: %v", q)
+	}
+	if err := provider.NewStore(e.pool, e.keyring).SetEnabled(context.Background(), "google", false); err != nil {
+		t.Fatal(err)
+	}
+	if c := e.call("DELETE", tok, "/v1/account/identifiers/phone", nil, nil); c != 422 {
+		t.Errorf("remove the phone, leaving a disabled Google: %d, want 422", c)
+	}
+}
+
 // An External Identity is one User's: binding another's is refused, and so
 // is a second one of the same Provider (ADR 0003).
 func TestBindRefusesAnotherUsersExternalIdentity(t *testing.T) {

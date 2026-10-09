@@ -1,13 +1,14 @@
 -- name: ListProviders :many
 -- only_login_path counts the bound Users with no other way to sign in
--- (docs/spec/identity.md#不变式).
+-- (docs/spec/identity.md#不变式); one at a disabled Provider is none.
 SELECT p.id, p.type, p.name, p.enabled, p.config, p.created_at,
        COALESCE((SELECT jsonb_object_agg(s.field, s.updated_at) FROM provider_secrets s WHERE s.provider = p.id),
                 '{}')::jsonb AS secrets,
        (SELECT count(*) FROM external_identities e WHERE e.provider = p.id) AS bound,
        (SELECT count(*) FROM external_identities e
         WHERE e.provider = p.id
-          AND NOT EXISTS (SELECT 1 FROM external_identities o WHERE o.user_id = e.user_id AND o.provider <> p.id)
+          AND NOT EXISTS (SELECT 1 FROM external_identities o JOIN providers op ON op.id = o.provider
+                          WHERE o.user_id = e.user_id AND o.provider <> p.id AND op.enabled)
           AND NOT EXISTS (SELECT 1 FROM identifiers i WHERE i.user_id = e.user_id
                           AND (i.kind <> 'username' OR EXISTS (SELECT 1 FROM passwords pw WHERE pw.user_id = e.user_id)))
        ) AS only_login_path

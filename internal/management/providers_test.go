@@ -164,6 +164,16 @@ func TestProviderWithBindingsCanOnlyBeDisabled(t *testing.T) {
 	if p := byID()["corp"]; p.Bound != 1 || p.OnlyLoginPath != 0 {
 		t.Errorf("corp counts: %+v", p)
 	}
+	// A disabled Provider is no other way to sign in.
+	if code := e.call("POST", owner, "/providers/corp/disable", nil, nil); code != 204 {
+		t.Fatalf("disable corp: %d", code)
+	}
+	if p := byID()["google"]; p.Bound != 3 || p.OnlyLoginPath != 2 {
+		t.Errorf("google counts with corp disabled: %+v", p)
+	}
+	if code := e.call("POST", owner, "/providers/corp/enable", nil, nil); code != 204 {
+		t.Fatalf("enable corp: %d", code)
+	}
 
 	if code := e.call("DELETE", owner, "/providers/google", nil, nil); code != 409 {
 		t.Errorf("delete bound: %d, want 409", code)
