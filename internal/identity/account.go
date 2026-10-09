@@ -55,12 +55,13 @@ func (s *Store) RemoveIdentifier(ctx context.Context, sub, kind string) error {
 }
 
 // RemoveExternalIdentity unbinds the User's External Identity at provider,
-// unless it is their last way to sign in, and returns what it was.
-func (s *Store) RemoveExternalIdentity(ctx context.Context, sub, provider string) (sqlc.RemoveExternalIdentityRow, error) {
+// unless it is their last way to sign in, and returns what it was. Audited
+// as done by by.
+func (s *Store) RemoveExternalIdentity(ctx context.Context, sub, provider, by string) (sqlc.RemoveExternalIdentityRow, error) {
 	var row sqlc.RemoveExternalIdentityRow
 	err := s.changeLoginPaths(ctx, sub, func(q *sqlc.Queries) error {
 		var err error
-		row, err = q.RemoveExternalIdentity(ctx, sqlc.RemoveExternalIdentityParams{UserID: sub, Provider: provider})
+		row, err = q.RemoveExternalIdentity(ctx, sqlc.RemoveExternalIdentityParams{UserID: sub, Provider: provider, By: by})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotBound
 		}

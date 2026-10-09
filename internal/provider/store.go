@@ -403,8 +403,9 @@ func (s *Store) build(ctx context.Context, id string, enabledOnly bool) (Redirec
 
 // Unbind removes the User's External Identity at the Provider id, unless it
 // is their last way to sign in, then runs the Provider's unlink hook.
-func (s *Store) Unbind(ctx context.Context, userID, id string) error {
-	row, err := identity.New(s.pool, s.keyring).RemoveExternalIdentity(ctx, userID, id)
+// Audited as done by by: the User, or an admin.
+func (s *Store) Unbind(ctx context.Context, userID, id, by string) error {
+	row, err := identity.New(s.pool, s.keyring).RemoveExternalIdentity(ctx, userID, id, by)
 	if err != nil {
 		return err
 	}

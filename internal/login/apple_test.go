@@ -140,13 +140,13 @@ func TestUnbindingAppleRevokesItsToken(t *testing.T) {
 	resp, _, code := e.signInWithApple(f, page)
 	sub := e.idToken(e.code(resp))["sub"].(string)
 
-	if err := e.providers().Unbind(ctx, sub, "apple"); err == nil || len(f.Revoked) != 0 {
+	if err := e.providers().Unbind(ctx, sub, "apple", sub); err == nil || len(f.Revoked) != 0 {
 		t.Fatalf("unbound the only way to sign in: %v, revoked %v", err, f.Revoked)
 	}
 	if err := sqlc.New(e.pool).AddIdentifier(ctx, sqlc.AddIdentifierParams{UserID: sub, Kind: "phone", Value: "+8613900139000"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.providers().Unbind(ctx, sub, "apple"); err != nil {
+	if err := e.providers().Unbind(ctx, sub, "apple", sub); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.Revoked) != 1 || f.Revoked[0].Get("token") != "rt-"+code ||
@@ -170,7 +170,7 @@ func TestAppleRevokeFailureIsAuditedNotBlocking(t *testing.T) {
 	}
 
 	f.FailRevoke = true
-	if err := e.providers().Unbind(ctx, sub, "apple"); err != nil {
+	if err := e.providers().Unbind(ctx, sub, "apple", sub); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.Revoked) != 1 || len(e.appleTokens()) != 0 || e.audits("provider.unlink_failed") != 1 {
@@ -217,7 +217,7 @@ func TestSignInWithAppleInTheApp(t *testing.T) {
 	if err := sqlc.New(e.pool).AddIdentifier(ctx, sqlc.AddIdentifierParams{UserID: sub, Kind: "phone", Value: "+8613900139000"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.providers().Unbind(ctx, sub, "apple"); err != nil {
+	if err := e.providers().Unbind(ctx, sub, "apple", sub); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.Revoked) != 1 || f.Revoked[0].Get("client_id") != appletest.BundleID {

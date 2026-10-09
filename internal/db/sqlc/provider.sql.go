@@ -384,12 +384,19 @@ func (q *Queries) PutProviderSecret(ctx context.Context, arg PutProviderSecretPa
 }
 
 const removeExternalIdentity = `-- name: RemoveExternalIdentity :one
-DELETE FROM external_identities WHERE user_id = $1 AND provider = $2 RETURNING subject, token
+WITH gone AS (
+    DELETE FROM external_identities WHERE user_id = $1 AND provider = $2 RETURNING user_id, provider, subject, token
+), audited AS (
+    INSERT INTO audit_log (event, sub, detail)
+    SELECT 'external_identity.removed', user_id, jsonb_build_object('provider', provider, 'by', $3::text) FROM gone
+)
+SELECT subject, token FROM gone
 `
 
 type RemoveExternalIdentityParams struct {
 	UserID   string
 	Provider string
+	By       string
 }
 
 type RemoveExternalIdentityRow struct {
@@ -397,8 +404,9 @@ type RemoveExternalIdentityRow struct {
 	Token   []byte
 }
 
+// Audited as done by by.
 func (q *Queries) RemoveExternalIdentity(ctx context.Context, arg RemoveExternalIdentityParams) (RemoveExternalIdentityRow, error) {
-	row := q.db.QueryRow(ctx, removeExternalIdentity, arg.UserID, arg.Provider)
+	row := q.db.QueryRow(ctx, removeExternalIdentity, arg.UserID, arg.Provider, arg.By)
 	var i RemoveExternalIdentityRow
 	err := row.Scan(&i.Subject, &i.Token)
 	return i, err

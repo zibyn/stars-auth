@@ -90,4 +90,11 @@ WHERE e.user_id = $1
 ORDER BY p.created_at;
 
 -- name: RemoveExternalIdentity :one
-DELETE FROM external_identities WHERE user_id = $1 AND provider = $2 RETURNING subject, token;
+-- Audited as done by by.
+WITH gone AS (
+    DELETE FROM external_identities WHERE user_id = @user_id AND provider = @provider RETURNING user_id, provider, subject, token
+), audited AS (
+    INSERT INTO audit_log (event, sub, detail)
+    SELECT 'external_identity.removed', user_id, jsonb_build_object('provider', provider, 'by', @by::text) FROM gone
+)
+SELECT subject, token FROM gone;

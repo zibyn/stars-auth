@@ -18,7 +18,6 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/zibyn/stars-auth/internal/channel"
@@ -276,12 +275,7 @@ func (s *Service) unbindProvider(ctx context.Context, in *providerPath) (*struct
 		return nil, err
 	}
 	sub := callerOf(ctx).sub
-	if err := s.providers.Unbind(ctx, sub, in.ID); err != nil {
-		return nil, fail(err)
-	}
-	detail, _ := json.Marshal(map[string]string{"provider": in.ID, "by": sub})
-	return nil, s.q.Audit(context.WithoutCancel(ctx), sqlc.AuditParams{Event: "external_identity.removed",
-		Sub: pgtype.Text{String: sub, Valid: true}, Detail: detail})
+	return nil, fail(s.providers.Unbind(ctx, sub, in.ID, sub))
 }
 
 // fresh refuses a sensitive action unless the User authenticated in this
