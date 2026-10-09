@@ -69,6 +69,30 @@ export type ChannelPlugin = {
 	kinds: ("phone" | "email")[];
 	fields: ChannelField[];
 };
+// A Provider type's field; an immutable one is set only when adding.
+export type ProviderField = ChannelField & { immutable: boolean };
+export type ProviderType = {
+	key: string;
+	name: string;
+	fields: ProviderField[];
+};
+export type ProviderInfo = {
+	id: string;
+	type: string;
+	name: string;
+	enabled: boolean;
+	config: Record<string, string>;
+	secrets: Record<string, string>; // field → when it was last set
+	createdAt: string;
+	bound: number;
+	onlyLoginPath: number; // bound Users with no other way to sign in
+	callbackUrl: string;
+};
+export type ExternalIdentity = {
+	provider: string;
+	name: string;
+	createdAt: string;
+};
 export type ChannelSettings = {
 	kind: "phone" | "email";
 	plugin: string;
