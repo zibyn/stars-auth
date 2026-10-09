@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 
 	"github.com/zibyn/stars-auth/internal/identity"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
@@ -21,7 +22,11 @@ func (s *Service) providerCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	authnSession, sub, err := s.providers.Finish(ctx, s.issuer, id, r.Form)
+	f, err := s.providers.Finish(ctx, s.issuer, id, r.Form)
+	if f.Account != "" {
+		backToAccount(w, r, id, f.Account, err)
+		return
+	}
 	var invalid identity.Invalid
 	switch {
 	case errors.As(err, &invalid):
@@ -36,7 +41,7 @@ func (s *Service) providerCallback(w http.ResponseWriter, r *http.Request) {
 		page(w, http.StatusInternalServerError, "message", "出错了,请稍后重试")
 		return
 	}
-	as, err := s.store.Session(ctx, authnSession)
+	as, err := s.store.Session(ctx, f.AuthnSession)
 	if errors.Is(err, goidc.ErrNotFound) {
 		page(w, http.StatusBadRequest, "message", "登录已过期,请返回应用重新登录")
 		return
@@ -45,11 +50,30 @@ func (s *Service) providerCallback(w http.ResponseWriter, r *http.Request) {
 		page(w, http.StatusInternalServerError, "message", "出错了,请稍后重试")
 		return
 	}
-	as.Store = map[string]any{storeFederated: sub}
+	as.Store = map[string]any{storeFederated: f.Sub}
 	if err := s.store.SaveSession(ctx, as); err != nil {
 		slog.Error("provider login", "err", err)
 		page(w, http.StatusInternalServerError, "message", "出错了,请稍后重试")
 		return
 	}
 	http.Redirect(w, r, "/authorize/"+as.ID, http.StatusSeeOther)
+}
+
+// backToAccount sends the browser back to the account center after a
+// redirect it started: ?bound=<id> or ?reauthenticated=<id>, or ?error=
+// to show the User.
+func backToAccount(w http.ResponseWriter, r *http.Request, id, done string, err error) {
+	q := url.Values{done: {id}}
+	var invalid identity.Invalid
+	switch {
+	case errors.As(err, &invalid):
+		q = url.Values{"error": {invalid.Error()}}
+	case errors.Is(err, providers.ErrLogin), errors.Is(err, providers.ErrNotFound):
+		slog.Info("provider redirect from the account center", "provider", id, "err", err)
+		q = url.Values{"error": {"没有完成,请重试"}}
+	case err != nil:
+		slog.Error("provider redirect from the account center", "provider", id, "err", err)
+		q = url.Values{"error": {"出错了,请稍后重试"}}
+	}
+	http.Redirect(w, r, "/account?"+q.Encode(), http.StatusSeeOther)
 }

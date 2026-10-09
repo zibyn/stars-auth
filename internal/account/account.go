@@ -18,6 +18,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/zibyn/stars-auth/internal/channel"
@@ -103,6 +104,11 @@ func (s *Service) Register(mux *http.ServeMux) {
 	op(api, http.MethodPost, "begin-totp", "/2fa/totp", "Begin turning 两步验证 on: a new TOTP to add to an authenticator, replacing one not yet confirmed", s.beginTOTP, http.StatusForbidden, http.StatusConflict)
 	op(api, http.MethodPost, "confirm-totp", "/2fa/totp/confirm", "Turn 两步验证 on with a code from the new TOTP; the recovery codes are shown this once", s.confirmTOTP, http.StatusForbidden, http.StatusConflict)
 	op(api, http.MethodDelete, "disable-2fa", "/2fa", "Turn 两步验证 off, deleting the TOTP and recovery codes; 409 for an admin while 管理员必须启用两步验证 is on", s.disableTwoFactor, http.StatusForbidden, http.StatusConflict)
+	// A Provider redirect comes back to the account center with ?bound=<id>,
+	// ?reauthenticated=<id> or ?error=<what to show the User>.
+	op(api, http.MethodPost, "bind-provider", "/providers/{id}/bind", "Where to send the browser to bind an External Identity of the enabled Provider", s.bindProvider, http.StatusForbidden, http.StatusNotFound)
+	op(api, http.MethodPost, "reauth-with-provider", "/providers/{id}/reauth", "Where to send the browser to reauthenticate at the bound Provider; 422 with 两步验证 on", s.reauthWithProvider, http.StatusNotFound)
+	op(api, http.MethodDelete, "unbind-provider", "/providers/{id}", "Unbind the User's External Identity of the Provider", s.unbindProvider, http.StatusForbidden)
 	op(api, http.MethodPost, "regenerate-recovery-codes", "/2fa/recovery-codes", "Replace the recovery codes with a new set", s.regenerateRecoveryCodes, http.StatusForbidden)
 }
 
@@ -164,7 +170,22 @@ type meOutput struct {
 		PasswordAllowed bool         `json:"passwordAllowed" doc:"The password login setting lets this User sign in with, and set, a password"`
 		RecentAuthUntil time.Time    `json:"recentAuthUntil" doc:"Until when sensitive actions need no reauthentication"`
 		TwoFactor       TwoFactor    `json:"twoFactor"`
+		// External Identities and the Providers to bind.
+		ExternalIdentities []ExternalIdentity `json:"externalIdentities" nullable:"false"`
+		Providers          []Provider         `json:"providers" nullable:"false" doc:"The enabled Providers, to bind or reauthenticate at"`
 	}
+}
+
+type ExternalIdentity struct {
+	Provider string    `json:"provider" doc:"Provider ID"`
+	Name     string    `json:"name" doc:"The Provider's name"`
+	Enabled  bool      `json:"enabled" doc:"Whether the Provider is enabled: it signs in and reauthenticates only then"`
+	BoundAt  time.Time `json:"boundAt"`
+}
+
+type Provider struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // TwoFactor is the User's 两步验证, never its secrets.
@@ -192,7 +213,75 @@ func (s *Service) me(ctx context.Context, _ *struct{}) (*meOutput, error) {
 	b := &out.Body
 	b.Sub, b.CreatedAt, b.HasPassword, b.PasswordAllowed = c.sub, u.CreatedAt.Time, u.HasPassword, u.PasswordAllowed
 	b.RecentAuthUntil, b.TwoFactor = c.authTime.Add(recent), twoFactorOf(u)
+	if b.ExternalIdentities, err = s.externalIdentities(ctx, c.sub); err != nil {
+		return nil, err
+	}
+	buttons, err := s.providers.Buttons(ctx)
+	if err != nil {
+		return nil, err
+	}
+	b.Providers = []Provider{}
+	for _, p := range buttons {
+		b.Providers = append(b.Providers, Provider{ID: p.ID, Name: p.Name})
+	}
 	return out, json.Unmarshal(u.Identifiers, &b.Identifiers)
+}
+
+func (s *Service) externalIdentities(ctx context.Context, sub string) ([]ExternalIdentity, error) {
+	rows, err := s.q.ExternalIdentities(ctx, sub)
+	out := []ExternalIdentity{}
+	for _, r := range rows {
+		out = append(out, ExternalIdentity{Provider: r.Provider, Name: r.Name, Enabled: r.Enabled, BoundAt: r.CreatedAt.Time})
+	}
+	return out, err
+}
+
+type providerPath struct {
+	ID string `path:"id"`
+}
+
+type redirectOutput struct {
+	Body struct {
+		URL string `json:"url" doc:"Where to send the browser"`
+	}
+}
+
+func (s *Service) bindProvider(ctx context.Context, in *providerPath) (*redirectOutput, error) {
+	if err := fresh(ctx); err != nil {
+		return nil, err
+	}
+	return s.redirect(ctx, in.ID, false)
+}
+
+func (s *Service) reauthWithProvider(ctx context.Context, in *providerPath) (*redirectOutput, error) {
+	if on, err := s.twoFactor.On(ctx, callerOf(ctx).sub); err != nil || on {
+		return nil, fail(cmp.Or(err, error(errTwoFactorOnly)))
+	}
+	return s.redirect(ctx, in.ID, true)
+}
+
+func (s *Service) redirect(ctx context.Context, id string, reauth bool) (*redirectOutput, error) {
+	c := callerOf(ctx)
+	out := &redirectOutput{}
+	var err error
+	out.Body.URL, err = s.providers.BeginAccount(ctx, s.issuer, id, c.sub, c.session, reauth)
+	if errors.Is(err, provider.ErrNotFound) {
+		return nil, huma.Error404NotFound("没有启用这个外部登录")
+	}
+	return out, fail(err)
+}
+
+func (s *Service) unbindProvider(ctx context.Context, in *providerPath) (*struct{}, error) {
+	if err := fresh(ctx); err != nil {
+		return nil, err
+	}
+	sub := callerOf(ctx).sub
+	if err := s.providers.Unbind(ctx, sub, in.ID); err != nil {
+		return nil, fail(err)
+	}
+	detail, _ := json.Marshal(map[string]string{"provider": in.ID, "by": sub})
+	return nil, s.q.Audit(context.WithoutCancel(ctx), sqlc.AuditParams{Event: "external_identity.removed",
+		Sub: pgtype.Text{String: sub, Valid: true}, Detail: detail})
 }
 
 // fresh refuses a sensitive action unless the User authenticated in this

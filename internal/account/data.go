@@ -82,13 +82,20 @@ type AuditEvent struct {
 	Detail json.RawMessage `json:"detail"`
 }
 
+// BoundProvider is an External Identity as the export shows it: only the
+// Provider's name and when it was bound.
+type BoundProvider struct {
+	Provider string    `json:"provider" doc:"The Provider's name"`
+	BoundAt  time.Time `json:"boundAt"`
+}
+
 type exportOutput struct {
 	ContentDisposition string `header:"Content-Disposition"`
 	Body               struct {
-		Sub                string       `json:"sub"`
-		CreatedAt          time.Time    `json:"createdAt"`
-		Identifiers        []Identifier `json:"identifiers" nullable:"false"`
-		ExternalIdentities []struct{}   `json:"externalIdentities" nullable:"false"`
+		Sub                string          `json:"sub"`
+		CreatedAt          time.Time       `json:"createdAt"`
+		Identifiers        []Identifier    `json:"identifiers" nullable:"false"`
+		ExternalIdentities []BoundProvider `json:"externalIdentities" nullable:"false"`
 		Credentials        struct {
 			Password  bool      `json:"password" doc:"Whether a password is set; never the password"`
 			TwoFactor TwoFactor `json:"twoFactor" doc:"Never the TOTP secret or recovery codes"`
@@ -112,9 +119,16 @@ func (s *Service) export(ctx context.Context, _ *struct{}) (*exportOutput, error
 	out := &exportOutput{ContentDisposition: `attachment; filename="stars-auth-` + sub + `.json"`}
 	b := &out.Body
 	b.Sub, b.CreatedAt, b.Credentials.Password, b.Credentials.TwoFactor = sub, u.CreatedAt.Time, u.HasPassword, twoFactorOf(u)
-	b.ExternalIdentities, b.Consents, b.AuditEvents = []struct{}{}, []Consent{}, []AuditEvent{}
+	b.ExternalIdentities, b.Consents, b.AuditEvents = []BoundProvider{}, []Consent{}, []AuditEvent{}
 	if err := json.Unmarshal(u.Identifiers, &b.Identifiers); err != nil {
 		return nil, err
+	}
+	ext, err := s.externalIdentities(ctx, sub)
+	if err != nil {
+		return nil, err
+	}
+	for _, x := range ext {
+		b.ExternalIdentities = append(b.ExternalIdentities, BoundProvider{Provider: x.Name, BoundAt: x.BoundAt})
 	}
 	if b.Sessions, err = s.sessions(ctx); err != nil {
 		return nil, err

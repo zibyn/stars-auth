@@ -67,7 +67,11 @@ func start(t *testing.T) *env {
 	}
 	ts := httptest.NewServer(nil)
 	t.Cleanup(ts.Close)
-	ts.Config.Handler = server.New(pool.Ping, http.NotFoundHandler(), nil, account.New(pool, keyring, ts.URL).Register)
+	auth, err := login.New(ctx, pool, keyring, ts.URL) // Providers come back to its callback
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts.Config.Handler = server.New(pool.Ping, http.NotFoundHandler(), nil, auth.Register, account.New(pool, keyring, ts.URL).Register)
 	e := &env{t: t, pool: pool, keyring: keyring, issuer: ts.URL, keys: keys, inbox: &inbox{codes: map[string]string{}}}
 	hook := httptest.NewServer(e.inbox)
 	t.Cleanup(hook.Close)
@@ -917,10 +921,11 @@ func TestDeleteAccountRevokesApple(t *testing.T) {
 		t.Fatal(err)
 	}
 	form := apple.Approve(to)
-	_, sub, err := providers.Finish(ctx, e.issuer, "apple", form)
+	f, err := providers.Finish(ctx, e.issuer, "apple", form)
 	if err != nil {
 		t.Fatal(err)
 	}
+	sub := f.Sub
 	if err := providers.SetEnabled(ctx, "apple", false); err != nil {
 		t.Fatal(err)
 	}

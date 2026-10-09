@@ -106,13 +106,13 @@ func (u *upstream) Callback(ctx context.Context, params url.Values, redirectURI,
 	if err := fetch(req, &tok); err != nil {
 		return provider.Identity{}, fmt.Errorf("token endpoint: %w", err)
 	}
-	sub, err := u.verify(ctx, d, tok.IDToken, nonce)
-	return provider.Identity{Subject: sub}, err
+	return u.verify(ctx, d, tok.IDToken, nonce)
 }
 
 // verify checks an id_token from the token endpoint (OIDC Core §3.1.3.7)
-// and returns its sub.
-func (u *upstream) verify(ctx context.Context, d *discovery, idToken, nonce string) (string, error) {
+// and says who signed in, and when if it says.
+func (u *upstream) verify(ctx context.Context, d *discovery, idToken, nonce string) (provider.Identity, error) {
+	var id provider.Identity
 	algs := []jose.SignatureAlgorithm{}
 	for _, a := range d.SigningAlgs {
 		if a != "none" && !strings.HasPrefix(a, "HS") { // never the alg the token picks for itself
@@ -124,39 +124,44 @@ func (u *upstream) verify(ctx context.Context, d *discovery, idToken, nonce stri
 	}
 	tok, err := jwt.ParseSigned(idToken, algs)
 	if err != nil {
-		return "", fmt.Errorf("id_token: %w", err)
+		return id, fmt.Errorf("id_token: %w", err)
 	}
 	if len(tok.Headers) != 1 {
-		return "", errors.New("id_token: one signature expected")
+		return id, errors.New("id_token: one signature expected")
 	}
 	key, err := d.key(ctx, tok.Headers[0].KeyID)
 	if err != nil {
-		return "", err
+		return id, err
 	}
 	var claims jwt.Claims
 	var extra struct {
-		Nonce string `json:"nonce"`
-		AZP   string `json:"azp"`
+		Nonce    string           `json:"nonce"`
+		AZP      string           `json:"azp"`
+		AuthTime *jwt.NumericDate `json:"auth_time"`
 	}
 	if err := tok.Claims(key, &claims, &extra); err != nil {
-		return "", fmt.Errorf("id_token: %w", err)
+		return id, fmt.Errorf("id_token: %w", err)
 	}
 	if err := claims.ValidateWithLeeway(jwt.Expected{Issuer: u.issuer, AnyAudience: jwt.Audience{u.clientID}}, time.Minute); err != nil {
-		return "", fmt.Errorf("id_token: %w", err)
+		return id, fmt.Errorf("id_token: %w", err)
 	}
 	if claims.Expiry == nil {
-		return "", errors.New("id_token: no exp")
+		return id, errors.New("id_token: no exp")
 	}
 	if len(claims.Audience) > 1 && extra.AZP != u.clientID {
-		return "", errors.New("id_token: azp is not us")
+		return id, errors.New("id_token: azp is not us")
 	}
 	if extra.Nonce != nonce {
-		return "", errors.New("id_token: wrong nonce")
+		return id, errors.New("id_token: wrong nonce")
 	}
 	if claims.Subject == "" {
-		return "", errors.New("id_token: no sub")
+		return id, errors.New("id_token: no sub")
 	}
-	return claims.Subject, nil
+	id.Subject = claims.Subject
+	if extra.AuthTime != nil {
+		id.AuthTime = extra.AuthTime.Time()
+	}
+	return id, nil
 }
 
 // discovery is an issuer's /.well-known/openid-configuration, with its

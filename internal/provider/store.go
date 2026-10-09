@@ -235,40 +235,66 @@ func (s *Store) Buttons(ctx context.Context) ([]Button, error) {
 // Begin starts signing in at the enabled Provider id for the OIDC
 // authorization authnSession, and returns where to send the browser.
 func (s *Store) Begin(ctx context.Context, issuer, id, authnSession string) (string, error) {
+	return s.begin(ctx, issuer, id, func(stateHash []byte, nonce, verifier string) error {
+		return s.q.InsertProviderLogin(ctx, sqlc.InsertProviderLoginParams{
+			StateHash: stateHash, Provider: id, Nonce: nonce, Verifier: verifier, AuthnSession: authnSession,
+		})
+	})
+}
+
+// begin keeps a new redirect to the enabled Provider id with save and
+// returns where to send the browser.
+func (s *Store) begin(ctx context.Context, issuer, id string, save func(stateHash []byte, nonce, verifier string) error) (string, error) {
 	p, err := s.provider(ctx, id)
 	if err != nil {
 		return "", err
 	}
 	state, nonce, verifier := rand.Text()+rand.Text(), rand.Text(), rand.Text()+rand.Text()
-	if err := s.q.InsertProviderLogin(ctx, sqlc.InsertProviderLoginParams{
-		StateHash: hash(state), Provider: id, Nonce: nonce, Verifier: verifier, AuthnSession: authnSession,
-	}); err != nil {
+	if err := save(hash(state), nonce, verifier); err != nil {
 		return "", err
 	}
 	return p.AuthURL(ctx, CallbackURL(issuer, id), state, nonce, verifier)
 }
 
-// Finish takes the Provider's callback parameters for a login Begin
-// started, and returns its OIDC authorization and the User signed in: the
-// one bound to the External Identity, or a new User (logging in is signing
-// up). Each login finishes once.
-func (s *Store) Finish(ctx context.Context, issuer, id string, params url.Values) (authnSession, sub string, err error) {
+// Finished is how a Provider's callback went.
+type Finished struct {
+	// AuthnSession is the OIDC authorization a login was for, and Sub the
+	// User signed in.
+	AuthnSession, Sub string
+	// Account is set for a redirect from the account center: "bound" or
+	// "reauthenticated", even when it failed.
+	Account string
+}
+
+// Finish takes the Provider's callback parameters for a redirect Begin or
+// BeginAccount started. A login finds its OIDC authorization and the User
+// signed in: the one bound to the External Identity, or a new User (logging
+// in is signing up). Each redirect finishes once.
+func (s *Store) Finish(ctx context.Context, issuer, id string, params url.Values) (Finished, error) {
+	var f Finished
 	login, err := s.q.TakeProviderLogin(ctx, sqlc.TakeProviderLoginParams{StateHash: hash(params.Get("state")), Provider: id})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", ErrLogin
+		return f, ErrLogin
 	} else if err != nil {
-		return "", "", err
+		return f, err
+	}
+	if login.SessionID.Valid {
+		f.Account = map[bool]string{false: "bound", true: "reauthenticated"}[login.Reauth]
 	}
 	p, err := s.provider(ctx, id)
 	if err != nil {
-		return "", "", err
+		return f, err
 	}
 	ident, err := p.Callback(ctx, params, CallbackURL(issuer, id), login.Nonce, login.Verifier)
 	if err != nil {
-		return "", "", fmt.Errorf("%w: %w", ErrLogin, err)
+		return f, fmt.Errorf("%w: %w", ErrLogin, err)
 	}
-	sub, err = s.signIn(ctx, id, ident)
-	return login.AuthnSession, sub, err
+	if f.Account != "" {
+		return f, s.finishAccount(ctx, id, login, ident)
+	}
+	f.AuthnSession = login.AuthnSession
+	f.Sub, err = s.signIn(ctx, id, ident)
+	return f, err
 }
 
 func (s *Store) signIn(ctx context.Context, id string, ident Identity) (string, error) {

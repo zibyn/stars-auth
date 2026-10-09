@@ -8,6 +8,7 @@ import (
 	"context"
 	"net/url"
 	"slices"
+	"time"
 
 	"github.com/zibyn/stars-auth/internal/channel"
 )
@@ -35,6 +36,9 @@ type Unlinker interface {
 // Identity is who a Provider says signed in.
 type Identity struct {
 	Subject string
+	// AuthTime is when they authenticated at the Provider; zero when it
+	// did not say.
+	AuthTime time.Time
 	// Token, when set, is kept sealed on the External Identity for the
 	// Provider type's own use (Apple revokes its refresh token on unbinding).
 	Token string

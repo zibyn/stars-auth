@@ -164,6 +164,9 @@ type ProviderLogin struct {
 	Verifier     string
 	AuthnSession string
 	ExpiresAt    pgtype.Timestamptz
+	SessionID    pgtype.Text
+	Reauth       bool
+	CreatedAt    pgtype.Timestamptz
 }
 
 type ProviderSecret struct {
