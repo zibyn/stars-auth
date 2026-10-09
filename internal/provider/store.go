@@ -271,6 +271,25 @@ func (s *Store) Finish(ctx context.Context, issuer, id string, params url.Values
 	return login.AuthnSession, sub, err
 }
 
+// SignInWithClientToken signs in or up the User an App's client token
+// (value) names at the enabled Provider id. ErrNotFound: no such enabled
+// Provider of a client token type; ErrLogin: the Provider turned value down.
+func (s *Store) SignInWithClientToken(ctx context.Context, id, value string) (string, error) {
+	p, err := s.provider(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	ct, ok := p.(ClientToken)
+	if !ok {
+		return "", ErrNotFound
+	}
+	ident, err := ct.ClientToken(ctx, value)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", ErrLogin, err)
+	}
+	return s.signIn(ctx, id, ident)
+}
+
 func (s *Store) signIn(ctx context.Context, id string, ident Identity) (string, error) {
 	var token []byte
 	if ident.Token != "" {

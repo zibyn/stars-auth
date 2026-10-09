@@ -166,3 +166,50 @@ func TestAppleRevokeFailureIsAuditedNotBlocking(t *testing.T) {
 		t.Errorf("revoked %v, identities %d, audited %d", f.Revoked, len(e.appleTokens()), e.audits("provider.unlink_failed"))
 	}
 }
+
+// appleChallenge is the iOS App handing the code Sign in with Apple gave it
+// to the direct auth API.
+func (e *env) appleChallenge(code string) challengeResp {
+	e.t.Helper()
+	return e.challenge(url.Values{"provider": {"apple"}, "authorization_code": {code}})
+}
+
+func TestSignInWithAppleInTheApp(t *testing.T) {
+	e := start(t)
+	f := e.addApple()
+
+	code := f.NativeCode()
+	resp := e.appleChallenge(code)
+	if resp.Status != 200 || resp.Code == "" {
+		t.Fatalf("challenge: %+v", resp)
+	}
+	claims := e.claims(e.exchange(clientID, "", resp.Code).IDToken)
+	sub, _ := claims["sub"].(string)
+	if sub == "" || sub == f.Sub || !slices.Equal(claims["amr"].([]any), []any{"fed"}) {
+		t.Errorf("id_token: %v", claims)
+	}
+	if len(f.ClientSecrets) != 1 || f.ClientSecrets[0]["sub"] != appletest.BundleID {
+		t.Errorf("client secrets: %v", f.ClientSecrets)
+	}
+	if tokens := e.appleTokens(); len(tokens) != 1 || strings.Contains(string(tokens[0]), "rt-"+code) {
+		t.Errorf("stored refresh token: %q", tokens)
+	}
+
+	// Again: the same User.
+	again := e.appleChallenge(f.NativeCode())
+	if got := e.claims(e.exchange(clientID, "", again.Code).IDToken)["sub"]; got != sub {
+		t.Errorf("second login: %v, want %s", got, sub)
+	}
+
+	// Unbinding revokes the latest token, as the Bundle ID it was issued to.
+	ctx := context.Background()
+	if err := sqlc.New(e.pool).AddIdentifier(ctx, sqlc.AddIdentifierParams{UserID: sub, Kind: "phone", Value: "+8613900139000"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.providers().Unbind(ctx, sub, "apple"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.Revoked) != 1 || f.Revoked[0].Get("client_id") != appletest.BundleID {
+		t.Errorf("revoked: %v", f.Revoked)
+	}
+}

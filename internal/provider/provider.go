@@ -24,6 +24,14 @@ type Redirect interface {
 	Callback(ctx context.Context, params url.Values, redirectURI, nonce, verifier string) (Identity, error)
 }
 
+// ClientToken is a Provider an App signs in with on its own, sending the
+// direct auth API what the Provider's SDK gave it: Apple's
+// authorization_code (ADR 0011).
+type ClientToken interface {
+	// ClientToken checks value and says who signed in.
+	ClientToken(ctx context.Context, value string) (Identity, error)
+}
+
 // Unlinker is a Provider with something to undo at the Provider when an
 // External Identity goes, by unbinding or account deletion: Apple revokes
 // its refresh token. Best effort: a failure is audited and blocks nothing.
