@@ -1,6 +1,7 @@
 // Package apple is the Apple Provider type: Sign in with Apple on the web
-// by redirect with form_post, the code exchanged with a client secret JWT
-// signed by the .p8 key, and the refresh token revoked on unlinking
+// by redirect with form_post and in Apps by client token, the code
+// exchanged with a client secret JWT signed by the .p8 key, and the
+// refresh token revoked on unlinking
 // (docs/spec/architecture.md#apple-provider-类型).
 package apple
 
@@ -54,7 +55,7 @@ func init() {
 }
 
 // upstream is an Apple Provider. Web sign-in uses the Services ID as
-// client_id; an App's code would be exchanged with the Bundle ID (ADR 0011).
+// client_id; an App's code is exchanged with the Bundle ID (ADR 0011).
 type upstream struct {
 	teamID, keyID        string
 	key                  *ecdsa.PrivateKey
@@ -99,6 +100,16 @@ func (a *upstream) Callback(ctx context.Context, params url.Values, redirectURI,
 		return provider.Identity{}, fmt.Errorf("apple: %s", e)
 	}
 	return a.exchange(ctx, a.servicesID, params.Get("code"), redirectURI, nonce)
+}
+
+// ClientToken exchanges the authorization_code Sign in with Apple gave an
+// App, as its Bundle ID; Apple's own answer is the proof, so no identity
+// token or nonce (ADR 0011).
+func (a *upstream) ClientToken(ctx context.Context, code string) (provider.Identity, error) {
+	if a.bundleID == "" {
+		return provider.Identity{}, errors.New("apple: no Bundle ID set")
+	}
+	return a.exchange(ctx, a.bundleID, code, "", "")
 }
 
 // exchange trades code for tokens as clientID, and returns who signed in

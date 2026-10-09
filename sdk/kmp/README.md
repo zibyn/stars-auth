@@ -1,6 +1,6 @@
 # Stars Auth KMP SDK
 
-iOS 和 Android App 不经浏览器登录 Stars Auth:验证码、密码、刷新、登出、注销账号。只管协议,不带界面。行为约定见 [SDK 行为说明](../../docs/sdk-behavior.md)。
+iOS 和 Android App 不经浏览器登录 Stars Auth:验证码、密码、Sign in with Apple、刷新、登出、注销账号。只管协议,不带界面。行为约定见 [SDK 行为说明](../../docs/sdk-behavior.md)。
 
 SDK 0.x 支持服务端 API v1。
 
@@ -45,6 +45,17 @@ when (val step = auth.verifyCode(sent.session, code)) {
 ```
 
 密码登录:`auth.signInWithPassword(identifier, password, terms.version)`(用户名、手机号或邮箱),结果同上。
+
+### Sign in with Apple
+
+App 自己用系统的 Sign in with Apple(`ASAuthorizationAppleIDProvider`,不必请求 `fullName`、`email`)拿到凭证,把其中的 `authorizationCode` 原样交给 SDK;SDK 不内置 Apple 的 SDK,也不需要 identity token 或 nonce。`"apple"` 是管理员添加 Apple Provider 时填的 Provider ID,该 Provider 要填好 App 的 Bundle ID。
+
+```swift
+let code = String(data: credential.authorizationCode!, encoding: .utf8)!
+let step = try await auth.signInWithProvider(provider: "apple", authorizationCode: code, termsVersion: terms.version)
+```
+
+结果同验证码登录。抛出 `error == "invalid_grant"` 表示 Apple 没认这个 code(用过、过期或不属于这个 App),让 User 重新点一次 Apple 登录。
 
 出错抛 `StarsAuthException`:`error == "invalid_request"` 时 `description` 可直接展示(验证码错误、发送太频繁等);`error == StarsAuthException.UNSUPPORTED_STEP` 表示服务端要求了这个 SDK 版本不认识的步骤,提示 User 升级 App。
 

@@ -10,7 +10,7 @@
       "post": {
         "operationId": "authorization-challenge",
         "summary": "Take one sign-in step",
-        "description": "Code login takes two requests: `identifier` (+ `altcha`) sends a code and answers `insufficient_authorization` with an `auth_session`; `auth_session` + `code` then yields the authorization code. Password login is one request: `username` + `password` (+ `altcha`). If the instance requires a phone number the User has not bound, signing in answers `insufficient_authorization` instead, and the App sends a code to a phone number and enters it on the same `auth_session`. Confidential Applications authenticate as at the token endpoint (client_secret_basic or client_secret_post).",
+        "description": "Code login takes two requests: `identifier` (+ `altcha`) sends a code and answers `insufficient_authorization` with an `auth_session`; `auth_session` + `code` then yields the authorization code. Password login is one request: `username` + `password` (+ `altcha`). Sign in with Apple in an App is one request too: `provider` + `authorization_code`, the code exactly as Sign in with Apple gave it (no identity token, no nonce); a User new to the instance is signed up. After any of these, 两步验证 and phone binding go on by `next` as usual. If the instance requires a phone number the User has not bound, signing in answers `insufficient_authorization` instead, and the App sends a code to a phone number and enters it on the same `auth_session`. Confidential Applications authenticate as at the token endpoint (client_secret_basic or client_secret_post).",
         "requestBody": {
           "required": true,
           "content": {
@@ -30,6 +30,8 @@
                   "code": {"type": "string", "description": "The code sent to the identifier of this auth_session."},
                   "username": {"type": "string", "description": "An Identifier, for password login."},
                   "password": {"type": "string"},
+                  "provider": {"type": "string", "description": "The Provider ID of an enabled Provider of a type Apps can sign in with (today Apple only), with authorization_code."},
+                  "authorization_code": {"type": "string", "description": "With provider: what the Provider's SDK gave the App. For Apple, the authorization_code of Sign in with Apple, exchanged once by Stars Auth as the Provider's Bundle ID."},
                   "totp": {"type": "string", "description": "A 6-digit code from the User's authenticator, when `next` is `totp`. Each code works once."},
                   "recovery_code": {"type": "string", "description": "Instead of totp: one of the User's 恢复码 (xxxx-xxxx; any case, dash optional). Each works once."}
                 }
@@ -46,7 +48,7 @@
             }}}
           },
           "400": {
-            "description": "`invalid_request`: a parameter is missing or wrong, or the User made a mistake (wrong code or password, PoW unsolved, send limit hit; `error_description` says which, in words fit to show, and `auth_session` comes back if one was sent). `unauthorized_client`, `invalid_scope`: as at the token endpoint. `invalid_session`: the auth_session is unknown, expired, or spent (each one yields a single authorization code), or the 5th wrong totp or recovery_code ended it; start over. `redirect_to_web` is never sent: every sign-in step the hosted page has, this endpoint has too.",
+            "description": "`invalid_request`: a parameter is missing or wrong, or the User made a mistake (wrong code or password, PoW unsolved, send limit hit; `error_description` says which, in words fit to show, and `auth_session` comes back if one was sent). `invalid_grant`: the Provider turned authorization_code down (spent, expired, or not for this App); have the User sign in with it again. `access_denied`: the User was disabled during the sign-in. `unauthorized_client`, `invalid_scope`: as at the token endpoint. `invalid_session`: the auth_session is unknown, expired, or spent (each one yields a single authorization code), or the 5th wrong totp or recovery_code ended it; start over. `redirect_to_web` is never sent: every sign-in step the hosted page has, this endpoint has too.",
             "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
           },
           "401": {
@@ -103,7 +105,7 @@
         "type": "object",
         "required": ["error"],
         "properties": {
-          "error": {"type": "string", "enum": ["invalid_request", "invalid_client", "unauthorized_client", "invalid_scope", "invalid_session", "insufficient_authorization", "server_error"]},
+          "error": {"type": "string", "enum": ["invalid_request", "invalid_grant", "access_denied", "invalid_client", "unauthorized_client", "invalid_scope", "invalid_session", "insufficient_authorization", "server_error"]},
           "error_description": {"type": "string"},
           "auth_session": {"type": "string"},
           "next": {"type": "string", "enum": ["code", "phone", "totp"], "description": "Sent with `insufficient_authorization` only (non-standard, ADR 0010): the step to take. `code`: enter the code just sent. `phone`: bind a phone number (send a code to one, then enter it). `totp`: the User has 两步验证 on; send `totp` or `recovery_code` (comes before `phone`). Values are only ever added, never renamed or removed; treat one you do not know as a failure (ask the User to update the App)."}

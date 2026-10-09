@@ -98,6 +98,17 @@ func (f *Fake) Approve(authURL string) url.Values {
 		"user": {`{"name":{"firstName":"Ann","lastName":"Lee"},"email":"ann@privaterelay.appleid.com"}`}}
 }
 
+// NativeCode is the User signing in with Sign in with Apple in the iOS
+// App: it returns the authorization_code the App gets, issued to the
+// Bundle ID with no redirect_uri or nonce.
+func (f *Fake) NativeCode() string {
+	code := rand.Text()
+	f.mu.Lock()
+	f.codes[code] = url.Values{"client_id": {BundleID}}
+	f.mu.Unlock()
+	return code
+}
+
 // clientSecret checks the client secret JWT of r against the .p8 key and
 // records its claims.
 func (f *Fake) clientSecret(w http.ResponseWriter, r *http.Request) bool {
