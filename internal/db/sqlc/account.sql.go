@@ -82,8 +82,8 @@ func (q *Queries) LockUser(ctx context.Context, id string) (string, error) {
 const loginPaths = `-- name: LoginPaths :one
 SELECT COALESCE(array_agg(kind ORDER BY kind) FILTER (WHERE kind IS NOT NULL), '{}')::text[] AS identifiers,
        EXISTS (SELECT 1 FROM passwords p WHERE p.user_id = $1) AS has_password,
-       EXISTS (SELECT 1 FROM external_identities e JOIN providers p ON p.id = e.provider
-               WHERE e.user_id = $1 AND p.enabled) AS has_external_identity
+       EXISTS (SELECT 1 FROM external_identities e JOIN providers pr ON pr.id = e.provider
+               WHERE e.user_id = $1 AND pr.enabled) AS has_external_identity
 FROM identifiers WHERE user_id = $1
 `
 
