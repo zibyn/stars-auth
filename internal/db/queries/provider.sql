@@ -21,7 +21,7 @@ SELECT type, name, enabled, config FROM providers WHERE id = $1;
 SELECT type, config FROM providers WHERE id = $1 FOR UPDATE;
 
 -- name: EnabledProviders :many
-SELECT id, name FROM providers WHERE enabled ORDER BY created_at;
+SELECT id, type, name FROM providers WHERE enabled ORDER BY created_at;
 
 -- name: InsertProvider :exec
 INSERT INTO providers (id, type, name, config) VALUES ($1, $2, $3, $4);
@@ -56,3 +56,12 @@ WHERE e.provider = $1 AND e.subject = $2;
 
 -- name: AddExternalIdentity :exec
 INSERT INTO external_identities (provider, subject, user_id, token) VALUES ($1, $2, $3, $4);
+
+-- name: SetExternalIdentityToken :exec
+UPDATE external_identities SET token = $3 WHERE provider = $1 AND subject = $2;
+
+-- name: UserExternalIdentities :many
+SELECT provider, subject, token FROM external_identities WHERE user_id = $1;
+
+-- name: RemoveExternalIdentity :one
+DELETE FROM external_identities WHERE user_id = $1 AND provider = $2 RETURNING subject, token;
