@@ -4,7 +4,6 @@ import { TabsContent } from "#/components/ui/tabs";
 import { ChannelsTab, channelsQuery } from "./-settings/channels";
 import { LoginTab } from "./-settings/login";
 import { policyQuery } from "./-settings/policy";
-import { providersQuery } from "./-settings/providers";
 import { SecurityTab, signingKeysQuery } from "./-settings/security";
 
 const defaults = { tab: "login" } as const;
@@ -32,7 +31,6 @@ export const Route = createFileRoute("/console/settings")({
 		Promise.all([
 			queryClient.ensureQueryData(policyQuery),
 			queryClient.ensureQueryData(channelsQuery),
-			queryClient.ensureQueryData(providersQuery),
 			queryClient.ensureQueryData(signingKeysQuery),
 		]),
 	component: Settings,

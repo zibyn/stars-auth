@@ -24,7 +24,6 @@ import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
 import { SaveBar, Section } from "#/routes/console/-components/section";
 import { ChannelsLink, channelsQuery } from "./channels";
 import { usePolicy, useSavePolicy } from "./policy";
-import { ExternalLogin } from "./providers";
 
 const passwordModes = { off: "关闭", admins: "仅管理员", all: "所有用户" };
 
@@ -42,7 +41,6 @@ export function LoginTab() {
 		<div className="space-y-10">
 			<CodeLogin channels={channels} />
 			<PasswordLogin current={p} editable={editable} />
-			<ExternalLogin />
 			<RequirePhone current={p} editable={editable} sms={sms} />
 			<Terms current={p} editable={editable} />
 			<AdminsNeedTwoFactor current={p} editable={editable} />

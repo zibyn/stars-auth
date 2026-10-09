@@ -74,11 +74,11 @@ export const eventGroups: [string, [string, string][]][] = [
 			["delete-channel", "停用验证码通道"],
 			["test-channel", "发送测试验证码"],
 			["send.daily_cap_reached", "验证码达到每日发送上限"],
-			["create-provider", "添加外部登录"],
-			["update-provider", "修改外部登录"],
-			["enable-provider", "启用外部登录"],
-			["disable-provider", "停用外部登录"],
-			["delete-provider", "删除外部登录"],
+			["create-provider", "添加认证源"],
+			["update-provider", "修改认证源"],
+			["enable-provider", "启用认证源"],
+			["disable-provider", "停用认证源"],
+			["delete-provider", "删除认证源"],
 			["provider.unlink_failed", "外部账号吊销授权失败"],
 		],
 	],
@@ -249,19 +249,19 @@ export function describe(
 				parts: ["解绑了", ...user, " 的外部账号 ", raw(str("provider"))],
 			};
 		case "create-provider":
-			return { parts: ["添加了外部登录 ", raw(str("id"))] };
+			return { parts: ["添加了认证源 ", raw(str("id"))] };
 		case "update-provider":
-			return { parts: ["修改了外部登录 ", raw(str("id"))] };
+			return { parts: ["修改了认证源 ", raw(str("id"))] };
 		case "enable-provider":
-			return { parts: ["启用了外部登录 ", raw(str("id"))] };
+			return { parts: ["启用了认证源 ", raw(str("id"))] };
 		case "disable-provider":
-			return { parts: ["停用了外部登录 ", raw(str("id"))] };
+			return { parts: ["停用了认证源 ", raw(str("id"))] };
 		case "delete-provider":
-			return { parts: ["删除了外部登录 ", raw(str("id"))] };
+			return { parts: ["删除了认证源 ", raw(str("id"))] };
 		case "provider.unlink_failed":
 			return {
 				parts: [
-					"没能让外部登录 ",
+					"没能让认证源 ",
 					raw(str("provider")),
 					" 吊销",
 					...user,

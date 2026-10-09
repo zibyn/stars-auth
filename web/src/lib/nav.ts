@@ -8,6 +8,7 @@ const groups = [
 	{ label: "应用", permission: "applications:read", to: "/console/apps" },
 	{ label: "API 资源", permission: "applications:read", to: "/console/apis" },
 	{ label: "审计", permission: "audit:read", to: "/console/audit" },
+	{ label: "认证源", permission: "config:read", to: "/console/providers" },
 	{ label: "设置", permission: "config:read", to: "/console/settings" },
 ] as const;
 

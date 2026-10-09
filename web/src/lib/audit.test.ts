@@ -53,11 +53,11 @@ const spec: Record<string, [string, string][]> = {
 		["delete-channel", "停用验证码通道"],
 		["test-channel", "发送测试验证码"],
 		["send.daily_cap_reached", "验证码达到每日发送上限"],
-		["create-provider", "添加外部登录"],
-		["update-provider", "修改外部登录"],
-		["enable-provider", "启用外部登录"],
-		["disable-provider", "停用外部登录"],
-		["delete-provider", "删除外部登录"],
+		["create-provider", "添加认证源"],
+		["update-provider", "修改认证源"],
+		["enable-provider", "启用认证源"],
+		["disable-provider", "停用认证源"],
+		["delete-provider", "删除认证源"],
 		["provider.unlink_failed", "外部账号吊销授权失败"],
 	],
 	设置: [["keys.rotated", "轮换令牌签名密钥"]],
@@ -253,23 +253,23 @@ test("every event reads as a sentence", () => {
 		],
 		[
 			{ event: "create-provider", detail: { id: "google" } },
-			"添加了外部登录 google",
+			"添加了认证源 google",
 		],
 		[
 			{ event: "update-provider", detail: { id: "google" } },
-			"修改了外部登录 google",
+			"修改了认证源 google",
 		],
 		[
 			{ event: "enable-provider", detail: { id: "google" } },
-			"启用了外部登录 google",
+			"启用了认证源 google",
 		],
 		[
 			{ event: "disable-provider", detail: { id: "google" } },
-			"停用了外部登录 google",
+			"停用了认证源 google",
 		],
 		[
 			{ event: "delete-provider", detail: { id: "google" } },
-			"删除了外部登录 google",
+			"删除了认证源 google",
 		],
 		[
 			{
@@ -277,7 +277,7 @@ test("every event reads as a sentence", () => {
 				...alice,
 				detail: { provider: "apple", error: "timeout" },
 			},
-			"没能让外部登录 apple 吊销用户 a@x.com 的授权",
+			"没能让认证源 apple 吊销用户 a@x.com 的授权",
 		],
 		[
 			{ event: "login.password_locked", ...alice },
