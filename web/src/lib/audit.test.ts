@@ -29,6 +29,8 @@ const spec: Record<string, [string, string][]> = {
 		["recovery_code.used", "使用恢复码"],
 		["session.ended", "下线会话"],
 		["roles.assigned", "设置角色"],
+		["external_identity.added", "绑定外部账号"],
+		["external_identity.removed", "解绑外部账号"],
 	],
 	应用: [
 		["create-application", "创建应用"],
@@ -51,6 +53,12 @@ const spec: Record<string, [string, string][]> = {
 		["delete-channel", "停用验证码通道"],
 		["test-channel", "发送测试验证码"],
 		["send.daily_cap_reached", "验证码达到每日发送上限"],
+		["create-provider", "添加外部登录"],
+		["update-provider", "修改外部登录"],
+		["enable-provider", "启用外部登录"],
+		["disable-provider", "停用外部登录"],
+		["delete-provider", "删除外部登录"],
+		["provider.unlink_failed", "外部账号吊销授权失败"],
 	],
 	设置: [["keys.rotated", "轮换令牌签名密钥"]],
 	安全: [
@@ -227,6 +235,50 @@ test("every event reads as a sentence", () => {
 			"验证码达到每日上限 1000 条，今天不再发送",
 		],
 		[{ event: "keys.rotated" }, "轮换了令牌签名密钥"],
+		[
+			{
+				event: "external_identity.added",
+				...alice,
+				detail: { provider: "google" },
+			},
+			"给用户 a@x.com 绑定了外部账号 google",
+		],
+		[
+			{
+				event: "external_identity.removed",
+				...alice,
+				detail: { provider: "google" },
+			},
+			"解绑了用户 a@x.com 的外部账号 google",
+		],
+		[
+			{ event: "create-provider", detail: { id: "google" } },
+			"添加了外部登录 google",
+		],
+		[
+			{ event: "update-provider", detail: { id: "google" } },
+			"修改了外部登录 google",
+		],
+		[
+			{ event: "enable-provider", detail: { id: "google" } },
+			"启用了外部登录 google",
+		],
+		[
+			{ event: "disable-provider", detail: { id: "google" } },
+			"停用了外部登录 google",
+		],
+		[
+			{ event: "delete-provider", detail: { id: "google" } },
+			"删除了外部登录 google",
+		],
+		[
+			{
+				event: "provider.unlink_failed",
+				...alice,
+				detail: { provider: "apple", error: "timeout" },
+			},
+			"没能让外部登录 apple 吊销用户 a@x.com 的授权",
+		],
 		[
 			{ event: "login.password_locked", ...alice },
 			"用户 a@x.com 密码输错次数过多，暂时锁定",
