@@ -228,10 +228,10 @@ func (s *Service) me(ctx context.Context, _ *struct{}) (*meOutput, error) {
 }
 
 func (s *Service) externalIdentities(ctx context.Context, sub string) ([]ExternalIdentity, error) {
-	rows, err := s.q.ExternalIdentities(ctx, sub)
+	list, err := s.providers.ExternalIdentities(ctx, sub)
 	out := []ExternalIdentity{}
-	for _, r := range rows {
-		out = append(out, ExternalIdentity{Provider: r.Provider, Name: r.Name, Enabled: r.Enabled, BoundAt: r.CreatedAt.Time})
+	for _, x := range list {
+		out = append(out, ExternalIdentity{Provider: x.Provider, Name: x.Name, Enabled: x.Enabled, BoundAt: x.CreatedAt})
 	}
 	return out, err
 }

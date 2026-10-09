@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/zibyn/stars-auth/internal/db/sqlc"
@@ -83,21 +82,21 @@ func (s *Store) finishAccount(ctx context.Context, id string, login sqlc.TakePro
 		}
 		return s.q.Reauthenticate(ctx, sqlc.ReauthenticateParams{ID: session, UserID: user, Amr: []string{"fed"}})
 	}
-	var token []byte
-	if ident.Token != "" {
-		if token, err = s.keyring.Seal([]byte(ident.Token), tokenAAD(id, ident.Subject)); err != nil {
-			return err
-		}
-	}
-	err = s.q.BindExternalIdentity(ctx, sqlc.BindExternalIdentityParams{Provider: id, Subject: ident.Subject, UserID: user, Token: token})
-	var pgErr *pgconn.PgError
-	if !errors.As(err, &pgErr) || pgErr.Code != "23505" {
+	token, err := s.sealToken(id, ident)
+	if err != nil {
 		return err
 	}
-	if pgErr.ConstraintName != "external_identities_pkey" {
-		return ErrBoundAnother
+	err = s.q.BindExternalIdentity(ctx, sqlc.BindExternalIdentityParams{Provider: id, Subject: ident.Subject, UserID: user, Token: token})
+	if !isCode(err, "23505") {
+		return err
 	}
-	if owner, err := s.q.UserByExternalIdentity(ctx, sqlc.UserByExternalIdentityParams{Provider: id, Subject: ident.Subject}); err == nil && owner.UserID == user {
+	owner, err := s.q.UserByExternalIdentity(ctx, sqlc.UserByExternalIdentityParams{Provider: id, Subject: ident.Subject})
+	switch {
+	case errors.Is(err, pgx.ErrNoRows): // the User has another at this Provider
+		return ErrBoundAnother
+	case err != nil:
+		return err
+	case owner.UserID == user:
 		return nil // bound already
 	}
 	return ErrTaken

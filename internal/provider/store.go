@@ -328,12 +328,9 @@ func (s *Store) SignInWithClientToken(ctx context.Context, id, value string) (st
 }
 
 func (s *Store) signIn(ctx context.Context, id string, ident Identity) (string, error) {
-	var token []byte
-	if ident.Token != "" {
-		var err error
-		if token, err = s.keyring.Seal([]byte(ident.Token), tokenAAD(id, ident.Subject)); err != nil {
-			return "", err
-		}
+	token, err := s.sealToken(id, ident)
+	if err != nil {
+		return "", err
 	}
 	u, err := s.q.UserByExternalIdentity(ctx, sqlc.UserByExternalIdentityParams{Provider: id, Subject: ident.Subject})
 	switch {
@@ -362,6 +359,7 @@ func (s *Store) signIn(ctx context.Context, id string, ident Identity) (string, 
 type ExternalIdentity struct {
 	Provider  string    `json:"provider" doc:"Provider ID"`
 	Name      string    `json:"name" doc:"The Provider's name"`
+	Enabled   bool      `json:"enabled" doc:"Whether the Provider is enabled: it signs in only then"`
 	CreatedAt time.Time `json:"createdAt" doc:"When it was bound"`
 }
 
@@ -370,7 +368,7 @@ func (s *Store) ExternalIdentities(ctx context.Context, userID string) ([]Extern
 	rows, err := s.q.ExternalIdentities(ctx, userID)
 	out := []ExternalIdentity{}
 	for _, r := range rows {
-		out = append(out, ExternalIdentity{Provider: r.Provider, Name: r.Name, CreatedAt: r.CreatedAt.Time})
+		out = append(out, ExternalIdentity{Provider: r.Provider, Name: r.Name, Enabled: r.Enabled, CreatedAt: r.CreatedAt.Time})
 	}
 	return out, err
 }
@@ -461,6 +459,14 @@ func (s *Store) unlink(ctx context.Context, userID, id, subject string, sealed [
 	if err := s.q.Audit(ctx, sqlc.AuditParams{Event: "provider.unlink_failed", Sub: pgtype.Text{String: userID, Valid: true}, Detail: detail}); err != nil {
 		slog.Error("provider unlink: audit", "err", err)
 	}
+}
+
+// sealToken seals the token ident keeps at the Provider id, nil for none.
+func (s *Store) sealToken(id string, ident Identity) ([]byte, error) {
+	if ident.Token == "" {
+		return nil, nil
+	}
+	return s.keyring.Seal([]byte(ident.Token), tokenAAD(id, ident.Subject))
 }
 
 // secrets opens a Provider's stored secret fields.
