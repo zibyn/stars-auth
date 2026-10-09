@@ -213,3 +213,70 @@ func TestSignInWithAppleInTheApp(t *testing.T) {
 		t.Errorf("revoked: %v", f.Revoked)
 	}
 }
+
+func TestAppleInTheAppGoesOnToTwoFactorAndPhone(t *testing.T) {
+	e := start(t)
+	f := e.addApple()
+	first := e.appleChallenge(f.NativeCode())
+	sub := e.claims(e.exchange(clientID, "", first.Code).IDToken)["sub"].(string)
+	secret, _ := e.twoFactor(sub)
+	if _, err := e.pool.Exec(context.Background(), "UPDATE settings SET require_phone = true"); err != nil {
+		t.Fatal(err)
+	}
+
+	resp := e.appleChallenge(f.NativeCode())
+	if resp.Status != 403 || resp.Next != "totp" {
+		t.Fatalf("want totp, got %+v", resp)
+	}
+	resp = e.challenge(url.Values{"auth_session": {resp.AuthSession}, "totp": {totpAt(secret, 0)}})
+	if resp.Status != 403 || resp.Next != "phone" {
+		t.Fatalf("want phone, got %+v", resp)
+	}
+	session := resp.AuthSession
+	resp = e.challenge(url.Values{"auth_session": {session}, "identifier": {"+8613900139000"}, "altcha": {e.solve()}})
+	if resp.Status != 403 || resp.Next != "code" {
+		t.Fatalf("want code, got %+v", resp)
+	}
+	resp = e.challenge(url.Values{"auth_session": {session}, "code": {e.inbox.take("+8613900139000")}})
+	claims := e.claims(e.exchange(clientID, "", resp.Code).IDToken)
+	if claims["sub"] != sub || !slices.Equal(claims["amr"].([]any), []any{"fed", "otp", "mfa"}) {
+		t.Errorf("after the steps: %v", claims)
+	}
+}
+
+func TestAppleInTheAppRefusals(t *testing.T) {
+	e := start(t)
+	f := e.addApple()
+	e.addGoogle()
+
+	// A Provider an App cannot sign in with, or none at all.
+	for _, id := range []string{"google", "nope"} {
+		resp := e.challenge(url.Values{"provider": {id}, "authorization_code": {"x"}})
+		if resp.Status != 400 || resp.Error != "invalid_request" {
+			t.Errorf("%s: %+v", id, resp)
+		}
+	}
+
+	// Apple turns the code down: a spent one, or an unknown one.
+	if resp := e.appleChallenge("made-up"); resp.Status != 400 || resp.Error != "invalid_grant" {
+		t.Errorf("unknown code: %+v", resp)
+	}
+	code := f.NativeCode()
+	f.FailToken = true
+	if resp := e.appleChallenge(code); resp.Status != 400 || resp.Error != "invalid_grant" {
+		t.Errorf("failed exchange: %+v", resp)
+	}
+	if n := len(e.appleTokens()); n != 0 {
+		t.Errorf("%d External Identities after failed exchanges", n)
+	}
+
+	// Disabled: refused before Apple is asked.
+	f.FailToken = false
+	if err := e.providers().SetEnabled(context.Background(), "apple", false); err != nil {
+		t.Fatal(err)
+	}
+	asked := len(f.ClientSecrets)
+	if resp := e.appleChallenge(f.NativeCode()); resp.Status != 400 || resp.Error != "invalid_request" || len(f.ClientSecrets) != asked {
+		t.Errorf("disabled: %+v", resp)
+	}
+}
