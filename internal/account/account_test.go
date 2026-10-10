@@ -332,6 +332,41 @@ func TestChangeIdentifier(t *testing.T) {
 	}
 }
 
+// Password managers send a User whose saved password is weak or leaked to
+// /.well-known/change-password, which lands them in the account center's
+// 安全 section. With password login off there is nothing to change, so it is
+// not served (docs/spec/authentication.md「密码管理器适配」).
+func TestChangePasswordWellKnown(t *testing.T) {
+	e := start(t)
+	noRedirect := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	fetch := func() (int, string) {
+		t.Helper()
+		resp, err := noRedirect.Get(e.issuer + "/.well-known/change-password")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close() //nolint:errcheck
+		return resp.StatusCode, resp.Header.Get("Location")
+	}
+	// The default is "admins": a password can be changed, so the file is there.
+	for _, setting := range []string{"admins", "all"} {
+		if _, err := e.pool.Exec(context.Background(), "UPDATE settings SET password_login = $1", setting); err != nil {
+			t.Fatal(err)
+		}
+		if code, loc := fetch(); code != 302 || loc != e.issuer+"/account#passkeys" {
+			t.Errorf("change-password while %s: %d %q", setting, code, loc)
+		}
+	}
+	if _, err := e.pool.Exec(context.Background(), "UPDATE settings SET password_login = 'off'"); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := fetch(); code != 404 {
+		t.Errorf("change-password while off: %d, want 404", code)
+	}
+}
+
 // The last way to sign in cannot be removed: a phone number, an email, or a
 // username with a password.
 func TestLastLoginPathStays(t *testing.T) {

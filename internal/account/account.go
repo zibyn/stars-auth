@@ -79,9 +79,11 @@ type caller struct {
 func callerOf(ctx context.Context) caller { return ctx.Value(callerKey{}).(caller) }
 
 // Register adds the Account API, its OpenAPI document, the direct auth
-// API's account deletion and the Passkey endpoints discovery to mux.
+// API's account deletion and the account center's /.well-known/ discovery
+// files to mux.
 func (s *Service) Register(mux *http.ServeMux) {
 	s.passkeys.RegisterWellKnown(mux)
+	s.registerChangePassword(mux)
 	cfg := huma.DefaultConfig("Stars Auth Account API", "1")
 	cfg.DocsPath = ""
 	cfg.SchemasPath = ""
@@ -123,6 +125,26 @@ func (s *Service) Register(mux *http.ServeMux) {
 	op(api, http.MethodPost, "add-passkey", "/passkeys", "Finish adding a Passkey with its registration response", s.addPasskey, http.StatusForbidden, http.StatusConflict)
 	op(api, http.MethodPatch, "rename-passkey", "/passkeys/{id}", "Rename one of the User's Passkeys; no reauthentication needed", s.renamePasskey, http.StatusNotFound)
 	op(api, http.MethodDelete, "remove-passkey", "/passkeys/{id}", "Delete one of the User's Passkeys; 409 for the last one while 管理员必须启用两步验证或 Passkey is on, no TOTP is left and the User holds a Role", s.removePasskey, http.StatusForbidden, http.StatusNotFound, http.StatusConflict)
+}
+
+// registerChangePassword serves /.well-known/change-password, where a
+// password manager sends a User whose saved password it found weak or
+// leaked. It lands them in the account center's 安全 section. With password
+// login off there is nothing to change, so it is not served
+// (docs/spec/authentication.md「密码管理器适配」).
+func (s *Service) registerChangePassword(mux *http.ServeMux) {
+	mux.HandleFunc("GET /.well-known/change-password", func(w http.ResponseWriter, r *http.Request) {
+		setting, err := s.q.PasswordLogin(r.Context())
+		if err != nil {
+			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if setting == "off" {
+			http.NotFound(w, r)
+			return
+		}
+		http.Redirect(w, r, s.issuer+"/account#passkeys", http.StatusFound)
+	})
 }
 
 // op registers an operation; errs are its errors beyond the usual.

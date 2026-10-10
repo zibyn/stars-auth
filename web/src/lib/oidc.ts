@@ -14,7 +14,10 @@ function base64url(bytes: Uint8Array) {
 
 const random = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
 
-const here = () => location.pathname + location.search;
+// here is where the browser is, fragment included: a section anchor such as
+// #passkeys, where /.well-known/change-password sends a User, survives the
+// sign-in round trip.
+const here = () => location.pathname + location.search + location.hash;
 
 export class APIError extends Error {
 	readonly status: number;

@@ -70,8 +70,8 @@
   - `apple-app-site-association`:`webcredentials.apps` 汇总所有 Application 登记的 Team ID + Bundle ID;以 `application/json` 返回,不重定向。
   - `assetlinks.json`:每个登记的 Android 应用一条,`relation` 含 `delegate_permission/common.get_login_creds` 和 `delegate_permission/common.handle_all_urls`。
   - 还没登记任何原生 App 时,两个文件返回空列表的合法 JSON;这两个关联文件也不受 Passkey 开关影响,密码自动填充同样要用。
-  - 提供 `passkey-endpoints`(指向账号中心);
-  - `change-password` 只在密码开关打开时提供;
+  - `passkey-endpoints`:指向账号中心「安全」分区里的 Passkey 列表(`#passkeys`);
+  - `change-password`:密码开关不是「关闭」时 302 到同一个锚点(`/account#passkeys`),「关闭」时 404;未登录时先走正常登录,登录后回到这个分区;
   - 不做 `/.well-known/webauthn`。
 - **托管页面**:用真实的 `<form>`,按 HTML 标准标注 `autocomplete`;验证码用单个输入框,标注 `one-time-code`(一期)。
 - **原生自动填充**:标注写进 SDK 接入文档(一期)。

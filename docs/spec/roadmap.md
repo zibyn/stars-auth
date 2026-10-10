@@ -26,7 +26,7 @@
 
 - Passkey(托管页 conditional UI、直连 API 的 WebAuthn challenge、账号中心)**已实现**(#103–#111),含实例开关;KMP SDK 调用系统凭证 API **已实现**(#112,iOS 真机验证待做)。
 - TOTP 2FA 与恢复码;"管理员必须启用 2FA 或 Passkey"开关(**已实现**,#79、#86;Passkey 落地后这个开关同时也认 Passkey,#108)。
-- 动态生成 `/.well-known/` 文件(**部分实现**,#105):`apple-app-site-association`、`assetlinks.json`、`passkey-endpoints` 已做,`change-password` 还没做(#113)。
+- 动态生成 `/.well-known/` 文件(**已实现**,#105、#113):`apple-app-site-association`、`assetlinks.json`、`passkey-endpoints`、`change-password`。
 - Provider 框架落地:通用 OIDC、通用 OAuth2、Apple(含注销回调),以及 Google、Microsoft、GitHub 三个具名供应商;管理端把它们收进独立的「认证源」分组(**已实现**,#87、#98、#99、#100)。
 - `client_credentials` 与服务账号、默认 Role、Management API 对外文档。
 - 审计导出 CSV;主密钥轮换命令。
