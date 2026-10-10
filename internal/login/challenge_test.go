@@ -15,10 +15,12 @@ import (
 // challengeResp is any authorization challenge endpoint answer.
 type challengeResp struct {
 	Status      int
-	Code        string `json:"authorization_code"`
-	Error       string `json:"error"`
-	AuthSession string `json:"auth_session"`
-	Next        string `json:"next"`
+	Code        string          `json:"authorization_code"`
+	Error       string          `json:"error"`
+	Describe    string          `json:"error_description"`
+	AuthSession string          `json:"auth_session"`
+	Next        string          `json:"next"`
+	Options     json.RawMessage `json:"options"`
 }
 
 // challenge posts form to the direct auth API, as App clientID, with the

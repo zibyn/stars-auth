@@ -1,10 +1,14 @@
 package login_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"html"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -33,7 +37,13 @@ func optionsOf(t *testing.T, page string) (json.RawMessage, bool) {
 // Passkey of a's through the account center's store.
 func passkeyUser(t *testing.T, e *env, a *passkeytest.Authenticator) string {
 	t.Helper()
-	sub, err := e.ids.SignIn(context.Background(), "phone", "+8613800138000")
+	return passkeyUserAt(t, e, a, "phone", "+8613800138000")
+}
+
+// passkeyUserAt is passkeyUser for a User who signs up as kind/value.
+func passkeyUserAt(t *testing.T, e *env, a *passkeytest.Authenticator, kind, value string) string {
+	t.Helper()
+	sub, err := e.ids.SignIn(context.Background(), kind, value)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,5 +221,143 @@ func TestPasskeyLoginRefused(t *testing.T) {
 	resp, _ = e.post(page, url.Values{"op": {"passkey"}, "passkey": {string(a.Assert(first))}})
 	if resp.StatusCode/100 == 3 {
 		t.Fatal("the refused page's assertion signed in")
+	}
+}
+
+// androidOrigin is what an Android app with this signing certificate puts in
+// clientDataJSON, and the fingerprint the console is given for it.
+func androidOriginAndFingerprint(raw []byte) (origin, fingerprint string) {
+	parts := make([]string, len(raw))
+	for i, b := range raw {
+		parts[i] = strings.ToUpper(hex.EncodeToString([]byte{b}))
+	}
+	return "android:apk-key-hash:" + base64.RawURLEncoding.EncodeToString(raw), strings.Join(parts, ":")
+}
+
+// The direct API's Passkey sign-in takes two requests: passkey=begin answers
+// 200 with assertion options and an auth_session and needs no PoW, and the
+// assertion submitted on it signs the User in — past 两步验证, which a Passkey
+// has already passed (ADR 0014).
+func TestDirectPasskeyLogin(t *testing.T) {
+	e := start(t)
+	a := passkeytest.New(t)
+	sub := passkeyUser(t, e, a)
+	e.twoFactor(sub)
+
+	begun := e.challenge(url.Values{"passkey": {"begin"}})
+	if begun.Status != 200 || begun.AuthSession == "" || begun.Options == nil {
+		t.Fatalf("begin: %+v", begun)
+	}
+	var options struct {
+		PublicKey struct {
+			Challenge        string `json:"challenge"`
+			RPID             string `json:"rpId"`
+			UserVerification string `json:"userVerification"`
+		} `json:"publicKey"`
+	}
+	if err := json.Unmarshal(begun.Options, &options); err != nil {
+		t.Fatalf("options: %v: %s", err, begun.Options)
+	}
+	if options.PublicKey.Challenge == "" || options.PublicKey.RPID == "" || options.PublicKey.UserVerification != "required" {
+		t.Fatalf("options are not credential request options: %s", begun.Options)
+	}
+
+	a.SignCount = 2
+	done := e.challenge(url.Values{"auth_session": {begun.AuthSession}, "passkey": {string(a.Assert(begun.Options))}})
+	if done.Status != 200 || done.Code == "" {
+		t.Fatalf("assert: %+v", done)
+	}
+	claims := e.claims(e.exchange(clientID, "", done.Code).IDToken)
+	if claims["sub"] != sub || !slices.Equal(claims["amr"].([]any), []any{"hwk", "mfa"}) {
+		t.Fatalf("id token: %v", claims)
+	}
+}
+
+// A User the instance requires a phone number of meets that step after a
+// Passkey signs them in, as after any other first factor.
+func TestDirectPasskeyLoginBindsRequiredPhone(t *testing.T) {
+	e := start(t)
+	a := passkeytest.New(t)
+	passkeyUserAt(t, e, a, "email", "a@example.com")
+	if _, err := e.pool.Exec(context.Background(), "UPDATE settings SET require_phone = true"); err != nil {
+		t.Fatal(err)
+	}
+
+	begun := e.challenge(url.Values{"passkey": {"begin"}})
+	a.SignCount = 1
+	bind := e.challenge(url.Values{"auth_session": {begun.AuthSession}, "passkey": {string(a.Assert(begun.Options))}})
+	if bind.Status != 403 || bind.Error != "insufficient_authorization" || bind.Next != "phone" || bind.AuthSession != begun.AuthSession {
+		t.Fatalf("want a bind step: %+v", bind)
+	}
+}
+
+// A refused assertion answers 400 invalid_request and spends the
+// auth_session: nothing comes back to send another one on.
+func TestDirectPasskeyLoginRefused(t *testing.T) {
+	e := start(t)
+	a := passkeytest.New(t)
+	passkeyUser(t, e, a)
+
+	begun := e.challenge(url.Values{"passkey": {"begin"}})
+	unknown := passkeytest.New(t)
+	unknown.Origin, unknown.UserHandle = a.Origin, a.UserHandle
+	refused := e.challenge(url.Values{"auth_session": {begun.AuthSession}, "passkey": {string(unknown.Assert(begun.Options))}})
+	if refused.Status != 400 || refused.Error != "invalid_request" || refused.AuthSession != "" ||
+		refused.Describe != passkey.ErrNoPasskey.Error() {
+		t.Fatalf("a refused assertion: %+v", refused)
+	}
+	if again := e.challenge(url.Values{"auth_session": {begun.AuthSession}, "passkey": {string(unknown.Assert(begun.Options))}}); again.Error != "invalid_session" {
+		t.Fatalf("the auth_session outlived the refusal: %+v", again)
+	}
+}
+
+// An assertion from a registered Android app passes; the same credential
+// from an origin no Application registered does not.
+func TestDirectPasskeyAndroidOrigin(t *testing.T) {
+	e := start(t)
+	a := passkeytest.New(t)
+	passkeyUser(t, e, a)
+
+	raw := bytes.Repeat([]byte{0xAB}, 32)
+	origin, fingerprint := androidOriginAndFingerprint(raw)
+	if _, err := e.pool.Exec(context.Background(),
+		`UPDATE applications SET android_apps = jsonb_build_array(jsonb_build_object(
+			'packageName', 'com.example.app', 'sha256CertFingerprints', jsonb_build_array($1::text)))`,
+		fingerprint); err != nil {
+		t.Fatal(err)
+	}
+
+	a.Origin, a.SignCount = origin, 1
+	begun := e.challenge(url.Values{"passkey": {"begin"}})
+	if done := e.challenge(url.Values{"auth_session": {begun.AuthSession}, "passkey": {string(a.Assert(begun.Options))}}); done.Status != 200 || done.Code == "" {
+		t.Fatalf("a registered Android app's assertion: %+v", done)
+	}
+
+	// The same app signed with another certificate: an origin nobody
+	// registered, and an hour later nothing about it is remembered.
+	other, _ := androidOriginAndFingerprint(bytes.Repeat([]byte{0xCD}, 32))
+	a.Origin, a.SignCount = other, 2
+	begun = e.challenge(url.Values{"passkey": {"begin"}})
+	if done := e.challenge(url.Values{"auth_session": {begun.AuthSession}, "passkey": {string(a.Assert(begun.Options))}}); done.Status != 400 {
+		t.Fatalf("an unregistered origin: %+v", done)
+	}
+}
+
+// begin is what an IP locked out of signing in is refused, standing in for
+// the PoW it does not have to solve: both on the key the password and code
+// failures count under and on begin's own budget.
+func TestDirectPasskeyBeginRateLimited(t *testing.T) {
+	for _, key := range []string{"ip:127.0.0.1", "start:ip:127.0.0.1"} {
+		t.Run(key, func(t *testing.T) {
+			e := start(t)
+			if _, err := e.pool.Exec(context.Background(),
+				"INSERT INTO lockouts (key, until) VALUES ($1, now() + interval '1 hour')", key); err != nil {
+				t.Fatal(err)
+			}
+			begun := e.challenge(url.Values{"passkey": {"begin"}})
+			if begun.Status != 400 || begun.Error != "invalid_request" || begun.Options != nil {
+				t.Fatalf("begin from a locked-out IP: %+v", begun)
+			}
+		})
 	}
 }

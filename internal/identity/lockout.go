@@ -21,6 +21,14 @@ const (
 	ipFailures     = 50
 	ipWindow       = time.Hour
 	ipLock         = time.Hour
+	// startTries is how many sign-ins one IP may start an hour, and startLock
+	// how long it is then refused: what bounds passkey=begin, which sends
+	// nothing and checks nothing and so cannot be made to cost a PoW
+	// (ADR 0014). It counts in login_failures under its own key, so it does
+	// not spend the IP's password and code budget.
+	startTries  = 100
+	startWindow = time.Hour
+	startLock   = time.Hour
 )
 
 const (
@@ -39,7 +47,7 @@ const (
 // password tried on a locked User, counts toward locking it out.
 func (s *Store) FromIP(ctx context.Context, ip string, check func() error) error {
 	key := "ip:" + ip
-	if locked, err := s.q.LockedOut(ctx, key); err != nil {
+	if locked, err := s.lockedOut(ctx, key); err != nil {
 		return err
 	} else if locked {
 		return ErrIPLocked
@@ -52,6 +60,38 @@ func (s *Store) FromIP(ctx context.Context, ip string, check func() error) error
 		}
 	}
 	return err
+}
+
+// Start counts a sign-in started from ip against the per-IP budget, and
+// refuses it while the IP has started too many. A sign-in an App starts
+// without sending or checking anything — passkey=begin — has no failure to
+// count, so this stands in for the PoW it does not have to solve (ADR 0014).
+// The budget has a key of its own, so begins do not spend the IP's password
+// and code budget; one locked out on that shared key is refused here all the
+// same.
+func (s *Store) Start(ctx context.Context, ip string) error {
+	key, start := "ip:"+ip, "start:ip:"+ip
+	if locked, err := s.lockedOut(ctx, key, start); err != nil {
+		return err
+	} else if locked {
+		return ErrIPLocked
+	}
+	detail, _ := json.Marshal(map[string]string{"ip": ip})
+	_, err := s.failed(ctx, start, startTries, startWindow, startLock, sqlc.AuditParams{Event: "login.ip_locked", Detail: detail})
+	return err
+}
+
+// lockedOut reports whether any of keys is locked out.
+func (s *Store) lockedOut(ctx context.Context, keys ...string) (bool, error) {
+	for _, key := range keys {
+		switch locked, err := s.q.LockedOut(ctx, key); {
+		case err != nil:
+			return false, err
+		case locked:
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // failed counts a failure of key; the max-th within window locks key out

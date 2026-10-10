@@ -26,11 +26,23 @@ Web / RP ──(OIDC: /authorize + 托管登录页)──┘
 - **challenge 输入**:
   - 一期:手机号或邮箱(请求发码)、验证码、Identifier + 密码;
   - 二期起:WebAuthn 断言、TOTP、Provider ID + 客户端令牌:`provider` + `authorization_code`,只接受启用中、类型声明了客户端令牌型的 Provider(目前只有 Apple:App 只转交 Sign in with Apple 给的 `authorization_code`,服务端以 Bundle ID 换码,见 ADR 0011)。Provider 不是这一类或已停用时返回 `400 invalid_request`;上游换码失败返回 `400 invalid_grant`,App 须让 User 重新用 Apple 登录。之后的两步验证、绑手机号与验证码登录相同,按 `next` 继续;`amr` 为 `fed`。
+  - Passkey:见下面一节。
 - **多步认证**:用草案中的 `auth_session` 串联各步。`403 insufficient_authorization` 多带一个非标准字段 `next`,指明下一步:`code`(输入刚发出的验证码)、`phone`(先绑定手机号)、`totp`(开了两步验证:在同一 `auth_session` 里提交 `totp` 或 `recovery_code`;先于 `phone`)。`totp` / `recovery_code` 输错时返回 `400 invalid_request` 并带回原 `auth_session`;第 5 次输错后返回 `invalid_session`,须从头登录。以后只新增取值,不改名、不删除;客户端遇到不认识的取值按失败处理。(ADR 0010)
 - **每个请求必须携带**:
   - 所同意的协议版本号,见 [security-compliance.md](security-compliance.md#协议同意);
-  - 发码请求和密码登录请求还要附带 PoW 解答。
+  - 发码请求和密码登录请求还要附带 PoW 解答。取 Passkey challenge(`passkey=begin`)不带 PoW:它不发码也不验密码,只按 IP 限流兜底(ADR 0014)。
 - **其他用途**:注销账号也有对应接口。
+
+### 直连认证 API 的 Passkey 登录
+
+分两次往返(ADR 0014):
+
+1. 首次参数(`response_type=code`、`client_id`、PKCE、`scope`、`terms_version`)加 `passkey=begin`,返回 `200 {auth_session, options}`。`options` 是标准断言 options(`PublicKeyCredentialRequestOptionsJSON` 放在 `publicKey` 下),直接交给 Credential Manager / ASAuthorization;不用 ALTCHA。
+2. 带 `auth_session` 和 `passkey=<AuthenticationResponseJSON>`(系统凭证 API 的返回值)再请求一次,成功返回 `{authorization_code}`。
+
+通过后进的就是验证码、密码登录那套:Passkey 已自带 `mfa`,所以跳过两步验证;仍可能按 `next=phone` 要求先绑定手机号,或记录协议同意。`amr` 为 `["hwk", "mfa"]`(凭证仅存本机)或 `["swk", "mfa"]`(可跨设备同步)。断言不通过(凭证不存在、签名错、缺 UV、计数器回退)返回 `400 invalid_request`,该 `auth_session` 随之作废,App 须重新 `begin`。Passkey 不能注册新 User。
+
+允许的 origin = issuer 的 origin,加上所有 Application 的 `android_apps` 签名指纹换算出的 `android:apk-key-hash:<base64url>`;每次校验时现查,未登记的指纹被拒。过期的 challenge 由每小时一次的清理任务删除。
 
 ## 令牌
 

@@ -47,6 +47,10 @@ type challengeState struct {
 	// Set once the User has passed the first factor but must pass 两步验证
 	// or bind a phone number.
 	Pending *pendingLogin `json:"pending,omitempty"`
+	// The challenge of a Passkey sign-in begun in this auth_session, which
+	// the assertion submitted on it must answer (ADR 0014). Spent with the
+	// auth_session: a refused assertion ends it.
+	PasskeyChallenge string `json:"passkey_challenge,omitempty"`
 }
 
 type pendingLogin struct {
@@ -70,17 +74,33 @@ type challengeError struct {
 
 func (e *challengeError) Error() string { return e.Code + ": " + e.Description }
 
+// answer is what one challenge request yields: the authorization code that
+// ends the sign-in, or, for passkey=begin, assertion options and the
+// auth_session the assertion is submitted on (ADR 0014).
+type answer struct {
+	code  string
+	token string
+	// options is set instead of a code to begin a sign-in.
+	options json.RawMessage
+}
+
 // challenge is the direct auth API: an App signs a User in with a code or a
 // password and gets an authorization code for /token. One request sends a
 // code (identifier) and answers insufficient_authorization with an
 // auth_session; the next enters it (auth_session + code). A password
-// (username + password) takes one request.
+// (username + password) takes one request. A Passkey takes two: passkey=begin
+// answers 200 with assertion options and an auth_session, and passkey then
+// submits the assertion (ADR 0014).
 func (s *Service) challenge(w http.ResponseWriter, r *http.Request) {
-	code, err := s.runChallenge(w, r)
+	out, err := s.runChallenge(w, r)
 	var ce *challengeError
 	switch {
 	case err == nil:
-		writeJSON(w, http.StatusOK, map[string]string{"authorization_code": code})
+		if out.options != nil {
+			writeJSON(w, http.StatusOK, map[string]any{"auth_session": out.token, "options": out.options})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"authorization_code": out.code})
 		return
 	case errors.As(err, &ce):
 	default:
@@ -95,17 +115,17 @@ func (s *Service) challenge(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, ce.status, ce)
 }
 
-func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, error) {
+func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (answer, error) {
 	ctx := r.Context()
 	// Every request carries the version of the terms the User agreed to in
 	// the App; with no terms set up, any version will do, none included.
 	version := r.PostFormValue("terms_version")
 	terms, err := s.q.Terms(ctx)
 	if err != nil {
-		return "", err
+		return answer{}, err
 	}
 	if terms.TermsVersion != "" && version != terms.TermsVersion {
-		return "", invalid("terms_version is not the current one: " + terms.TermsVersion)
+		return answer{}, invalid("terms_version is not the current one: " + terms.TermsVersion)
 	}
 	// A new sign-in sets the parameters; later requests carry them in the
 	// auth_session.
@@ -114,22 +134,22 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 	if token != "" {
 		row, err := s.q.ChallengeSession(ctx, hash(token))
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", &challengeError{status: http.StatusBadRequest, Code: errInvalidSession, Description: "auth_session is invalid or expired"}
+			return answer{}, &challengeError{status: http.StatusBadRequest, Code: errInvalidSession, Description: "auth_session is invalid or expired"}
 		} else if err != nil {
-			return "", err
+			return answer{}, err
 		}
 		if err := json.Unmarshal(row.Data, &st); err != nil {
-			return "", err
+			return answer{}, err
 		}
 		if r.PostFormValue("client_id") != "" && r.PostFormValue("client_id") != row.ClientID {
-			return "", &challengeError{status: http.StatusBadRequest, Code: errInvalidSession, Description: "auth_session belongs to another client"}
+			return answer{}, &challengeError{status: http.StatusBadRequest, Code: errInvalidSession, Description: "auth_session belongs to another client"}
 		}
 		// The draft lets the App leave client_id out of later requests.
 		r.Form.Set("client_id", row.ClientID)
 		r.PostForm.Set("client_id", row.ClientID)
 	} else {
 		if r.PostFormValue("response_type") != string(goidc.ResponseTypeCode) {
-			return "", invalid("response_type must be code")
+			return answer{}, invalid("response_type must be code")
 		}
 		st.Params = goidc.AuthorizationParameters{
 			ResponseType:        goidc.ResponseTypeCode,
@@ -140,7 +160,7 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 	}
 	c, err := s.op.ChallengeClient(w, r, st.Params)
 	if err != nil {
-		return "", err
+		return answer{}, err
 	}
 
 	// save keeps st in the auth_session.
@@ -155,24 +175,24 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 		return s.q.SaveChallengeSession(ctx, sqlc.SaveChallengeSessionParams{Hash: hash(token), ClientID: c.ID, Data: data})
 	}
 	// next keeps the sign-in going: the App must take another step.
-	next := func(step, description string) (string, error) {
+	next := func(step, description string) (answer, error) {
 		if err := save(); err != nil {
-			return "", err
+			return answer{}, err
 		}
-		return "", &challengeError{status: http.StatusForbidden, Code: errInsufficientAuthorization, Description: description, AuthSession: token, Next: step}
+		return answer{}, &challengeError{status: http.StatusForbidden, Code: errInsufficientAuthorization, Description: description, AuthSession: token, Next: step}
 	}
 	// signedIn ends the sign-in with an authorization code, unless sub must
 	// pass 两步验证 or bind a phone number first, in that order.
-	signedIn := func(sub string, authTime time.Time, amr []string) (string, error) {
+	signedIn := func(sub string, authTime time.Time, amr []string) (answer, error) {
 		if totp, err := s.needsTOTP(ctx, sub, amr); err != nil {
-			return "", err
+			return answer{}, err
 		} else if totp {
 			st.Pending, st.Identifier = &pendingLogin{Sub: sub, AuthTime: authTime.Unix(), AMR: amr, TOTP: true}, ""
 			return next(nextTOTP, "两步验证 is on: send totp or recovery_code")
 		}
 		needs, err := s.q.NeedsPhone(ctx, sub)
 		if err != nil {
-			return "", err
+			return answer{}, err
 		}
 		if needs {
 			st.Pending, st.Identifier = &pendingLogin{Sub: sub, AuthTime: authTime.Unix(), AMR: amr}, ""
@@ -180,35 +200,36 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 		}
 		if terms.TermsVersion != "" {
 			if err := s.q.RecordConsent(ctx, sqlc.RecordConsentParams{UserID: sub, Version: version, ClientID: c.ID}); err != nil {
-				return "", err
+				return answer{}, err
 			}
 		}
 		// Spent before the code exists: one auth_session, one code.
 		if token != "" {
 			if err := s.q.DeleteChallengeSession(ctx, hash(token)); err != nil {
-				return "", err
+				return answer{}, err
 			}
 		}
 		sess, err := s.q.CreateSession(ctx, sqlc.CreateSessionParams{
 			ClientID: c.ID, UserID: sub, AuthTime: pgtype.Timestamptz{Time: authTime, Valid: true}, Amr: amr,
 		})
 		if errors.Is(err, pgx.ErrNoRows) { // disabled since authenticating
-			return "", &challengeError{status: http.StatusBadRequest, Code: string(goidc.ErrorCodeAccessDenied), Description: identity.ErrDisabled.Error()}
+			return answer{}, &challengeError{status: http.StatusBadRequest, Code: string(goidc.ErrorCodeAccessDenied), Description: identity.ErrDisabled.Error()}
 		} else if err != nil {
-			return "", err
+			return answer{}, err
 		}
-		return s.op.IssueAuthCode(ctx, c, sub, st.Params, map[string]any{
+		code, err := s.op.IssueAuthCode(ctx, c, sub, st.Params, map[string]any{
 			oidcstore.SessionKey: sess.ID, storeAuthTime: authTime.Unix(), storeAMR: amr,
 		})
+		return answer{code: code}, err
 	}
 	// mistake reports what the User got wrong; the auth_session, if any,
 	// stays usable.
-	mistake := func(err error) (string, error) {
+	mistake := func(err error) (answer, error) {
 		var bad identity.Invalid
 		if !errors.As(err, &bad) {
-			return "", err
+			return answer{}, err
 		}
-		return "", &challengeError{status: http.StatusBadRequest, Code: string(goidc.ErrorCodeInvalidRequest), Description: bad.Error(), AuthSession: token}
+		return answer{}, &challengeError{status: http.StatusBadRequest, Code: string(goidc.ErrorCodeInvalidRequest), Description: bad.Error(), AuthSession: token}
 	}
 
 	switch {
@@ -227,19 +248,64 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 		case wrongSecondFactor(err):
 			if p.Failures++; p.Failures >= totpTries {
 				if err := s.q.DeleteChallengeSession(ctx, hash(token)); err != nil {
-					return "", err
+					return answer{}, err
 				}
-				return "", &challengeError{status: http.StatusBadRequest, Code: errInvalidSession, Description: "too many wrong codes: sign in again"}
+				return answer{}, &challengeError{status: http.StatusBadRequest, Code: errInvalidSession, Description: "too many wrong codes: sign in again"}
 			}
 			if err := save(); err != nil {
-				return "", err
+				return answer{}, err
 			}
 		}
 		return mistake(err)
 
+	case r.PostFormValue("passkey") == "begin":
+		if st.Pending != nil {
+			return answer{}, invalid("a phone number must be bound")
+		}
+		// No PoW: begin sends no code and checks no credential, so a PoW
+		// would protect nothing; the per-IP budget bounds it instead
+		// (ADR 0014).
+		if err := s.ids.Start(ctx, clientIP(r)); err != nil {
+			return mistake(err)
+		}
+		options, challenge, err := s.passkeys.LoginOptions()
+		if err != nil {
+			return answer{}, err
+		}
+		st.PasskeyChallenge = challenge
+		if err := save(); err != nil {
+			return answer{}, err
+		}
+		return answer{token: token, options: options}, nil
+
+	case r.PostFormValue("passkey") != "":
+		if st.Pending != nil {
+			return answer{}, invalid("a phone number must be bound")
+		}
+		if st.PasskeyChallenge == "" {
+			return answer{}, invalid("no Passkey sign-in was begun in this auth_session")
+		}
+		in, err := s.passkeys.SignIn(ctx, st.PasskeyChallenge, []byte(r.PostFormValue("passkey")))
+		if err != nil {
+			var bad identity.Invalid
+			if !errors.As(err, &bad) {
+				return answer{}, err
+			}
+			// A refused assertion ends the auth_session: the App starts over
+			// rather than turning the same challenge over (ADR 0014).
+			if token != "" {
+				if err := s.q.DeleteChallengeSession(ctx, hash(token)); err != nil {
+					return answer{}, err
+				}
+			}
+			return answer{}, invalid(bad.Error())
+		}
+		// The amr says mfa, which signedIn reads as 两步验证 passed.
+		return signedIn(in.Sub, time.Now(), passkeyAMR(in.BackupEligible))
+
 	case r.PostFormValue("code") != "":
 		if st.Identifier == "" {
-			return "", invalid("no code was sent in this auth_session")
+			return answer{}, invalid("no code was sent in this auth_session")
 		}
 		if err := s.ids.FromIP(ctx, clientIP(r), func() error { return s.codes.Check(ctx, st.Identifier, r.PostFormValue("code")) }); err != nil {
 			return mistake(err)
@@ -276,15 +342,15 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 
 	case r.PostFormValue("provider") != "":
 		if st.Pending != nil {
-			return "", invalid("a phone number must be bound")
+			return answer{}, invalid("a phone number must be bound")
 		}
 		sub, err := s.providers.SignInWithClientToken(ctx, r.PostFormValue("provider"), r.PostFormValue("authorization_code"))
 		switch {
 		case errors.Is(err, provider.ErrNotFound):
-			return "", invalid("provider is not one an App can sign in with")
+			return answer{}, invalid("provider is not one an App can sign in with")
 		case errors.Is(err, provider.ErrLogin):
 			slog.Info("client token login", "provider", r.PostFormValue("provider"), "err", err)
-			return "", &challengeError{status: http.StatusBadRequest, Code: errInvalidGrant, Description: "the Provider turned authorization_code down: sign in with it again"}
+			return answer{}, &challengeError{status: http.StatusBadRequest, Code: errInvalidGrant, Description: "the Provider turned authorization_code down: sign in with it again"}
 		case err != nil:
 			return mistake(err)
 		}
@@ -292,7 +358,7 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 
 	case r.PostFormValue("username") != "":
 		if st.Pending != nil {
-			return "", invalid("a phone number must be bound")
+			return answer{}, invalid("a phone number must be bound")
 		}
 		if err := s.pow.Verify(ctx, r.PostFormValue("altcha")); err != nil {
 			return mistake(err)
@@ -306,7 +372,7 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (string, 
 		}
 		return signedIn(sub, time.Now(), []string{string(goidc.AMRPassword)})
 	}
-	return "", invalid("send identifier, code, username and password, or provider and authorization_code")
+	return answer{}, invalid("send identifier, code, username and password, provider and authorization_code, or passkey")
 }
 
 // terms tells Apps what their consent checkbox links to and which version

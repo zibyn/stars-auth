@@ -6,6 +6,9 @@ package passkey
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -56,14 +59,13 @@ type Store struct {
 }
 
 // New points the store at an issuer: its origin is the only origin a
-// ceremony may happen at, its hostname the RP ID.
+// ceremony may happen at, its hostname the RP ID. The origins of the
+// instance's registered Android apps are added per ceremony by authn.
 func New(pool *pgxpool.Pool, issuer string) (*Store, error) {
 	u, err := url.Parse(issuer)
 	if err != nil {
 		return nil, err
 	}
-	// ponytail: origins are just the issuer until native App fingerprints
-	// land; then they are fetched per ceremony, uncached.
 	wa, err := webauthn.New(&webauthn.Config{
 		RPID:                  u.Hostname(),
 		RPDisplayName:         "Stars Auth",
@@ -236,6 +238,10 @@ func (s *Store) SignIn(ctx context.Context, challenge string, response []byte) (
 	if err != nil {
 		return SignIn{}, ErrLoginFail
 	}
+	wa, err := s.authn(ctx)
+	if err != nil {
+		return SignIn{}, err
+	}
 	var owner *sqlc.PasskeyByCredentialIDRow
 	var lookupErr error // go-webauthn wraps the handler's error; ours is the clearer
 	handler := func(rawID, userHandle []byte) (webauthn.User, error) {
@@ -265,7 +271,7 @@ func (s *Store) SignIn(ctx context.Context, challenge string, response []byte) (
 		Challenge: challenge, RelyingPartyID: s.rpID(),
 		UserVerification: protocol.VerificationRequired,
 	}
-	_, cred, err := s.wa.ValidatePasskeyLogin(handler, sd, parsed)
+	_, cred, err := wa.ValidatePasskeyLogin(handler, sd, parsed)
 	if lookupErr != nil {
 		return SignIn{}, lookupErr
 	}
@@ -354,6 +360,53 @@ func DeleteExpired(ctx context.Context, pool *pgxpool.Pool) error {
 }
 
 func (s *Store) rpID() string { return s.wa.Config.RPID }
+
+// authn is the WebAuthn a Passkey ceremony verifies with: s.wa, or — once an
+// Application has registered an Android app — a copy that takes that app's
+// assertions too. The registered fingerprints are read here rather than
+// cached, so one added or removed applies to the next ceremony (ADR 0014).
+func (s *Store) authn(ctx context.Context) (*webauthn.WebAuthn, error) {
+	rows, err := s.q.ListApplications(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	var origins []string
+	for _, r := range rows {
+		var apps []struct {
+			SHA256CertFingerprints []string `json:"sha256CertFingerprints"`
+		}
+		if err := json.Unmarshal(r.AndroidApps, &apps); err != nil {
+			continue // a row the Management API did not write
+		}
+		for _, app := range apps {
+			for _, f := range app.SHA256CertFingerprints {
+				if origin, ok := androidOrigin(f); ok {
+					origins = append(origins, origin)
+				}
+			}
+		}
+	}
+	if len(origins) == 0 {
+		return s.wa, nil
+	}
+	// The config was validated when the Store was built; only the origins an
+	// Android app conveys are added, so only those need no checking here.
+	cfg := *s.wa.Config
+	cfg.RPOpaqueOrigins = origins
+	return &webauthn.WebAuthn{Config: &cfg}, nil
+}
+
+// androidOrigin is the origin an Android app with this SHA-256 signing
+// certificate conveys in clientDataJSON: android:apk-key-hash: and the
+// certificate's bytes, base64url. A fingerprint that is not one is skipped:
+// the Management API validates them, so this is a row it did not write.
+func androidOrigin(fingerprint string) (string, bool) {
+	raw, err := hex.DecodeString(strings.ReplaceAll(fingerprint, ":", ""))
+	if err != nil || len(raw) != sha256.Size {
+		return "", false
+	}
+	return "android:apk-key-hash:" + base64.RawURLEncoding.EncodeToString(raw), true
+}
 
 // defaultName is a new Passkey's: its authenticator's name, or "Passkey"
 // when the AAGUID says none.
