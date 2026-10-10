@@ -17,12 +17,16 @@ _Avoid_: Operator, 站长, 租户
 _Avoid_: 账户, 会员, 成员
 
 **Application**:
-在 Stars Auth 注册、委托其认证 User 的一个接入方(App、小程序或 Web 端)。
+在 Stars Auth 注册的一个接入方:委托 Stars Auth 认证 User(App、小程序或 Web 端),或以自己的身份调用 API(M2M Application)。
 _Avoid_: Client, 租户, 项目
 
 **First-party Application**:
 由该实例的运营方自己开发和运营的 Application;当前所有 Application 都属于此类。
 _Avoid_: 内部应用, 自有客户端
+
+**M2M Application**:
+不代表任何 User、以自己的身份调用 API 的 Application(如业务后端、定时任务),没有登录界面;只调用它的默认 API,也只在这个 API 上持有 Role(Management API 上不能持有「所有者」)。要调多个 API 就建多个 M2M Application。
+_Avoid_: 服务账号, 机器账号, 客户端凭证应用
 
 **API**:
 管理员登记的一个受保护业务后端,以 API 标识符区分;Stars Auth 签发给 Application 的 access token 指明它供哪个 API 使用,多个 Application 可共用同一个 API。
@@ -81,7 +85,7 @@ _Avoid_: 连接器, 驱动
 _Avoid_: 权限点, scope, 授权
 
 **Role**:
-某个 API 上一组 Permission 的命名集合,分配给 User 或 confidential Application;同一 API 上可持有多个 Role。
+某个 API 上一组 Permission 的命名集合,分配给 User 或 M2M Application;同一 API 上可持有多个 Role。
 _Avoid_: 用户组, 身份, 职位
 
 **Management API**:
