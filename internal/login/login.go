@@ -862,7 +862,7 @@ func (s *Service) render(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 // Channels offers. A Passkey can start a login from either.
 func (p loginPage) firstStep() bool {
 	return !p.TOTP && !p.Consent && !p.Bind && !p.CodeSent &&
-		!(p.Username != "" && !p.PasswordForm)
+		(p.Username == "" || p.PasswordForm)
 }
 
 // renderError shows an authorization error that cannot go back to the
