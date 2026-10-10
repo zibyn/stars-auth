@@ -304,7 +304,7 @@ SELECT a.identifier, a.name, a.builtin,
        COALESCE((SELECT json_agg(json_build_object('key', p.key, 'name', p.name, 'builtin', p.builtin) ORDER BY p.key)
                  FROM permissions p WHERE p.api = a.identifier), '[]')::jsonb AS permissions,
        COALESCE((SELECT json_agg(json_build_object(
-                     'key', r.key, 'name', r.name, 'builtin', r.builtin,
+                     'key', r.key, 'name', r.name, 'builtin', r.builtin, 'default', r.default_role,
                      'permissions', COALESCE((SELECT json_agg(rp.permission ORDER BY rp.permission) FROM role_permissions rp
                                               WHERE rp.api = r.api AND rp.role = r.key), '[]'),
                      'users', (SELECT count(*) FROM user_roles ur WHERE ur.api = r.api AND ur.role = r.key),
@@ -734,18 +734,26 @@ func (q *Queries) PutPermission(ctx context.Context, arg PutPermissionParams) er
 }
 
 const putRole = `-- name: PutRole :execrows
-INSERT INTO roles (api, key, name) VALUES ($1, $2, $3)
-ON CONFLICT (api, key) DO UPDATE SET name = EXCLUDED.name WHERE NOT roles.builtin
+INSERT INTO roles (api, key, name, default_role) VALUES ($1, $2, $3, $4)
+ON CONFLICT (api, key) DO UPDATE SET name = EXCLUDED.name, default_role = EXCLUDED.default_role WHERE NOT roles.builtin
 `
 
 type PutRoleParams struct {
-	Api  string
-	Key  string
-	Name string
+	Api         string
+	Key         string
+	Name        string
+	DefaultRole bool
 }
 
+// default_role is only ever true for a business API Role; the Management API
+// rejects it before it gets here.
 func (q *Queries) PutRole(ctx context.Context, arg PutRoleParams) (int64, error) {
-	result, err := q.db.Exec(ctx, putRole, arg.Api, arg.Key, arg.Name)
+	result, err := q.db.Exec(ctx, putRole,
+		arg.Api,
+		arg.Key,
+		arg.Name,
+		arg.DefaultRole,
+	)
 	if err != nil {
 		return 0, err
 	}

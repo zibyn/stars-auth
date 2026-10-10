@@ -82,6 +82,7 @@ type RoleDef struct {
 	Key          string   `json:"key"`
 	Name         string   `json:"name"`
 	Builtin      bool     `json:"builtin"`
+	Default      bool     `json:"default" doc:"Assigned to every User created after this; business APIs only"`
 	Permissions  []string `json:"permissions" nullable:"false" doc:"Keys of its Permissions"`
 	Users        int      `json:"users" doc:"How many Users hold it"`
 	Applications int      `json:"applications" doc:"How many M2M Applications hold it"`
@@ -217,6 +218,7 @@ type putRoleInput struct {
 	Body struct {
 		Name        string   `json:"name" minLength:"1" maxLength:"64"`
 		Permissions []string `json:"permissions" nullable:"false" doc:"Keys of the Permissions it grants, on the same API"`
+		Default     bool     `json:"default,omitempty" doc:"Give it to every User created after this; business APIs only"`
 	}
 }
 
@@ -224,9 +226,18 @@ func (s *Service) putRole(ctx context.Context, in *putRoleInput) (*struct{}, err
 	if err := s.editable(ctx, in.API, true); err != nil {
 		return nil, err
 	}
+	// A default Role is handed to every new User, so the Management API may
+	// never have one: nobody signs up as an admin.
+	if in.Body.Default {
+		if builtin, err := s.q.APIBuiltin(ctx, in.API); err != nil {
+			return nil, err
+		} else if builtin {
+			return nil, huma.Error422UnprocessableEntity("内置 API 不能设置默认 Role")
+		}
+	}
 	return nil, pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		q := s.q.WithTx(tx)
-		if n, err := q.PutRole(ctx, sqlc.PutRoleParams{Api: in.API, Key: in.Key, Name: in.Body.Name}); err != nil {
+		if n, err := q.PutRole(ctx, sqlc.PutRoleParams{Api: in.API, Key: in.Key, Name: in.Body.Name, DefaultRole: in.Body.Default}); err != nil {
 			return err
 		} else if n == 0 {
 			return errBuiltin

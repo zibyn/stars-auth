@@ -102,6 +102,15 @@ func TestAssignRoles(t *testing.T) {
 	}
 }
 
+type roleDef struct {
+	Key, Name    string
+	Builtin      bool
+	Default      bool
+	Permissions  []string
+	Users        int
+	Applications int
+}
+
 type apiDef struct {
 	Identifier, Name string
 	Builtin          bool
@@ -109,13 +118,7 @@ type apiDef struct {
 		Key, Name string
 		Builtin   bool
 	}
-	Roles []struct {
-		Key, Name    string
-		Builtin      bool
-		Permissions  []string
-		Users        int
-		Applications int
-	}
+	Roles []roleDef
 }
 
 func (e *env) apis(tok string) map[string]apiDef {
@@ -175,13 +178,7 @@ func TestDefineAPIPermissionsAndRoles(t *testing.T) {
 		t.Errorf("track: %+v", a)
 	}
 	m := e.apis(ro)[identity.ManagementAPI]
-	owners := slices.IndexFunc(m.Roles, func(r struct {
-		Key, Name    string
-		Builtin      bool
-		Permissions  []string
-		Users        int
-		Applications int
-	}) bool {
+	owners := slices.IndexFunc(m.Roles, func(r roleDef) bool {
 		return r.Key == "owner"
 	})
 	if !m.Builtin || len(m.Permissions) != 10 || len(m.Roles) != 3 || owners < 0 || m.Roles[owners].Users != 1 || len(m.Roles[owners].Permissions) != 10 {
@@ -269,5 +266,72 @@ func TestDeleteRolesPermissionsAndAPIs(t *testing.T) {
 	}
 	if code := del(apiPath(track) + "?force=true"); code != 204 || e.apis(owner)[track].Identifier != "" || len(roleKeys(e, "ALICE")) != 0 {
 		t.Errorf("delete API: %d", code)
+	}
+}
+
+func TestDefaultRoles(t *testing.T) {
+	e := start(t)
+	owner := e.token(e.owner, nil)
+	put := func(path string, body map[string]any) int { return e.call("PUT", owner, path, body, nil) }
+
+	put(apiPath(track), map[string]any{"name": "Track"})
+	if code := put(apiPath(track)+"/roles/member", map[string]any{"name": "会员", "permissions": []string{}, "default": true}); code != 204 {
+		t.Fatalf("default Role on a business API: %d", code)
+	}
+	// A User created from now on gets it; one created before the flag does not,
+	// and marking another default leaves them as they were.
+	e.user("BEFORE", nil)
+	if code := put(apiPath(track)+"/roles/editor", map[string]any{"name": "编辑", "permissions": []string{}, "default": true}); code != 204 {
+		t.Fatalf("second default Role: %d", code)
+	}
+	e.user("AFTER", nil)
+	if got := roleKeys(e, "BEFORE"); !slices.Equal(got, []string{"member"}) {
+		t.Errorf("a User created earlier: %v", got)
+	}
+	if got := roleKeys(e, "AFTER"); !slices.Equal(got, []string{"editor", "member"}) {
+		t.Errorf("a User created later: %v", got)
+	}
+	// Clearing the flag stops it reaching new Users, not existing ones.
+	if code := put(apiPath(track)+"/roles/member", map[string]any{"name": "会员", "permissions": []string{}}); code != 204 {
+		t.Fatalf("clear the flag: %d", code)
+	}
+	e.user("LATER", nil)
+	if got := roleKeys(e, "LATER"); !slices.Equal(got, []string{"editor"}) {
+		t.Errorf("after clearing: %v", got)
+	}
+	if got := roleKeys(e, "AFTER"); !slices.Equal(got, []string{"editor", "member"}) {
+		t.Errorf("an existing User after clearing: %v", got)
+	}
+
+	var defaults []string
+	for _, r := range e.apis(owner)[track].Roles {
+		if r.Default {
+			defaults = append(defaults, r.Key)
+		}
+	}
+	if !slices.Equal(defaults, []string{"editor"}) {
+		t.Errorf("default Roles listed: %v", defaults)
+	}
+
+	// The Management API refuses one, a custom Role or a built-in alike:
+	// nobody is signed up as an admin.
+	m := apiPath(identity.ManagementAPI)
+	for _, key := range []string{"auditor", "owner"} {
+		if code := put(m+"/roles/"+key, map[string]any{"name": "审计员", "permissions": []string{"audit:read"}, "default": true}); code != 422 {
+			t.Errorf("default Role %q on the Management API: %d", key, code)
+		}
+	}
+
+	// 默认 Role is for Users: an M2M Application created now gets none.
+	var created struct{ Application application }
+	if code := e.call("POST", owner, "/applications", map[string]any{"type": "m2m", "settings": m2mSettings(track)}, &created); code != 200 {
+		t.Fatalf("create an m2m Application: %d", code)
+	}
+	var held struct {
+		API   string
+		Roles []string
+	}
+	if code := e.get(owner, "/applications/"+created.Application.ClientID+"/roles", &held); code != 200 || len(held.Roles) != 0 {
+		t.Errorf("an m2m Application's Roles: %d %v", code, held.Roles)
 	}
 }

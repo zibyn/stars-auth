@@ -49,9 +49,17 @@ func (q *Queries) CloseSetup(ctx context.Context) error {
 }
 
 const createUser = `-- name: CreateUser :exec
-INSERT INTO users (id) VALUES ($1)
+WITH new_user AS (
+    INSERT INTO users (id) VALUES ($1)
+    RETURNING id
+)
+INSERT INTO user_roles (user_id, api, role)
+SELECT u.id, r.api, r.key FROM new_user u JOIN roles r ON r.default_role
 `
 
+// The new User also picks up every default Role, in the same statement, so
+// every creation path (code or password sign-up, Provider, bootstrap) agrees
+// and the set is whatever the default Roles are at that moment.
 func (q *Queries) CreateUser(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, createUser, id)
 	return err

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/zibyn/stars-auth/internal/crypt"
@@ -246,5 +247,76 @@ func TestDisabledUserCannotSignIn(t *testing.T) {
 	}
 	if _, err := s.SignIn(ctx, "email", "a@example.com"); !errors.Is(err, ErrDisabled) {
 		t.Errorf("code: %v", err)
+	}
+}
+
+// defaultRole makes a business API Role default, the way the Management API
+// does (internal/management).
+func defaultRole(t *testing.T, s *Store, key string) {
+	t.Helper()
+	if _, err := s.pool.Exec(context.Background(), `
+		INSERT INTO apis (identifier, name) VALUES ('https://track.example', 'Track') ON CONFLICT DO NOTHING;
+		INSERT INTO roles (api, key, name, default_role) VALUES ('https://track.example', '`+key+`', '`+key+`', true)`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// rolesOf lists a User's Roles, whatever the API.
+func rolesOf(t *testing.T, s *Store, sub string) []string {
+	t.Helper()
+	rows, err := s.pool.Query(context.Background(), "SELECT role FROM user_roles WHERE user_id = $1 ORDER BY role", sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close() //nolint:errcheck
+	var out []string
+	for rows.Next() {
+		var r string
+		if err := rows.Scan(&r); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func TestSignInGetsDefaultRoles(t *testing.T) {
+	s := setup(t)
+	ctx := context.Background()
+	defaultRole(t, s, "member")
+
+	sub, err := s.SignIn(ctx, "email", "a@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rolesOf(t, s, sub); !slices.Equal(got, []string{"member"}) {
+		t.Errorf("a new User: %v", got)
+	}
+	// A User who already exists keeps what they had when another Role is
+	// made default, while the next one gets both.
+	defaultRole(t, s, "editor")
+	if got := rolesOf(t, s, sub); !slices.Equal(got, []string{"member"}) {
+		t.Errorf("an existing User after a Role is made default: %v", got)
+	}
+	other, err := s.SignIn(ctx, "phone", "+8613800138000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rolesOf(t, s, other); !slices.Equal(got, []string{"editor", "member"}) {
+		t.Errorf("the next User: %v", got)
+	}
+}
+
+func TestBootstrapGetsDefaultRoles(t *testing.T) {
+	s := setup(t)
+	ctx := context.Background()
+	defaultRole(t, s, "member")
+	token, _ := s.SetupToken(ctx)
+	owner, err := s.Bootstrap(ctx, token, "root", "password1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rolesOf(t, s, owner); !slices.Equal(got, []string{"member", "owner"}) {
+		t.Errorf("the first owner: %v", got)
 	}
 }

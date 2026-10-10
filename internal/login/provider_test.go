@@ -275,3 +275,24 @@ func TestProviderLoginFinishesOnlyInTheBrowserThatStartedIt(t *testing.T) {
 		t.Errorf("the attacker's own browser: %d %s", resp.StatusCode, resp.Header.Get("Location"))
 	}
 }
+
+func TestProviderSignUpGetsDefaultRoles(t *testing.T) {
+	e := start(t)
+	e.addGoogle()
+	if _, err := e.pool.Exec(context.Background(), `
+		INSERT INTO apis (identifier, name) VALUES ('https://track.example', 'Track');
+		INSERT INTO roles (api, key, name, default_role) VALUES ('https://track.example', 'member', '会员', true)`); err != nil {
+		e.t.Fatal(err)
+	}
+	_, page := e.authorize("")
+	resp, _ := e.signInWith(page, "google")
+	sub, _ := e.idToken(e.code(resp))["sub"].(string)
+	var n int
+	if err := e.pool.QueryRow(context.Background(),
+		"SELECT count(*) FROM user_roles WHERE user_id = $1 AND api = 'https://track.example' AND role = 'member'", sub).Scan(&n); err != nil {
+		e.t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("a Provider sign-up's default Roles: %d", n)
+	}
+}

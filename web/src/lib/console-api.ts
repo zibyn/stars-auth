@@ -146,6 +146,7 @@ export type RoleDef = {
 	key: string;
 	name: string;
 	builtin: boolean;
+	default: boolean; // given to every User created later; business APIs only
 	permissions: string[];
 	users: number;
 	applications: number;

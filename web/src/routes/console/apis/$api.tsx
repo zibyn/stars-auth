@@ -444,6 +444,19 @@ function RoleRow({
 			),
 		failed("删除角色失败"),
 	);
+	// mark turns 默认 Role on and off; the Role keeps its name and Permissions.
+	const mark = useAPIMutation(
+		(dflt: boolean) =>
+			api(`${apiPath(def.identifier)}/roles/${encodeURIComponent(role.key)}`, {
+				method: "PUT",
+				body: {
+					name: role.name,
+					permissions: role.permissions,
+					default: dflt,
+				},
+			}),
+		failed("设置默认角色失败"),
+	);
 	if (editing) {
 		return (
 			<Item>
@@ -452,6 +465,8 @@ function RoleRow({
 		);
 	}
 	const held = holders(role);
+	// 默认 Role reaches every new User, which only makes sense per API resource.
+	const canMark = !def.builtin;
 	return (
 		<Item>
 			<ItemContent>
@@ -461,6 +476,11 @@ function RoleRow({
 						{role.key}
 					</span>
 					{role.builtin && <Badge variant="secondary">内置</Badge>}
+					{role.default && canMark && !editable && (
+						<Badge variant="secondary" title="新用户自动获得">
+							默认
+						</Badge>
+					)}
 				</ItemTitle>
 				<ItemDescription className="text-xs">
 					{role.permissions.length} 项权限 ·{" "}
@@ -475,6 +495,19 @@ function RoleRow({
 			</ItemContent>
 			{editable && (
 				<ItemActions>
+					{canMark && (
+						<Label
+							className="text-muted-foreground text-xs font-normal"
+							title="新用户创建时自动获得它"
+						>
+							<Checkbox
+								checked={role.default}
+								disabled={mark.isPending}
+								onCheckedChange={(on) => mark.mutate(on === true)}
+							/>
+							默认
+						</Label>
+					)}
 					<Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
 						编辑
 					</Button>
@@ -512,7 +545,13 @@ function RoleForm({
 		(v: { key: string; name: string; permissions: string[] }) =>
 			api(`${apiPath(def.identifier)}/roles/${encodeURIComponent(v.key)}`, {
 				method: "PUT",
-				body: { name: v.name, permissions: v.permissions },
+				body: {
+					name: v.name,
+					permissions: v.permissions,
+					// 默认 Role is toggled on the row; keep it as it is here, so
+					// an edit never clears it.
+					default: role?.default ?? false,
+				},
 			}),
 	);
 	const form = useForm({

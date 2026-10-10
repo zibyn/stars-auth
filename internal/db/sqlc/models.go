@@ -212,10 +212,11 @@ type RecoveryCode struct {
 }
 
 type Role struct {
-	Api     string
-	Key     string
-	Name    string
-	Builtin bool
+	Api         string
+	Key         string
+	Name        string
+	Builtin     bool
+	DefaultRole bool
 }
 
 type RolePermission struct {
