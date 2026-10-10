@@ -144,6 +144,86 @@ func TestManageApplications(t *testing.T) {
 	}
 }
 
+// TestManageM2MApplication covers the M2M Application type: a backend service
+// that calls one API as itself (ADR 0015). It has a secret and a default API,
+// no login, and its default API cannot be changed later.
+func TestManageM2MApplication(t *testing.T) {
+	e := start(t)
+	owner := e.token(e.owner, nil)
+	e.call("PUT", owner, apiPath(track), map[string]any{"name": "Track"}, nil)
+
+	settings := func(defaultAPI string) map[string]any {
+		return map[string]any{
+			"name": "对账任务", "redirectUris": []string{}, "postLogoutRedirectUris": []string{},
+			"defaultApi": defaultAPI, "refreshTokens": false, "appleAppIds": []string{}, "androidApps": []any{},
+		}
+	}
+
+	// It needs a default API; it cannot be the Account API.
+	for name, s := range map[string]map[string]any{
+		"no default API": settings(""),
+		"the Account API": settings(identity.AccountAPI),
+		"a redirect URI": func() map[string]any {
+			s := settings(track)
+			s["redirectUris"] = []string{"https://track.example/cb"}
+			return s
+		}(),
+		"a native App": func() map[string]any {
+			s := settings(track)
+			s["appleAppIds"] = []string{"ABCDE12345.com.example.track"}
+			return s
+		}(),
+	} {
+		if code := e.call("POST", owner, "/applications", map[string]any{"type": "m2m", "settings": s}, nil); code != 422 {
+			t.Errorf("%s: %d, want 422", name, code)
+		}
+	}
+
+	var created struct {
+		Application application
+		Secret      string
+	}
+	if code := e.call("POST", owner, "/applications", map[string]any{"type": "m2m", "settings": settings(track)}, &created); code != 200 || created.Secret == "" {
+		t.Fatalf("create: %d %+v", code, created)
+	}
+	a := created.Application
+	if a.Type != "m2m" || a.DefaultAPI != track || len(a.RedirectURIs) != 0 {
+		t.Errorf("created: %+v", a)
+	}
+	var hash string
+	if err := e.pool.QueryRow(t.Context(), "SELECT encode(secret_hash, 'hex') FROM applications WHERE client_id = $1", a.ClientID).Scan(&hash); err != nil {
+		t.Fatal(err)
+	}
+	if err := oidcstore.VerifyClientSecret(t.Context(), hash, created.Secret); err != nil {
+		t.Errorf("the secret shown does not authenticate: %v", err)
+	}
+	path := "/applications/" + a.ClientID
+
+	// The default API is fixed once it exists; the rest of the settings are
+	// not.
+	if code := e.call("PUT", owner, path, settings(identity.ManagementAPI), nil); code != 422 {
+		t.Errorf("change the default API: %d, want 422", code)
+	}
+	renamed := settings(track)
+	renamed["name"] = "对账任务 v2"
+	if code := e.call("PUT", owner, path, renamed, nil); code != 204 {
+		t.Errorf("rename: %d", code)
+	}
+
+	// The Management API is a valid default API for an M2M Application, and
+	// rotating its secret replaces the old one.
+	mgmt := settings(identity.ManagementAPI)
+	mgmt["name"] = "运维脚本"
+	var onMgmt struct{ Application application }
+	if code := e.call("POST", owner, "/applications", map[string]any{"type": "m2m", "settings": mgmt}, &onMgmt); code != 200 || onMgmt.Application.DefaultAPI != identity.ManagementAPI {
+		t.Errorf("m2m on the Management API: %d %+v", code, onMgmt)
+	}
+	var rotated struct{ Secret string }
+	if code := e.call("POST", owner, path+"/secret", nil, &rotated); code != 200 || rotated.Secret == created.Secret {
+		t.Errorf("rotate: %d", code)
+	}
+}
+
 // wellKnown fetches a /.well-known/ file without following redirects: what
 // Apple's and Google's crawlers do.
 func wellKnown(t *testing.T, issuer, path string) (*http.Response, string) {

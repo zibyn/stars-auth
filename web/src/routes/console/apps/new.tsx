@@ -1,5 +1,9 @@
 import { revalidateLogic, useForm } from "@tanstack/react-form";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+	useMutation,
+	useQueryClient,
+	useSuspenseQuery,
+} from "@tanstack/react-query";
 import {
 	createFileRoute,
 	Link,
@@ -8,11 +12,19 @@ import {
 } from "@tanstack/react-router";
 import { z } from "zod";
 import { FormError, FormField } from "#/components/form";
+import { Alert, AlertDescription } from "#/components/ui/alert";
 import { Button, buttonVariants } from "#/components/ui/button";
 import { FieldGroup } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "#/components/ui/select";
 import { Textarea } from "#/components/ui/textarea";
-import { createSchema, typeName } from "#/lib/apps";
+import { createSchema, m2mAPIs, typeName } from "#/lib/apps";
 import { type Application, api } from "#/lib/console-api";
 import {
 	lines,
@@ -21,6 +33,7 @@ import {
 	platformKeys,
 	platforms,
 } from "#/lib/onboarding";
+import { apisQuery } from "#/routes/console/apis/index";
 import { applicationsQuery } from "#/routes/console/apps/index";
 import { type Header, useCan } from "#/routes/console/route";
 
@@ -31,6 +44,8 @@ const search = z.object({
 export const Route = createFileRoute("/console/apps/new")({
 	staticData: { crumb: "创建应用", useHeader },
 	validateSearch: search,
+	loader: ({ context: { queryClient } }) =>
+		queryClient.ensureQueryData(apisQuery),
 	component: CreateApplication,
 });
 
@@ -101,10 +116,16 @@ function CreateApplication() {
 
 function CreateForm({ platform }: { platform: Platform }) {
 	const p = platforms[platform];
+	const needsAPI = p.type === "m2m";
+	const registered = m2mAPIs(useSuspenseQuery(apisQuery).data.apis);
 	const client = useQueryClient();
 	const navigate = useNavigate();
 	const save = useMutation({
-		mutationFn: (v: { name: string; redirectUris: string }) =>
+		mutationFn: (v: {
+			name: string;
+			redirectUris: string;
+			defaultApi?: string;
+		}) =>
 			api<{ application: Application; secret?: string }>("/applications", {
 				method: "POST",
 				body: {
@@ -113,6 +134,7 @@ function CreateForm({ platform }: { platform: Platform }) {
 						name: v.name.trim(),
 						redirectUris: lines(v.redirectUris),
 						postLogoutRedirectUris: [],
+						defaultApi: v.defaultApi,
 						refreshTokens: true,
 						appleAppIds: [],
 						androidApps: [],
@@ -132,9 +154,9 @@ function CreateForm({ platform }: { platform: Platform }) {
 		},
 	});
 	const form = useForm({
-		defaultValues: { name: "", redirectUris: "" },
+		defaultValues: { name: "", redirectUris: "", defaultApi: "" },
 		validationLogic: revalidateLogic(),
-		validators: { onDynamic: createSchema(!!p.redirect) },
+		validators: { onDynamic: createSchema(!!p.redirect, needsAPI) },
 		onSubmit: ({ value }) => save.mutate(value),
 	});
 	return (
@@ -169,6 +191,51 @@ function CreateForm({ platform }: { platform: Platform }) {
 										className="font-mono"
 										placeholder={`每行一个，如 https://shop.example.com/${platform === "spa" ? "callback" : "auth/callback"}`}
 									/>
+								)}
+							</FormField>
+						)}
+					</form.Field>
+				)}
+				{needsAPI && registered.length === 0 && (
+					<Alert variant="warning">
+						<AlertDescription>
+							还没有登记 API 资源，后端服务没有能调用的 API。
+							<Link to="/console/apis">去登记 API 资源</Link>
+						</AlertDescription>
+					</Alert>
+				)}
+				{needsAPI && registered.length > 0 && (
+					<form.Field name="defaultApi">
+						{(field) => (
+							<FormField
+								field={field}
+								label="默认 API 资源"
+								help="它换到的 access token 只对这个 API 有效，创建后不能更改。要调另一个 API，再建一个后端服务。"
+							>
+								{({ id }) => (
+									<Select
+										value={field.state.value}
+										onValueChange={(v) => field.handleChange(v ?? "")}
+									>
+										<SelectTrigger id={id} className="w-full">
+											<SelectValue>
+												{(v: string) =>
+													registered.find((a) => a.identifier === v)?.name ??
+													"请选择"
+												}
+											</SelectValue>
+										</SelectTrigger>
+										<SelectContent>
+											{registered.map((a) => (
+												<SelectItem key={a.identifier} value={a.identifier}>
+													{a.name}
+													<span className="font-mono text-muted-foreground text-xs">
+														{a.identifier}
+													</span>
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
 								)}
 							</FormField>
 						)}

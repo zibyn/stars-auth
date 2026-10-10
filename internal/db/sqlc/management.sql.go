@@ -744,7 +744,7 @@ func (q *Queries) RoleUsers(ctx context.Context, arg RoleUsersParams) (RoleUsers
 }
 
 const setApplicationSecret = `-- name: SetApplicationSecret :execrows
-UPDATE applications SET secret_hash = $2 WHERE client_id = $1 AND type = 'confidential' AND NOT builtin
+UPDATE applications SET secret_hash = $2 WHERE client_id = $1 AND type <> 'public' AND NOT builtin
 `
 
 type SetApplicationSecretParams struct {

@@ -52,6 +52,7 @@ import {
 	androidLines,
 	basicSchema,
 	loginSchema,
+	m2mAPIs,
 	nativeSchema,
 	typeName,
 	typeWhy,
@@ -81,11 +82,13 @@ import { applicationsQuery } from "#/routes/console/apps/index";
 import { type Header, useCan } from "#/routes/console/route";
 import { date } from "#/routes/console/users/index";
 
-const tabs = [
+// tabsFor gives an Application's tabs in order; an M2M Application has no
+// login to configure.
+const tabsFor = (type: Application["type"]): [string, string][] => [
 	["basic", "基本"],
-	["login", "登录"],
+	...(type === "m2m" ? [] : ([["login", "登录"]] as [string, string][])),
 	["webhook", "用户删除通知"],
-] as const;
+];
 
 const defaults = { tab: "basic" } as const;
 const search = z.object({
@@ -185,7 +188,7 @@ function useHeader(): Header | null {
 				{app.builtin && <Badge variant="outline">内置</Badge>}
 			</>
 		),
-		tabs,
+		tabs: tabsFor(app.type),
 		details: (
 			<>
 				{!editable && (
@@ -216,9 +219,11 @@ function ApplicationPage() {
 			<TabsContent value="basic">
 				<BasicTab app={app} editable={editable} />
 			</TabsContent>
-			<TabsContent value="login">
-				<LoginTab app={app} editable={editable} />
-			</TabsContent>
+			{app.type !== "m2m" && (
+				<TabsContent value="login">
+					<LoginTab app={app} editable={editable} />
+				</TabsContent>
+			)}
 			<TabsContent value="webhook">
 				<WebhookTab app={app} editable={editable} />
 			</TabsContent>
@@ -252,9 +257,14 @@ type TabProps = { app: Application; editable: boolean };
 function BasicTab({ app, editable }: TabProps) {
 	const save = useSave(app);
 	const saveApi = useSave(app);
-	const registered = useSuspenseQuery(apisQuery).data.apis.filter(
-		(a) => !a.builtin,
-	);
+	const isM2M = app.type === "m2m";
+	// An M2M Application may call the Management API; nothing may call the
+	// Account API (ADR 0015).
+	const apis = useSuspenseQuery(apisQuery).data.apis;
+	const registered = isM2M ? m2mAPIs(apis) : apis.filter((a) => !a.builtin);
+	const defaultAPIName =
+		registered.find((a) => a.identifier === app.defaultApi)?.name ??
+		app.defaultApi;
 	const form = useForm({
 		defaultValues: { name: app.name },
 		validationLogic: revalidateLogic(),
@@ -290,7 +300,7 @@ function BasicTab({ app, editable }: TabProps) {
 								或登录请求里填它，认证服务就知道是哪个应用。
 							</FieldDescription>
 						</Field>
-						{app.type === "confidential" && (
+						{app.type !== "public" && (
 							<ClientSecret app={app} editable={editable} />
 						)}
 					</>
@@ -312,73 +322,96 @@ function BasicTab({ app, editable }: TabProps) {
 					<FieldDescription>{typeWhy[app.type]}</FieldDescription>
 				</Field>
 			</Section>
-			<Section
-				title="访问令牌"
-				editable={editable}
-				form={apiForm}
-				footer={editable && registered.length > 0 && <SaveBar save={saveApi} />}
-			>
-				{registered.length === 0 ? (
+			{isM2M ? (
+				<Section title="访问令牌" editable={false}>
 					<Field>
 						<FieldTitle>默认 API 资源</FieldTitle>
-						<Alert variant="warning">
-							<AlertDescription>
-								还没有登记 API 资源。
-								<Link to="/console/apis">去登记 API 资源</Link>
-							</AlertDescription>
-						</Alert>
-					</Field>
-				) : (
-					<apiForm.Field name="defaultApi">
-						{(field) => (
-							<FormField
-								field={field}
-								label="默认 API 资源"
-								help="用户登录后拿到的 access token 用于调用它，并带上用户在其中的角色。不选，token 里没有角色。"
+						<p className="text-sm">
+							<Link
+								to="/console/apis/$api"
+								params={{ api: app.defaultApi ?? "" }}
+								className="underline"
 							>
-								{({ id }) => (
-									<div className="flex items-center gap-3">
-										<Select
-											disabled={!editable}
-											value={field.state.value}
-											onValueChange={(v) => field.handleChange(`${v ?? ""}`)}
-										>
-											<SelectTrigger id={id} className="flex-1">
-												<SelectValue>
-													{(v: string) =>
-														registered.find((a) => a.identifier === v)?.name ??
-														"不选"
-													}
-												</SelectValue>
-											</SelectTrigger>
-											<SelectContent>
-												<SelectItem value="">不选</SelectItem>
-												{registered.map((a) => (
-													<SelectItem key={a.identifier} value={a.identifier}>
-														{a.name}
-														<span className="font-mono text-muted-foreground text-xs">
-															{a.identifier}
-														</span>
-													</SelectItem>
-												))}
-											</SelectContent>
-										</Select>
-										{app.defaultApi && (
-											<Link
-												to="/console/apis/$api"
-												params={{ api: app.defaultApi }}
-												className="text-sm underline"
+								{defaultAPIName}
+							</Link>
+						</p>
+						<FieldDescription>
+							它换到的 access token 只对这个 API
+							有效，创建后不能更改。要调另一个 API，再建一个后端服务。
+						</FieldDescription>
+					</Field>
+				</Section>
+			) : (
+				<Section
+					title="访问令牌"
+					editable={editable}
+					form={apiForm}
+					footer={
+						editable && registered.length > 0 && <SaveBar save={saveApi} />
+					}
+				>
+					{registered.length === 0 ? (
+						<Field>
+							<FieldTitle>默认 API 资源</FieldTitle>
+							<Alert variant="warning">
+								<AlertDescription>
+									还没有登记 API 资源。
+									<Link to="/console/apis">去登记 API 资源</Link>
+								</AlertDescription>
+							</Alert>
+						</Field>
+					) : (
+						<apiForm.Field name="defaultApi">
+							{(field) => (
+								<FormField
+									field={field}
+									label="默认 API 资源"
+									help="用户登录后拿到的 access token 用于调用它，并带上用户在其中的角色。不选，token 里没有角色。"
+								>
+									{({ id }) => (
+										<div className="flex items-center gap-3">
+											<Select
+												disabled={!editable}
+												value={field.state.value}
+												onValueChange={(v) => field.handleChange(`${v ?? ""}`)}
 											>
-												查看 API 资源
-											</Link>
-										)}
-									</div>
-								)}
-							</FormField>
-						)}
-					</apiForm.Field>
-				)}
-			</Section>
+												<SelectTrigger id={id} className="flex-1">
+													<SelectValue>
+														{(v: string) =>
+															registered.find((a) => a.identifier === v)
+																?.name ?? "不选"
+														}
+													</SelectValue>
+												</SelectTrigger>
+												<SelectContent>
+													<SelectItem value="">不选</SelectItem>
+													{registered.map((a) => (
+														<SelectItem key={a.identifier} value={a.identifier}>
+															{a.name}
+															<span className="font-mono text-muted-foreground text-xs">
+																{a.identifier}
+															</span>
+														</SelectItem>
+													))}
+												</SelectContent>
+											</Select>
+											{app.defaultApi && (
+												<Link
+													to="/console/apis/$api"
+													params={{ api: app.defaultApi }}
+													className="text-sm underline"
+												>
+													查看 API 资源
+												</Link>
+											)}
+										</div>
+									)}
+								</FormField>
+							)}
+						</apiForm.Field>
+					)}
+				</Section>
+			)}
 			{editable && <DeleteApplication app={app} />}
 		</div>
 	);
@@ -817,9 +850,9 @@ function Onboarding({
 		),
 		api: (
 			<p className="text-[13px] text-muted-foreground">
-				选了以后，用户登录这个应用拿到的 access token 就能调用这个 API
-				资源，并带上用户在其中的角色。不调用你自己的 API
-				可以不选。在下面「访问令牌」里选择。
+				{app.type === "m2m"
+					? "它换到的 access token 只对这个 API 有效，创建后不能更改。"
+					: "选了以后，用户登录这个应用拿到的 access token 就能调用这个 API 资源，并带上用户在其中的角色。不调用你自己的 API 可以不选。在下面「访问令牌」里选择。"}
 			</p>
 		),
 		code: (
@@ -855,7 +888,11 @@ function Onboarding({
 								{item.done ? <Check className="size-3" /> : n + 1}
 							</span>
 							<div className="flex-1 space-y-1">
-								<p className="font-medium text-sm">{steps[item.key]}</p>
+								<p className="font-medium text-sm">
+									{item.key === "api" && app.type === "m2m"
+										? "默认 API 资源"
+										: steps[item.key]}
+								</p>
 								{body[item.key]}
 							</div>
 						</li>

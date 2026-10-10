@@ -58,7 +58,9 @@ func DeleteExpired(ctx context.Context, pool *pgxpool.Pool) error {
 }
 
 // Client resolves an Application. Confidential Applications authenticate with
-// their secret (basic or post); public ones with PKCE only.
+// their secret (basic or post); public ones with PKCE only. An M2M Application
+// authenticates with its secret too, but only for the client_credentials
+// grant: it has no login, so no authorization code (ADR 0015).
 func (s *Store) Client(ctx context.Context, id string) (*goidc.Client, error) {
 	app, err := s.q.Application(ctx, id)
 	if err != nil {
@@ -79,7 +81,12 @@ func (s *Store) Client(ctx context.Context, id string) (*goidc.Client, error) {
 	if app.RefreshTokens {
 		c.GrantTypes = append(c.GrantTypes, goidc.GrantRefreshToken)
 	}
-	if app.Type == "confidential" {
+	switch app.Type {
+	case "m2m":
+		c.TokenAuthnMethod = goidc.AuthnMethodSecretBasic
+		c.Secret = hex.EncodeToString(app.SecretHash)
+		c.GrantTypes = []goidc.GrantType{goidc.GrantClientCredentials}
+	case "confidential":
 		c.TokenAuthnMethod = goidc.AuthnMethodSecretBasic
 		c.Secret = hex.EncodeToString(app.SecretHash)
 	}
@@ -90,7 +97,9 @@ func (s *Store) Client(ctx context.Context, id string) (*goidc.Client, error) {
 type Application struct {
 	ClientID               string
 	Name                   string
+	Type                   string // "" derives it from Secret
 	Secret                 string
+	DefaultAPI             string
 	RedirectURIs           []string
 	PostLogoutRedirectURIs []string
 }
@@ -103,10 +112,14 @@ func CreateApplication(ctx context.Context, pool *pgxpool.Pool, app Application)
 		// Non-nil: pgx writes a nil slice as NULL.
 		RedirectUris:           append([]string{}, app.RedirectURIs...),
 		PostLogoutRedirectUris: append([]string{}, app.PostLogoutRedirectURIs...),
+		DefaultApi:             pgtype.Text{String: app.DefaultAPI, Valid: app.DefaultAPI != ""},
 	}
 	if app.Secret != "" {
 		params.Type = "confidential"
 		params.SecretHash = hash(app.Secret)
+	}
+	if app.Type != "" {
+		params.Type = app.Type
 	}
 	return sqlc.New(pool).CreateApplication(ctx, params)
 }

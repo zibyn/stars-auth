@@ -40,7 +40,7 @@ type AndroidApp struct {
 
 type Application struct {
 	ClientID  string    `json:"clientId"`
-	Type      string    `json:"type" enum:"public,confidential" doc:"Confidential Applications authenticate with a client secret; public ones (Apps, SPAs) with PKCE only"`
+	Type      string    `json:"type" enum:"public,confidential,m2m" doc:"Confidential Applications authenticate with a client secret; public ones (Apps, SPAs) with PKCE only; an m2m one is a backend service calling an API as itself"`
 	Builtin   bool      `json:"builtin" doc:"The console: read-only"`
 	CreatedAt time.Time `json:"createdAt"`
 	ApplicationSettings
@@ -114,7 +114,7 @@ func (s *Service) applications(ctx context.Context, clientID string) ([]Applicat
 
 type createApplicationInput struct {
 	Body struct {
-		Type     string              `json:"type" enum:"public,confidential"`
+		Type     string              `json:"type" enum:"public,confidential,m2m"`
 		Settings ApplicationSettings `json:"settings"`
 	}
 }
@@ -130,7 +130,7 @@ func (s *Service) createApplication(ctx context.Context, in *createApplicationIn
 	out := &createApplicationOutput{}
 	clientID := rand.Text()
 	var secretHash []byte
-	if in.Body.Type == "confidential" {
+	if in.Body.Type != "public" {
 		out.Body.Secret = rand.Text()
 		secretHash = oidcstore.SecretHash(out.Body.Secret)
 	}
@@ -139,7 +139,7 @@ func (s *Service) createApplication(ctx context.Context, in *createApplicationIn
 		if err := q.InsertApplication(ctx, sqlc.InsertApplicationParams{ClientID: clientID, Type: in.Body.Type, SecretHash: secretHash}); err != nil {
 			return err
 		}
-		_, err := s.saveSettings(ctx, q, clientID, &in.Body.Settings)
+		_, err := s.saveSettings(ctx, q, clientID, in.Body.Type, &in.Body.Settings)
 		return err
 	})
 	if err != nil {
@@ -153,18 +153,31 @@ func (s *Service) updateApplication(ctx context.Context, in *struct {
 	ClientID string `path:"clientId"`
 	Body     ApplicationSettings
 }) (*struct{}, error) {
-	n, err := s.saveSettings(ctx, s.q, in.ClientID, &in.Body)
-	if err != nil || n > 0 {
+	app, err := s.application(ctx, in.ClientID)
+	if err != nil {
 		return nil, err
 	}
-	return nil, s.notBuiltin(ctx, in.ClientID)
+	if app.Builtin {
+		return nil, errBuiltinApplication
+	}
+	// Its default API is the one API it may call, and Roles hang off it
+	// (ADR 0015).
+	if app.Type == "m2m" && in.Body.DefaultAPI != app.DefaultAPI {
+		return nil, huma.Error422UnprocessableEntity("M2M Application 的默认 API 创建后不可改")
+	}
+	_, err = s.saveSettings(ctx, s.q, in.ClientID, app.Type, &in.Body)
+	return nil, err
 }
+
+// errBuiltinApplication refuses to touch an Application the authentication
+// service owns.
+var errBuiltinApplication = huma.Error409Conflict("内置 Application 不能修改或删除")
 
 // notBuiltin explains why an Application was left alone: 404 or 409.
 func (s *Service) notBuiltin(ctx context.Context, clientID string) error {
 	app, err := s.application(ctx, clientID)
 	if err == nil && app.Builtin {
-		err = huma.Error409Conflict("内置 Application 不能修改或删除")
+		err = errBuiltinApplication
 	}
 	return err
 }
@@ -175,10 +188,24 @@ var (
 	certSHA256  = regexp.MustCompile(`^([0-9A-F]{2}:){31}[0-9A-F]{2}$`)
 )
 
-func (st *ApplicationSettings) validate() error {
+func (st *ApplicationSettings) validate(typ string) error {
+	// An M2M Application only ever calls its one API as itself: no login, so
+	// nothing to redirect to and no native App to associate. Its default API
+	// picks which API that is, and may be the Management API (ADR 0015).
+	if typ == "m2m" {
+		if st.DefaultAPI == "" {
+			return identity.Invalid("M2M Application 必须有默认 API")
+		}
+		if len(st.RedirectURIs) > 0 || len(st.PostLogoutRedirectURIs) > 0 {
+			return identity.Invalid("M2M Application 不登录,没有回调地址")
+		}
+		if len(st.AppleAppIDs) > 0 || len(st.AndroidApps) > 0 {
+			return identity.Invalid("M2M Application 不关联原生 App")
+		}
+	}
 	// Its tokens would let the Application act as any admin who signs in to
 	// it, or as any User on their own account.
-	if st.DefaultAPI == identity.ManagementAPI {
+	if typ != "m2m" && st.DefaultAPI == identity.ManagementAPI {
 		return identity.Invalid("Management API 只供管理端使用")
 	}
 	if st.DefaultAPI == identity.AccountAPI {
@@ -214,8 +241,8 @@ func (st *ApplicationSettings) validate() error {
 
 // saveSettings writes an Application's settings; 0 rows for a built-in or
 // missing one.
-func (s *Service) saveSettings(ctx context.Context, q *sqlc.Queries, clientID string, st *ApplicationSettings) (int64, error) {
-	if err := invalid(st.validate()); err != nil {
+func (s *Service) saveSettings(ctx context.Context, q *sqlc.Queries, clientID, typ string, st *ApplicationSettings) (int64, error) {
+	if err := invalid(st.validate(typ)); err != nil {
 		return 0, err
 	}
 	var secret []byte

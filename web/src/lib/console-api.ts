@@ -136,7 +136,7 @@ export type ApplicationSettings = {
 };
 export type Application = ApplicationSettings & {
 	clientId: string;
-	type: "public" | "confidential";
+	type: "public" | "confidential" | "m2m";
 	builtin: boolean;
 	createdAt: string;
 	webhookSecretUpdatedAt?: string;

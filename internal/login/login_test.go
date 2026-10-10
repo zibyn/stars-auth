@@ -512,3 +512,124 @@ func TestMistypedIdentifierIsNotAUsername(t *testing.T) {
 		}
 	}
 }
+
+// An M2M Application gets a token as itself: the grant is its only one, the
+// token is for its default API, it lives 10 minutes, and there is no refresh
+// token (ADR 0015).
+func TestClientCredentials(t *testing.T) {
+	e := start(t)
+	const trackAPI = "https://track.example"
+	if _, err := e.pool.Exec(context.Background(), `INSERT INTO apis (identifier, name) VALUES ($1, 'Track')`, trackAPI); err != nil {
+		t.Fatal(err)
+	}
+	if err := oidcstore.CreateApplication(context.Background(), e.pool, oidcstore.Application{
+		ClientID: "batch", Name: "对账任务", Type: "m2m", Secret: "m2m-secret", DefaultAPI: trackAPI,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// An M2M Application authenticates with client_secret_basic.
+	token := func(client, secret string, form url.Values) (*http.Response, string) {
+		u, err := url.Parse(e.issuer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u.User = url.UserPassword(client, secret)
+		u.Path = "/token"
+		return e.do("POST", u.String(), form)
+	}
+	access := func(resp *http.Response, body string) map[string]any {
+		var tok struct {
+			AccessToken string `json:"access_token"`
+		}
+		if resp.StatusCode != 200 || json.Unmarshal([]byte(body), &tok) != nil || tok.AccessToken == "" {
+			t.Fatalf("want a token, got %d %s", resp.StatusCode, body)
+		}
+		return e.claims(tok.AccessToken)
+	}
+
+	resp, body := token("batch", "m2m-secret", url.Values{"grant_type": {"client_credentials"}})
+	if resp.StatusCode != 200 {
+		t.Fatalf("client_credentials: %d %s", resp.StatusCode, body)
+	}
+	var tok struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+	}
+	if err := json.Unmarshal([]byte(body), &tok); err != nil {
+		t.Fatal(err)
+	}
+	if tok.ExpiresIn != 600 || tok.RefreshToken != "" {
+		t.Errorf("expires_in %d, refresh token %q", tok.ExpiresIn, tok.RefreshToken)
+	}
+	if at := e.claims(tok.AccessToken); at["aud"] != trackAPI || at["sub"] != "batch" || at["client_id"] != "batch" {
+		t.Errorf("claims: %v", at)
+	}
+	if id := e.claims(tok.AccessToken); id["roles"] != nil || id["entitlements"] != nil {
+		t.Errorf("an M2M token carries no Roles yet: %v", id)
+	}
+
+	// A scope in the request is ignored: the token is for the Application's
+	// default API and grants nothing else. phone is a scope the server would
+	// otherwise grant, so this would fail if the middleware let it through.
+	at := access(token("batch", "m2m-secret", url.Values{"grant_type": {"client_credentials"}, "scope": {"phone"}}))
+	if at["aud"] != trackAPI || at["scope"] != "" {
+		t.Errorf("with a scope: %v", at)
+	}
+
+	// The secret goes in the Authorization header, not the body.
+	resp, body = e.do("POST", "/token", url.Values{
+		"grant_type": {"client_credentials"}, "client_id": {"batch"}, "client_secret": {"m2m-secret"},
+	})
+	if resp.StatusCode != 401 || !strings.Contains(body, "invalid_client") {
+		t.Errorf("client_secret_post: %d %s", resp.StatusCode, body)
+	}
+
+	// It has no login, so no authorization code.
+	if resp, _ := e.authorizeAs("batch", "https://batch.example/cb", ""); resp.StatusCode/100 == 3 {
+		t.Errorf("the authorization endpoint signed an m2m Application in: %d", resp.StatusCode)
+	}
+
+	// A wrong secret, a secret rotated away, and a deleted Application are
+	// all invalid_client.
+	invalidClient := func(what string, resp *http.Response, body string) {
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.Unmarshal([]byte(body), &e)
+		if resp.StatusCode != 401 || e.Error != "invalid_client" {
+			t.Errorf("%s: %d %s", what, resp.StatusCode, body)
+		}
+	}
+	resp, body = token("batch", "wrong", url.Values{"grant_type": {"client_credentials"}})
+	invalidClient("wrong secret", resp, body)
+	if _, err := e.pool.Exec(context.Background(),
+		`UPDATE applications SET secret_hash = $1 WHERE client_id = 'batch'`, oidcstore.SecretHash("new-secret")); err != nil {
+		t.Fatal(err)
+	}
+	resp, body = token("batch", "m2m-secret", url.Values{"grant_type": {"client_credentials"}})
+	invalidClient("a rotated-away secret", resp, body)
+	access(token("batch", "new-secret", url.Values{"grant_type": {"client_credentials"}}))
+	if _, err := e.pool.Exec(context.Background(), `DELETE FROM applications WHERE client_id = 'batch'`); err != nil {
+		t.Fatal(err)
+	}
+	resp, body = token("batch", "new-secret", url.Values{"grant_type": {"client_credentials"}})
+	invalidClient("a deleted Application", resp, body)
+
+	// Neither can a public or a confidential Application use the grant.
+	if err := oidcstore.CreateApplication(context.Background(), e.pool, oidcstore.Application{
+		ClientID: "backend", Name: "订单后端", Type: "confidential", Secret: "backend-secret",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ id, secret string }{{clientID, ""}, {"backend", "backend-secret"}} {
+		u, _ := url.Parse(e.issuer)
+		u.User = url.UserPassword(c.id, c.secret)
+		u.Path = "/token"
+		resp, body = e.do("POST", u.String(), url.Values{"grant_type": {"client_credentials"}})
+		if resp.StatusCode != 401 || !strings.Contains(body, "unauthorized_client") {
+			t.Errorf("%s: %d %s", c.id, resp.StatusCode, body)
+		}
+	}
+}

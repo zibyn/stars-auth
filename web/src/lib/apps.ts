@@ -16,6 +16,7 @@ export const ownCount = (apps: Pick<Application, "builtin">[]) =>
 export const typeName: Record<Application["type"], string> = {
 	public: "无后端应用",
 	confidential: "有后端应用",
+	m2m: "后端服务",
 };
 
 export const typeWhy: Record<Application["type"], string> = {
@@ -23,7 +24,18 @@ export const typeWhy: Record<Application["type"], string> = {
 		"适合 App、小程序和纯前端网页。没有 client secret，登录时靠 PKCE 防止授权码被截走。类型创建后不能更改。",
 	confidential:
 		"适合有自己服务器的网站。后端用 client secret 证明自己的身份。类型创建后不能更改。",
+	m2m: "没有用户登录，以自己的身份调用 API。用自己的 client secret 换令牌，令牌只对它选定的那个 API 有效。类型和默认 API 创建后都不能更改。",
 };
+
+// accountAPI is the built-in API the account center calls; no Application
+// may use it as its default API.
+export const accountAPI = "urn:stars-auth:account-api";
+
+// m2mAPIs are the APIs an M2M Application may choose as its default API: any
+// registered one, the Management API included (ADR 0015), but not the
+// Account API.
+export const m2mAPIs = <T extends { identifier: string }>(apis: T[]): T[] =>
+	apis.filter((a) => a.identifier !== accountAPI);
 
 export const appName = z
 	.string()
@@ -43,14 +55,17 @@ export const uriLines = z.string().superRefine((v, ctx) => {
 	}
 });
 
-// createSchema checks the create page: a name and, for the web, at least
-// one callback URL.
-export const createSchema = (redirect: boolean) =>
+// createSchema checks the create page: a name, at least one callback URL for
+// the web, and the one API a 后端服务 calls.
+export const createSchema = (redirect: boolean, needsAPI = false) =>
 	z.object({
 		name: appName,
 		redirectUris: redirect
 			? uriLines.refine((v) => lines(v).length > 0, "请填写回调地址。")
 			: z.string(),
+		defaultApi: z
+			.string()
+			.refine((v) => !needsAPI || v.length > 0, "请选择默认 API 资源。"),
 	});
 
 // httpURL is an optional address the server calls out to.

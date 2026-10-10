@@ -1,15 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+	accountAPI,
 	androidApps,
 	androidLines,
 	createSchema,
 	loginSchema,
+	m2mAPIs,
 	nativeSchema,
 	onlyBuiltin,
 	ownCount,
 	webhookSchema,
 } from "./apps.ts";
+import { managementAPI } from "./users.ts";
 
 const consoleApp = { builtin: true };
 const shop = { builtin: false };
@@ -37,7 +40,13 @@ const fieldErrors = (r: {
 
 test("creating an Application needs a name and, on the web, callback URLs", () => {
 	assert.deepEqual(
-		fieldErrors(createSchema(true).safeParse({ name: " ", redirectUris: "" })),
+		fieldErrors(
+			createSchema(true).safeParse({
+				name: " ",
+				redirectUris: "",
+				defaultApi: "",
+			}),
+		),
 		{ name: "请填写名称。", redirectUris: "请填写回调地址。" },
 	);
 	assert.deepEqual(
@@ -45,14 +54,51 @@ test("creating an Application needs a name and, on the web, callback URLs", () =
 			createSchema(true).safeParse({
 				name: "星选商城",
 				redirectUris: "https://shop.example.com/callback\nshop/callback",
+				defaultApi: "",
 			}),
 		),
 		{ redirectUris: "「shop/callback」不是有效的地址。" },
 	);
 	assert.equal(
-		createSchema(false).safeParse({ name: "星选商城", redirectUris: "" })
-			.success,
+		createSchema(false).safeParse({
+			name: "星选商城",
+			redirectUris: "",
+			defaultApi: "",
+		}).success,
 		true,
+	);
+});
+
+test("a 后端服务 must pick its default API", () => {
+	assert.deepEqual(
+		fieldErrors(
+			createSchema(false, true).safeParse({
+				name: "对账单任务",
+				redirectUris: "",
+				defaultApi: "",
+			}),
+		),
+		{ defaultApi: "请选择默认 API 资源。" },
+	);
+	assert.equal(
+		createSchema(false, true).safeParse({
+			name: "对账单任务",
+			redirectUris: "",
+			defaultApi: "https://api.shop",
+		}).success,
+		true,
+	);
+});
+
+test("an M2M Application may call any API but the Account API", () => {
+	const apis = [
+		{ identifier: "https://api.shop" },
+		{ identifier: managementAPI },
+		{ identifier: accountAPI },
+	];
+	assert.deepEqual(
+		m2mAPIs(apis).map((a) => a.identifier),
+		["https://api.shop", managementAPI],
 	);
 });
 

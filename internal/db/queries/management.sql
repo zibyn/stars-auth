@@ -166,7 +166,7 @@ UPDATE applications SET
 WHERE client_id = @client_id AND NOT builtin;
 
 -- name: SetApplicationSecret :execrows
-UPDATE applications SET secret_hash = $2 WHERE client_id = $1 AND type = 'confidential' AND NOT builtin;
+UPDATE applications SET secret_hash = $2 WHERE client_id = $1 AND type <> 'public' AND NOT builtin;
 
 -- name: DeleteApplication :exec
 DELETE FROM applications WHERE client_id = $1 AND NOT builtin;

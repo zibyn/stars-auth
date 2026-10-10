@@ -154,6 +154,9 @@ func New(ctx context.Context, pool *pgxpool.Pool, keyring *crypt.Keyring, issuer
 				s.authenticate)),
 		),
 		oidcop.WithRefreshTokenGrant(store, oidcop.WithRefreshTokenRotation()),
+		// Only an M2M Application advertises this grant; it mints a token for
+		// the Application itself (ADR 0015).
+		oidcop.WithClientCredentialsGrant(),
 		// Access tokens are JWTs and not stored: revoking one does nothing,
 		// and they lapse within their 10 minutes.
 		oidcop.WithTokenRevocation(func(context.Context, *goidc.Client) bool { return true }),
@@ -190,7 +193,7 @@ func New(ctx context.Context, pool *pgxpool.Pool, keyring *crypt.Keyring, issuer
 // Register adds the OIDC endpoints, the direct auth API and the setup page
 // to mux.
 func (s *Service) Register(mux *http.ServeMux) {
-	s.op.RegisterRoutes(mux)
+	s.op.RegisterRoutes(mux, clientCredentialsRules)
 	mux.HandleFunc("GET /altcha/challenge", s.pow.ServeChallenge)
 	mux.HandleFunc("GET /altcha/altcha.js", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
@@ -209,6 +212,31 @@ func (s *Service) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /login/providers/{id}/callback", s.providerCallback)
 	mux.HandleFunc("GET /setup", s.setupPage)
 	mux.HandleFunc("POST /setup", s.setup)
+}
+
+// clientCredentialsRules applies ADR 0015 to a client_credentials request:
+// its scope is ignored (the token is for the Application's default API and
+// grants nothing else), and the secret goes in the Authorization header, not
+// the body — an M2M Application authenticates with client_secret_basic only.
+// Only an m2m Application may use the grant, so the grant type alone
+// identifies such a request, wherever the token endpoint ends up mounted.
+func clientCredentialsRules(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost ||
+			r.PostFormValue("grant_type") != string(goidc.GrantClientCredentials) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		r.PostForm.Del("scope")
+		if r.PostFormValue("client_secret") != "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"invalid_client","error_description":"client_credentials requires client_secret_basic"}`))
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // audience makes an access token for the Application's default API, with

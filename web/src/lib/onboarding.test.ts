@@ -11,6 +11,7 @@ test("each platform card maps to its type and callback requirement", () => {
 		mini: ["public", false],
 		spa: ["public", true],
 		web: ["confidential", true],
+		m2m: ["m2m", false],
 	});
 });
 
@@ -39,6 +40,18 @@ test("a public app has no secret to save", () => {
 	);
 });
 
+test("an m2m app's default API is settled at creation", () => {
+	assert.deepEqual(
+		done(checklist({ type: "m2m", defaultApi: "https://api.shop" }, false)),
+		{
+			clientId: true,
+			secret: false,
+			api: true,
+			code: undefined,
+		},
+	);
+});
+
 test("each platform gets its own integration code", () => {
 	const at = {
 		issuer: "https://auth.example.com",
@@ -57,7 +70,9 @@ test("each platform gets its own integration code", () => {
 		/redirect_uri: "https:\/\/shop\.example\.com\/callback"/,
 	);
 	assert.match(code("web"), /client_secret/);
-	for (const p of ["app", "mini", "spa", "web"] as const) {
+	assert.match(code("m2m"), /grant_type=client_credentials/);
+	assert.match(code("m2m"), /-u "app_1:\$STARS_CLIENT_SECRET"/);
+	for (const p of ["app", "mini", "spa", "web", "m2m"] as const) {
 		assert.match(code(p), /app_1/);
 	}
 });

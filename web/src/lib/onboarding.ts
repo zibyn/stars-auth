@@ -30,6 +30,12 @@ export const platforms = {
 		type: "confidential",
 		redirect: true,
 	},
+	m2m: {
+		name: "后端服务（M2M）",
+		desc: "定时任务、内部服务。没有用户登录，以自己的身份调用一个 API。",
+		type: "m2m",
+		redirect: false,
+	},
 } satisfies Record<
 	string,
 	{ name: string; desc: string; type: Application["type"]; redirect: boolean }
@@ -58,7 +64,7 @@ export const checklist = (
 	secretSaved: boolean,
 ): { key: "clientId" | "secret" | "api" | "code"; done?: boolean }[] => [
 	{ key: "clientId", done: true },
-	...(app.type === "confidential"
+	...(app.type !== "public"
 		? [{ key: "secret" as const, done: secretSaved }]
 		: []),
 	{ key: "api", done: !!app.defaultApi },
@@ -110,6 +116,13 @@ client_id=${clientId}
 				code: `issuer        = ${issuer}
 client_id     = ${clientId}
 client_secret = （刚才保存的那个）`,
+			};
+		case "m2m":
+			return {
+				help: "用 client_credentials 换令牌：client_id 和 client_secret 走 HTTP Basic 认证。令牌 10 分钟过期，没有 refresh token，过期就再换一张。",
+				code: `curl -u "${clientId}:$STARS_CLIENT_SECRET" \\
+  -d grant_type=client_credentials \\
+  ${issuer}/token`,
 			};
 	}
 }
