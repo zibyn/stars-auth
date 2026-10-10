@@ -269,9 +269,9 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (answer, 
 		if err := s.ids.Start(ctx, clientIP(r)); err != nil {
 			return mistake(err)
 		}
-		options, challenge, err := s.passkeys.LoginOptions()
+		options, challenge, err := s.passkeys.LoginOptions(ctx)
 		if err != nil {
-			return answer{}, err
+			return mistake(err)
 		}
 		st.PasskeyChallenge = challenge
 		if err := save(); err != nil {

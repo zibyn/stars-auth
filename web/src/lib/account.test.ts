@@ -150,6 +150,7 @@ const meUser = (over: Partial<Parameters<typeof reauthChoices>[0]> = {}) => ({
 	identifiers: [{ kind: "phone" }],
 	hasPassword: false,
 	passwordAllowed: false,
+	passkeyLogin: true,
 	twoFactor: { enabled: false },
 	...over,
 });
@@ -159,6 +160,10 @@ test("reauthentication offers a Passkey only to a User who has one", () => {
 	assert.deepEqual(reauthChoices(meUser(), true, true), ["passkey", "phone"]);
 	// A browser that cannot run the ceremony is offered no Passkey.
 	assert.deepEqual(reauthChoices(meUser(), true, false), ["phone"]);
+	// Nor is anyone while the instance has Passkey login off.
+	assert.deepEqual(reauthChoices(meUser({ passkeyLogin: false }), true, true), [
+		"phone",
+	]);
 });
 
 test("with 两步验证 on, a Passkey joins the TOTP as a way to reauthenticate", () => {

@@ -24,9 +24,9 @@
 
 ## 二期(0.x):安全增强与外部登录
 
-- Passkey(托管页 conditional UI、直连 API 的 WebAuthn challenge、SDK 调用系统 API)。
-- TOTP 2FA 与恢复码;"管理员必须启用 2FA 或 Passkey"开关(**已实现**,#79、#86;Passkey 落地前这个开关只管两步验证)。
-- 动态生成 `/.well-known/` 文件:`apple-app-site-association`、`assetlinks.json`、`passkey-endpoints`、`change-password`。
+- Passkey(托管页 conditional UI、直连 API 的 WebAuthn challenge、账号中心)**已实现**(#103–#111),含实例开关;SDK 调用系统 API 见 #112。
+- TOTP 2FA 与恢复码;"管理员必须启用 2FA 或 Passkey"开关(**已实现**,#79、#86;Passkey 落地后这个开关同时也认 Passkey,#108)。
+- 动态生成 `/.well-known/` 文件(**部分实现**,#105):`apple-app-site-association`、`assetlinks.json`、`passkey-endpoints` 已做,`change-password` 还没做(#113)。
 - Provider 框架落地:通用 OIDC、通用 OAuth2、Apple(含注销回调),以及 Google、Microsoft、GitHub 三个具名供应商;管理端把它们收进独立的「认证源」分组(**已实现**,#87、#98、#99、#100)。
 - `client_credentials` 与服务账号、默认 Role、Management API 对外文档。
 - 审计导出 CSV;主密钥轮换命令。

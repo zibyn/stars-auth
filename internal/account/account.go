@@ -183,6 +183,7 @@ type meOutput struct {
 		PasswordAllowed bool         `json:"passwordAllowed" doc:"The password login setting lets this User sign in with, and set, a password"`
 		RecentAuthUntil time.Time    `json:"recentAuthUntil" doc:"Until when sensitive actions need no reauthentication"`
 		TwoFactor       TwoFactor    `json:"twoFactor"`
+		PasskeyLogin    bool         `json:"passkeyLogin" doc:"The instance offers Passkey login: the account center shows the Passkey section and reauthentication way only then"`
 		// External Identities and the Providers to bind.
 		ExternalIdentities []ExternalIdentity `json:"externalIdentities" nullable:"false"`
 		Providers          []Provider         `json:"providers" nullable:"false" doc:"The enabled Providers, to bind or reauthenticate at"`
@@ -225,7 +226,7 @@ func (s *Service) me(ctx context.Context, _ *struct{}) (*meOutput, error) {
 	out := &meOutput{}
 	b := &out.Body
 	b.Sub, b.CreatedAt, b.HasPassword, b.PasswordAllowed = c.sub, u.CreatedAt.Time, u.HasPassword, u.PasswordAllowed
-	b.RecentAuthUntil, b.TwoFactor = c.authTime.Add(recent), twoFactorOf(u)
+	b.RecentAuthUntil, b.TwoFactor, b.PasskeyLogin = c.authTime.Add(recent), twoFactorOf(u), u.PasskeyLogin
 	if b.ExternalIdentities, err = s.externalIdentities(ctx, c.sub); err != nil {
 		return nil, err
 	}
@@ -732,7 +733,7 @@ func (s *Service) beginPasskey(ctx context.Context, _ *struct{}) (*passkeyOption
 	}
 	js, err := s.passkeys.Begin(ctx, c.sub, masked(c.sub, ids), c.session)
 	if err != nil {
-		return nil, err
+		return nil, fail(err)
 	}
 	out := &passkeyOptionsOutput{}
 	out.Body.Options = js

@@ -39,7 +39,10 @@ SELECT u.created_at,
            SELECT 1 FROM user_roles r WHERE r.user_id = u.id AND r.api = 'urn:stars-auth:management-api'))::boolean AS password_allowed,
        -- When 两步验证 was turned on; null while it is off.
        (SELECT t.confirmed_at FROM totp_credentials t WHERE t.user_id = u.id) AS two_factor_since,
-       (SELECT count(*) FROM recovery_codes c WHERE c.user_id = u.id AND c.used_at IS NULL) AS recovery_codes_left
+       (SELECT count(*) FROM recovery_codes c WHERE c.user_id = u.id AND c.used_at IS NULL) AS recovery_codes_left,
+       -- Whether the instance offers Passkey login: the account center hides
+       -- its Passkey section and reauthentication way while it does not.
+       s.passkey_login
 FROM users u, settings s
 WHERE u.id = $1
 `
@@ -51,6 +54,7 @@ type AccountUserRow struct {
 	PasswordAllowed   bool
 	TwoFactorSince    pgtype.Timestamptz
 	RecoveryCodesLeft int64
+	PasskeyLogin      bool
 }
 
 func (q *Queries) AccountUser(ctx context.Context, id string) (AccountUserRow, error) {
@@ -63,6 +67,7 @@ func (q *Queries) AccountUser(ctx context.Context, id string) (AccountUserRow, e
 		&i.PasswordAllowed,
 		&i.TwoFactorSince,
 		&i.RecoveryCodesLeft,
+		&i.PasskeyLogin,
 	)
 	return i, err
 }
@@ -102,7 +107,7 @@ func (q *Queries) LoginPaths(ctx context.Context, userID string) (LoginPathsRow,
 }
 
 const mustKeepPasskey = `-- name: MustKeepPasskey :one
-SELECT (s.admins_need_two_factor AND NOT totp_confirmed($1) AND EXISTS (
+SELECT (s.passkey_login AND s.admins_need_two_factor AND NOT totp_confirmed($1) AND EXISTS (
     SELECT 1 FROM user_roles r WHERE r.user_id = $1 AND r.api = 'urn:stars-auth:management-api')
     AND EXISTS (SELECT 1 FROM passkeys p WHERE p.user_id = $1 AND p.id = $2)
     AND NOT EXISTS (SELECT 1 FROM passkeys p WHERE p.user_id = $1 AND p.id <> $2))::boolean AS must
@@ -125,14 +130,14 @@ func (q *Queries) MustKeepPasskey(ctx context.Context, arg MustKeepPasskeyParams
 }
 
 const mustKeepTwoFactor = `-- name: MustKeepTwoFactor :one
-SELECT (s.admins_need_two_factor AND NOT has_passkey($1) AND EXISTS (
+SELECT (s.admins_need_two_factor AND NOT (s.passkey_login AND has_passkey($1)) AND EXISTS (
     SELECT 1 FROM user_roles r WHERE r.user_id = $1 AND r.api = 'urn:stars-auth:management-api'))::boolean AS must
 FROM settings s
 `
 
 // 管理员必须启用两步验证或 Passkey is on, the User holds a Management API
-// Role, and no Passkey is left to satisfy it: turning 两步验证 off would
-// lock them out of the Management API.
+// Role, and no Passkey counts (the switch is off, or they have none):
+// turning 两步验证 off would lock them out of the Management API.
 func (q *Queries) MustKeepTwoFactor(ctx context.Context, uid string) (bool, error) {
 	row := q.db.QueryRow(ctx, mustKeepTwoFactor, uid)
 	var must bool

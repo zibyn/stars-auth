@@ -6,6 +6,7 @@ SELECT count(*) > 0 AS admin,
        COALESCE(array_agg(DISTINCT rp.permission ORDER BY rp.permission)
                 FILTER (WHERE rp.permission IS NOT NULL), '{}')::text[] AS permissions,
        two_factor_satisfied(@sub) AS two_factor,
+       totp_confirmed(@sub) AS totp,
        (SELECT admins_need_two_factor FROM settings) AS two_factor_required
 FROM user_roles ur LEFT JOIN role_permissions rp USING (api, role)
 WHERE ur.user_id = @sub AND ur.api = @api
@@ -172,7 +173,7 @@ DELETE FROM applications WHERE client_id = $1 AND NOT builtin;
 
 -- name: GetSettings :one
 SELECT password_login, require_phone, daily_send_limit, terms_url, privacy_url, terms_version, audit_retention_days,
-       admins_need_two_factor
+       admins_need_two_factor, passkey_login
 FROM settings;
 
 -- name: UpdateSettings :exec
@@ -181,7 +182,7 @@ WITH u AS (
     UPDATE settings SET password_login = @password_login, require_phone = @require_phone,
         daily_send_limit = @daily_send_limit, terms_url = @terms_url, privacy_url = @privacy_url,
         terms_version = @terms_version, audit_retention_days = @audit_retention_days,
-        admins_need_two_factor = @admins_need_two_factor
+        admins_need_two_factor = @admins_need_two_factor, passkey_login = @passkey_login
 )
 INSERT INTO audit_log (event, sub, detail)
 VALUES ('settings.updated', NULL, jsonb_build_object('by', @by::text));

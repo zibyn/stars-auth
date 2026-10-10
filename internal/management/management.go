@@ -59,6 +59,7 @@ type caller struct {
 	sub         string
 	permissions []string
 	satisfied   bool // 两步验证或 Passkey 已满足
+	totp        bool // a confirmed TOTP, whether or not a Passkey also does
 }
 
 // TwoFactorRequired is the code of the 403 an admin without 两步验证 or a
@@ -200,7 +201,7 @@ func (s *Service) authorize(api huma.API) func(huma.Context, func(huma.Context))
 			_ = huma.WriteErr(api, ctx, http.StatusForbidden, "missing permission "+want)
 			return
 		}
-		next(huma.WithValue(ctx, callerKey{}, caller{sub: sub, permissions: c.Permissions, satisfied: c.TwoFactor}))
+		next(huma.WithValue(ctx, callerKey{}, caller{sub: sub, permissions: c.Permissions, satisfied: c.TwoFactor, totp: c.Totp}))
 		s.auditWrite(ctx, sub)
 	}
 }

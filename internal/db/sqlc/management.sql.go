@@ -27,6 +27,7 @@ SELECT count(*) > 0 AS admin,
        COALESCE(array_agg(DISTINCT rp.permission ORDER BY rp.permission)
                 FILTER (WHERE rp.permission IS NOT NULL), '{}')::text[] AS permissions,
        two_factor_satisfied($1) AS two_factor,
+       totp_confirmed($1) AS totp,
        (SELECT admins_need_two_factor FROM settings) AS two_factor_required
 FROM user_roles ur LEFT JOIN role_permissions rp USING (api, role)
 WHERE ur.user_id = $1 AND ur.api = $2
@@ -42,6 +43,7 @@ type CallerRow struct {
 	Admin             bool
 	Permissions       []string
 	TwoFactor         bool
+	Totp              bool
 	TwoFactorRequired bool
 }
 
@@ -55,6 +57,7 @@ func (q *Queries) Caller(ctx context.Context, arg CallerParams) (CallerRow, erro
 		&i.Admin,
 		&i.Permissions,
 		&i.TwoFactor,
+		&i.Totp,
 		&i.TwoFactorRequired,
 	)
 	return i, err
@@ -176,7 +179,7 @@ func (q *Queries) DeleteUser(ctx context.Context, arg DeleteUserParams) (int64, 
 
 const getSettings = `-- name: GetSettings :one
 SELECT password_login, require_phone, daily_send_limit, terms_url, privacy_url, terms_version, audit_retention_days,
-       admins_need_two_factor
+       admins_need_two_factor, passkey_login
 FROM settings
 `
 
@@ -189,6 +192,7 @@ type GetSettingsRow struct {
 	TermsVersion        string
 	AuditRetentionDays  int32
 	AdminsNeedTwoFactor bool
+	PasskeyLogin        bool
 }
 
 func (q *Queries) GetSettings(ctx context.Context) (GetSettingsRow, error) {
@@ -203,6 +207,7 @@ func (q *Queries) GetSettings(ctx context.Context) (GetSettingsRow, error) {
 		&i.TermsVersion,
 		&i.AuditRetentionDays,
 		&i.AdminsNeedTwoFactor,
+		&i.PasskeyLogin,
 	)
 	return i, err
 }
@@ -896,7 +901,7 @@ WITH u AS (
     UPDATE settings SET password_login = $2, require_phone = $3,
         daily_send_limit = $4, terms_url = $5, privacy_url = $6,
         terms_version = $7, audit_retention_days = $8,
-        admins_need_two_factor = $9
+        admins_need_two_factor = $9, passkey_login = $10
 )
 INSERT INTO audit_log (event, sub, detail)
 VALUES ('settings.updated', NULL, jsonb_build_object('by', $1::text))
@@ -912,6 +917,7 @@ type UpdateSettingsParams struct {
 	TermsVersion        string
 	AuditRetentionDays  int32
 	AdminsNeedTwoFactor bool
+	PasskeyLogin        bool
 }
 
 // Changes the login policy; audited with who did it.
@@ -926,6 +932,7 @@ func (q *Queries) UpdateSettings(ctx context.Context, arg UpdateSettingsParams) 
 		arg.TermsVersion,
 		arg.AuditRetentionDays,
 		arg.AdminsNeedTwoFactor,
+		arg.PasskeyLogin,
 	)
 	return err
 }

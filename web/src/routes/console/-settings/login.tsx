@@ -41,6 +41,7 @@ export function LoginTab() {
 		<div className="space-y-10">
 			<CodeLogin channels={channels} />
 			<PasswordLogin current={p} editable={editable} />
+			<PasskeyLogin current={p} editable={editable} />
 			<RequirePhone current={p} editable={editable} sms={sms} />
 			<Terms current={p} editable={editable} />
 			<AdminsNeedTwoFactor current={p} editable={editable} />
@@ -161,6 +162,43 @@ function PasswordLogin({ current, editable }: SectionProps) {
 									</Alert>
 								)}
 							</>
+						)}
+					</FormField>
+				)}
+			</form.Field>
+		</Section>
+	);
+}
+
+// PasskeyLogin: the server turns it down while the admin saving it satisfies
+// 管理员必须启用两步验证或 Passkey with a Passkey alone; SaveBar shows why.
+function PasskeyLogin({ current, editable }: SectionProps) {
+	const save = useSavePolicy();
+	const form = useForm({
+		defaultValues: { passkeyLogin: current.passkeyLogin },
+		onSubmit: ({ value }) => save.mutate(value),
+	});
+	return (
+		<Section
+			title="Passkey"
+			editable={editable}
+			form={form}
+			footer={editable && <SaveBar save={save} />}
+		>
+			<form.Field name="passkeyLogin">
+				{(field) => (
+					<FormField
+						field={field}
+						label="允许 Passkey 登录"
+						help="用户可以在设备或密码管理器里各存一把 Passkey，登录时不用等验证码。关闭后所有 Passkey 入口都会消失，已添加的 Passkey 会保留，重新打开后照常可用。"
+					>
+						{({ id }) => (
+							<Switch
+								id={id}
+								checked={field.state.value}
+								disabled={!editable}
+								onCheckedChange={field.handleChange}
+							/>
 						)}
 					</FormField>
 				)}

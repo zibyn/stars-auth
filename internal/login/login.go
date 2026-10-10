@@ -838,16 +838,25 @@ func (s *Service) render(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 	// The first step carries Passkey assertion options, and a fresh challenge
 	// in the store: what makes an assertion for a page already left behind
 	// fail. Later steps (code, password, TOTP, consent, bind) carry none.
+	// With Passkey login off the page carries none either: no conditional UI,
+	// no 「使用 Passkey 登录」 button, and no webauthn autocomplete hint
+	// (docs/spec/consoles.md#设置).
 	if p.firstStep() {
-		options, challenge, err := s.passkeys.LoginOptions()
+		on, err := s.passkeys.Enabled(ctx)
 		if err != nil {
 			return goidc.StatusFailure, err
 		}
-		if as.Store == nil {
-			as.Store = map[string]any{}
+		if on {
+			options, challenge, err := s.passkeys.LoginOptions(ctx)
+			if err != nil {
+				return goidc.StatusFailure, err
+			}
+			if as.Store == nil {
+				as.Store = map[string]any{}
+			}
+			as.Store[storePasskeyChallenge] = challenge
+			p.Passkey = template.JS(options)
 		}
-		as.Store[storePasskeyChallenge] = challenge
-		p.Passkey = template.JS(options)
 	}
 	page(w, http.StatusOK, "login", p)
 	return goidc.StatusPending, nil

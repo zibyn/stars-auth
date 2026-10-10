@@ -81,7 +81,7 @@ func TestPasskeySignIn(t *testing.T) {
 	store, a, pool, sub := start(t)
 	enroll(t, store, a, sub)
 
-	raw, challenge, err := store.LoginOptions()
+	raw, challenge, err := store.LoginOptions(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,11 +121,11 @@ func TestPasskeySignInRefused(t *testing.T) {
 	store, a, pool, sub := start(t)
 	enroll(t, store, a, sub)
 	ctx := context.Background()
-	raw, challenge, _ := store.LoginOptions()
+	raw, challenge, _ := store.LoginOptions(context.Background())
 
 	unknown := passkeytest.New(t)
 	unknown.Origin, unknown.UserHandle = a.Origin, a.UserHandle
-	if other, _, err := store.LoginOptions(); err != nil {
+	if other, _, err := store.LoginOptions(context.Background()); err != nil {
 		t.Fatal(err)
 	} else if _, err := store.SignIn(ctx, challenge, unknown.Assert(other)); !errors.Is(err, passkey.ErrNoPasskey) {
 		t.Fatalf("an unknown credential: %v", err)
@@ -154,7 +154,7 @@ func TestPasskeySignInRefused(t *testing.T) {
 	}
 
 	// A fresh challenge for the same page: the old assertion no longer fits.
-	if _, other, err := store.LoginOptions(); err != nil {
+	if _, other, err := store.LoginOptions(context.Background()); err != nil {
 		t.Fatal(err)
 	} else if _, err := store.SignIn(ctx, other, a.Assert(raw)); !errors.Is(err, passkey.ErrLoginFail) {
 		t.Fatalf("another challenge's assertion: %v", err)
@@ -179,13 +179,13 @@ func TestPasskeyCounterRegression(t *testing.T) {
 	store, a, pool, sub := start(t)
 	enroll(t, store, a, sub)
 	ctx := context.Background()
-	raw, challenge, _ := store.LoginOptions()
+	raw, challenge, _ := store.LoginOptions(context.Background())
 
 	a.SignCount = 5
 	if _, err := store.SignIn(ctx, challenge, a.Assert(raw)); err != nil {
 		t.Fatal(err)
 	}
-	raw, challenge, _ = store.LoginOptions()
+	raw, challenge, _ = store.LoginOptions(context.Background())
 	a.SignCount = 4
 	if _, err := store.SignIn(ctx, challenge, a.Assert(raw)); !errors.Is(err, passkey.ErrCloned) {
 		t.Fatalf("counter regressed: %v", err)
@@ -208,7 +208,7 @@ func TestPasskeySignInSynced(t *testing.T) {
 	a.BE, a.BS = true, true
 	enroll(t, store, a, sub)
 
-	raw, challenge, _ := store.LoginOptions()
+	raw, challenge, _ := store.LoginOptions(context.Background())
 	a.SignCount = 1
 	in, err := store.SignIn(context.Background(), challenge, a.Assert(raw))
 	if err != nil {

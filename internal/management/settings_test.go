@@ -18,6 +18,7 @@ type settings struct {
 	TermsVersion        string `json:"termsVersion"`
 	AuditRetentionDays  int    `json:"auditRetentionDays"`
 	AdminsNeedTwoFactor bool   `json:"adminsNeedTwoFactor"`
+	PasskeyLogin        bool   `json:"passkeyLogin"`
 }
 
 // problem calls GET path and returns the status and the error's code.
@@ -42,7 +43,7 @@ func TestAdminsMustUseTwoFactor(t *testing.T) {
 	e := start(t)
 	e.user("CAROL", []string{"readonly"})
 	owner, carol := e.token(e.owner, nil), e.token("CAROL", nil)
-	policy := settings{PasswordLogin: "admins", DailySendLimit: 1000, AuditRetentionDays: 180, AdminsNeedTwoFactor: true}
+	policy := settings{PasswordLogin: "admins", DailySendLimit: 1000, AuditRetentionDays: 180, AdminsNeedTwoFactor: true, PasskeyLogin: true}
 
 	if code := e.call("PUT", owner, "/settings", policy, nil); code != 422 {
 		t.Fatalf("turn on without 两步验证 of one's own: %d, want 422", code)
@@ -80,7 +81,7 @@ func TestPasskeyMeetsAdminsTwoFactor(t *testing.T) {
 	e.passkey(e.owner, "工作电脑", false) // the owner has no TOTP, only a Passkey
 	owner := e.token(e.owner, nil)
 
-	policy := settings{PasswordLogin: "admins", DailySendLimit: 1000, AuditRetentionDays: 180, AdminsNeedTwoFactor: true}
+	policy := settings{PasswordLogin: "admins", DailySendLimit: 1000, AuditRetentionDays: 180, AdminsNeedTwoFactor: true, PasskeyLogin: true}
 	if code := e.call("PUT", owner, "/settings", policy, nil); code != 204 {
 		t.Fatalf("turn on with only a Passkey: %d", code)
 	}
@@ -112,13 +113,13 @@ func TestAdminChangesLoginPolicy(t *testing.T) {
 	owner, ro := e.token(e.owner, nil), e.token("RO", nil)
 
 	var got settings
-	if code := e.get(ro, "/settings", &got); code != 200 || got != (settings{PasswordLogin: "admins", DailySendLimit: 1000, AuditRetentionDays: 180}) {
+	if code := e.get(ro, "/settings", &got); code != 200 || got != (settings{PasswordLogin: "admins", DailySendLimit: 1000, AuditRetentionDays: 180, PasskeyLogin: true}) {
 		t.Fatalf("defaults: %d %+v", code, got)
 	}
 	want := settings{
 		PasswordLogin: "all", RequirePhone: true, DailySendLimit: 50,
 		TermsURL: "https://example.com/terms", PrivacyURL: "https://example.com/privacy", TermsVersion: "2026-10",
-		AuditRetentionDays: 30,
+		AuditRetentionDays: 30, PasskeyLogin: true,
 	}
 	if code := e.call("PUT", ro, "/settings", want, nil); code != 403 {
 		t.Errorf("readonly PUT: %d, want 403", code)
@@ -140,6 +141,71 @@ func TestAdminChangesLoginPolicy(t *testing.T) {
 		if code := e.call("PUT", owner, "/settings", bad, nil); code != 422 {
 			t.Errorf("%s: %d, want 422", name, code)
 		}
+	}
+}
+
+// The Passkey switch cannot be turned off while the admin turning it off
+// satisfies 管理员必须启用两步验证或 Passkey only with a Passkey: with it off
+// their Passkey stops counting and they would be locked out. Turning the
+// requirement off in the same save lets it through
+// (docs/spec/consoles.md#设置).
+func TestPasskeySwitchRefusesToLockOutAnAdmin(t *testing.T) {
+	e := start(t)
+	e.passkey(e.owner, "工作电脑", false) // the owner has no TOTP, only a Passkey
+	owner := e.token(e.owner, nil)
+	on := settings{PasswordLogin: "admins", DailySendLimit: 1000, AuditRetentionDays: 180, AdminsNeedTwoFactor: true, PasskeyLogin: true}
+	if code := e.call("PUT", owner, "/settings", on, nil); code != 204 {
+		t.Fatalf("turn the requirement on with only a Passkey: %d", code)
+	}
+
+	off := on
+	off.PasskeyLogin = false
+	if code := e.call("PUT", owner, "/settings", off, nil); code != 422 {
+		t.Fatalf("turn the Passkey switch off with only a Passkey: %d, want 422", code)
+	}
+	both := off
+	both.AdminsNeedTwoFactor = false
+	if code := e.call("PUT", owner, "/settings", both, nil); code != 204 {
+		t.Fatalf("turn both off: %d", code)
+	}
+}
+
+// With the Passkey switch off, a Passkey stops satisfying 管理员必须启用两步
+// 验证或 Passkey: an admin whose only way in is a Passkey is turned away, and
+// the user detail says the requirement is no longer met.
+func TestPasskeySwitchStopsCountingForAdmins(t *testing.T) {
+	e := start(t)
+	e.user("CAROL", []string{"readonly"})
+	e.passkey("CAROL", "手机", true)
+	e.twoFactorOn(e.owner) // the owner has a TOTP, so the switch may go off
+	owner := e.token(e.owner, nil)
+
+	policy := settings{PasswordLogin: "admins", DailySendLimit: 1000, AuditRetentionDays: 180, AdminsNeedTwoFactor: true, PasskeyLogin: true}
+	if code := e.call("PUT", owner, "/settings", policy, nil); code != 204 {
+		t.Fatalf("turn the requirement on: %d", code)
+	}
+	carol := e.token("CAROL", nil)
+	if code := e.get(carol, "/me", nil); code != 200 {
+		t.Errorf("CAROL's Passkey lets her in: %d", code)
+	}
+	var detail struct {
+		TwoFactor          bool `json:"twoFactor"`
+		TwoFactorOrPasskey bool `json:"twoFactorOrPasskey"`
+	}
+	if code := e.get(owner, "/users/CAROL", &detail); code != 200 || detail.TwoFactor || !detail.TwoFactorOrPasskey {
+		t.Errorf("detail, met by a Passkey: %d %+v", code, detail)
+	}
+
+	off := policy
+	off.PasskeyLogin = false
+	if code := e.call("PUT", owner, "/settings", off, nil); code != 204 {
+		t.Fatalf("turn the Passkey switch off: %d", code)
+	}
+	if code, err := e.problem(carol, "/me"); code != 403 || err != "two_factor_required" {
+		t.Errorf("CAROL with only a Passkey while off: %d %q", code, err)
+	}
+	if code := e.get(owner, "/users/CAROL", &detail); code != 200 || detail.TwoFactor || detail.TwoFactorOrPasskey {
+		t.Errorf("detail, Passkey no longer counting: %d %+v", code, detail)
 	}
 }
 

@@ -224,6 +224,72 @@ func TestPasskeyLoginRefused(t *testing.T) {
 	}
 }
 
+// setPasskeyLogin turns the instance's Passkey switch on or off.
+func setPasskeyLogin(t *testing.T, e *env, on bool) {
+	t.Helper()
+	if _, err := e.pool.Exec(context.Background(), "UPDATE settings SET passkey_login = $1", on); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// With Passkey login off the first step carries no assertion options — so no
+// conditional UI, no 「使用 Passkey 登录」 button and no webauthn autocomplete
+// hint — and both the hosted form and the direct API refuse an assertion.
+// Turning it back on restores the Passkeys Users already added
+// (docs/spec/consoles.md#设置).
+func TestPasskeyLoginOff(t *testing.T) {
+	e := start(t)
+	a := passkeytest.New(t)
+	passkeyUser(t, e, a)
+
+	// A first step and a direct-API ceremony begun while it is on, to submit
+	// once it is off.
+	_, page := e.authorize("")
+	options, _ := optionsOf(t, page)
+	begun := e.challenge(url.Values{"passkey": {"begin"}})
+	if begun.Status != 200 {
+		t.Fatalf("begin: %+v", begun)
+	}
+	setPasskeyLogin(t, e, false)
+
+	_, step := e.authorize("")
+	if _, ok := optionsOf(t, step); ok {
+		t.Fatal("the first step carried assertion options while Passkey login is off")
+	}
+	for _, gone := range []string{`id="passkey-login"`, "passkey.js", "webauthn"} {
+		if strings.Contains(step, gone) {
+			t.Errorf("a Passkey entry survived the switch off: %q", gone)
+		}
+	}
+
+	// The assertion the page had carried while it was on is refused.
+	a.SignCount = 1
+	resp, refused := e.post(page, url.Values{"op": {"passkey"}, "passkey": {string(a.Assert(options))}})
+	if resp.StatusCode != 200 || !strings.Contains(refused, passkey.ErrOff.Error()) {
+		t.Fatalf("the hosted form while off: %d %s", resp.StatusCode, refused)
+	}
+	// So is the direct API's begin, and an assertion begun before it.
+	if off := e.challenge(url.Values{"passkey": {"begin"}}); off.Status != 400 || off.Options != nil {
+		t.Fatalf("begin while off: %+v", off)
+	}
+	if done := e.challenge(url.Values{"auth_session": {begun.AuthSession}, "passkey": {string(a.Assert(begun.Options))}}); done.Status != 400 || done.Code != "" {
+		t.Fatalf("assertion while off: %+v", done)
+	}
+
+	// Back on, the Passkey added before signs the User in.
+	setPasskeyLogin(t, e, true)
+	_, page = e.authorize("")
+	options, ok := optionsOf(t, page)
+	if !ok {
+		t.Fatal("no assertion options once Passkey login is back on")
+	}
+	a.SignCount = 2
+	resp, page = e.post(page, url.Values{"op": {"passkey"}, "passkey": {string(a.Assert(options))}})
+	if resp.StatusCode/100 != 3 {
+		t.Fatalf("passkey login after turning it back on: %d %s", resp.StatusCode, page)
+	}
+}
+
 // androidOrigin is what an Android app with this signing certificate puts in
 // clientDataJSON, and the fingerprint the console is given for it.
 func androidOriginAndFingerprint(raw []byte) (origin, fingerprint string) {

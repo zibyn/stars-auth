@@ -2,6 +2,8 @@ package management_test
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -106,5 +108,36 @@ func TestResetTwoFactorKeepsPasskeys(t *testing.T) {
 	}
 	if code := e.call("DELETE", owner, "/users/ADMIN/passkeys/"+mine, nil, nil); code != 204 {
 		t.Errorf("owner deletes an admin's: %d", code)
+	}
+}
+
+// The association files serve password autofill too, so the Passkey switch
+// leaves them alone (docs/spec/authentication.md「密码管理器适配」).
+func TestAssociationFilesSurviveThePasskeySwitch(t *testing.T) {
+	e := start(t)
+	if _, err := e.pool.Exec(context.Background(), `
+		UPDATE applications SET apple_app_ids = ARRAY['ABCDE12345.com.example.app'],
+		    android_apps = jsonb_build_array(jsonb_build_object('packageName', 'com.example.app',
+		        'sha256CertFingerprints', jsonb_build_array('AA:BB')))
+		WHERE client_id = 'stars-auth-console';
+		UPDATE settings SET passkey_login = false`); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, body := wellKnown(t, e.issuer, "/.well-known/apple-app-site-association")
+	const want = `{"webcredentials":{"apps":["ABCDE12345.com.example.app"]}}`
+	if resp.StatusCode != 200 || strings.TrimSpace(body) != want {
+		t.Errorf("apple-app-site-association while Passkey login is off: %d %s", resp.StatusCode, body)
+	}
+
+	resp, body = wellKnown(t, e.issuer, "/.well-known/assetlinks.json")
+	var statements []struct {
+		Target struct {
+			PackageName string `json:"package_name"`
+		} `json:"target"`
+	}
+	if resp.StatusCode != 200 || json.Unmarshal([]byte(body), &statements) != nil || len(statements) != 1 ||
+		statements[0].Target.PackageName != "com.example.app" {
+		t.Errorf("assetlinks.json while Passkey login is off: %d %s", resp.StatusCode, body)
 	}
 }

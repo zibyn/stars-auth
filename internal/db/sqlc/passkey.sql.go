@@ -175,6 +175,19 @@ func (q *Queries) PasskeyExclusions(ctx context.Context, userID string) ([]Passk
 	return items, nil
 }
 
+const passkeyLogin = `-- name: PasskeyLogin :one
+SELECT passkey_login FROM settings
+`
+
+// Whether the instance offers Passkey login (docs/spec/consoles.md#设置); a
+// ceremony while it is off is refused.
+func (q *Queries) PasskeyLogin(ctx context.Context) (bool, error) {
+	row := q.db.QueryRow(ctx, passkeyLogin)
+	var passkey_login bool
+	err := row.Scan(&passkey_login)
+	return passkey_login, err
+}
+
 const putPasskeyChallenge = `-- name: PutPasskeyChallenge :exec
 INSERT INTO passkey_challenges (session_id, user_id, challenge, expires_at)
 VALUES ($1, $2, $3, $4)

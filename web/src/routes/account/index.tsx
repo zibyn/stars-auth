@@ -457,7 +457,7 @@ function Security({ me, guard }: { me: Me; guard: Guard }) {
 						</Button>
 					</Row>
 				)}
-				<Passkeys guard={guard} />
+				{me.passkeyLogin && <Passkeys guard={guard} />}
 				<TwoFactor me={me} guard={guard} />
 			</ItemList>
 			{editing && <SetPassword onClose={() => setEditing(false)} />}

@@ -22,6 +22,7 @@ type Policy struct {
 	TermsVersion        string `json:"termsVersion" maxLength:"64" doc:"Users agree to this version on their next login after it changes; empty for no terms"`
 	AuditRetentionDays  int32  `json:"auditRetentionDays" minimum:"1"`
 	AdminsNeedTwoFactor bool   `json:"adminsNeedTwoFactor" doc:"管理员必须启用两步验证或 Passkey: Users holding a Management API Role can't use it without 两步验证 or a Passkey; only an admin who has either turns it on"`
+	PasskeyLogin        bool   `json:"passkeyLogin" doc:"The instance offers Passkey login (default true): off hides every Passkey entry, refuses every ceremony, and stops Passkeys from satisfying 管理员必须启用两步验证或 Passkey, while keeping the added ones"`
 }
 
 type policyBody struct{ Body Policy }
@@ -31,7 +32,7 @@ func (s *Service) getSettings(ctx context.Context, _ *struct{}) (*policyBody, er
 	return &policyBody{Body: Policy{
 		PasswordLogin: r.PasswordLogin, RequirePhone: r.RequirePhone, DailySendLimit: r.DailySendLimit,
 		TermsURL: r.TermsUrl, PrivacyURL: r.PrivacyUrl, TermsVersion: r.TermsVersion, AuditRetentionDays: r.AuditRetentionDays,
-		AdminsNeedTwoFactor: r.AdminsNeedTwoFactor,
+		AdminsNeedTwoFactor: r.AdminsNeedTwoFactor, PasskeyLogin: r.PasskeyLogin,
 	}}, err
 }
 
@@ -51,10 +52,16 @@ func (s *Service) putSettings(ctx context.Context, in *policyBody) (*struct{}, e
 	if b.AdminsNeedTwoFactor && !c.satisfied {
 		return nil, huma.Error422UnprocessableEntity("请先为自己开启两步验证")
 	}
+	// Turning the Passkey switch off takes away the requirement's only
+	// satisfaction for an admin whose own is a Passkey: refuse rather than
+	// leave them locked out of the Management API on their next request.
+	if !b.PasskeyLogin && b.AdminsNeedTwoFactor && c.satisfied && !c.totp {
+		return nil, huma.Error422UnprocessableEntity("请先为自己开启两步验证")
+	}
 	return nil, s.q.UpdateSettings(ctx, sqlc.UpdateSettingsParams{
 		By: c.sub, PasswordLogin: b.PasswordLogin, RequirePhone: b.RequirePhone, DailySendLimit: b.DailySendLimit,
 		TermsUrl: b.TermsURL, PrivacyUrl: b.PrivacyURL, TermsVersion: b.TermsVersion, AuditRetentionDays: b.AuditRetentionDays,
-		AdminsNeedTwoFactor: b.AdminsNeedTwoFactor,
+		AdminsNeedTwoFactor: b.AdminsNeedTwoFactor, PasskeyLogin: b.PasskeyLogin,
 	})
 }
 

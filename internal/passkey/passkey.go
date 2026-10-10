@@ -45,6 +45,10 @@ const (
 	// ErrNoPasskeys is a reauthentication asked for by a User who has added
 	// no Passkey to reauthenticate with.
 	ErrNoPasskeys identity.Invalid = "你还没有添加 Passkey"
+	// ErrOff is a Passkey ceremony while the instance has Passkey login off
+	// (docs/spec/consoles.md#设置); the Passkeys Users added are kept and
+	// work again once it is on.
+	ErrOff identity.Invalid = "Passkey 登录已关闭"
 )
 
 // amrMFA marks an authentication that passed 两步验证 (RFC 8176).
@@ -105,6 +109,24 @@ func New(pool *pgxpool.Pool, issuer string) (*Store, error) {
 	return &Store{q: sqlc.New(pool), issuer: issuer, wa: wa}, nil
 }
 
+// Enabled reports whether the instance offers Passkey login.
+func (s *Store) Enabled(ctx context.Context) (bool, error) {
+	return s.q.PasskeyLogin(ctx)
+}
+
+// enabled refuses a ceremony while Passkey login is off: the switch hides
+// every entry, and a request that reaches one anyway finds it gone.
+func (s *Store) enabled(ctx context.Context) error {
+	on, err := s.Enabled(ctx)
+	if err != nil {
+		return err
+	}
+	if !on {
+		return ErrOff
+	}
+	return nil
+}
+
 // user is a User as go-webauthn sees one: their handle is their sub, and
 // creds, when the ceremony names them, the Passkeys of theirs to offer.
 type user struct {
@@ -148,6 +170,9 @@ func (s *Store) List(ctx context.Context, sub string) ([]Passkey, error) {
 // kept for Finish. name is how the User is shown in the ceremony, already
 // masked.
 func (s *Store) Begin(ctx context.Context, sub, name, session string) (json.RawMessage, error) {
+	if err := s.enabled(ctx); err != nil {
+		return nil, err
+	}
 	rows, err := s.q.PasskeyExclusions(ctx, sub)
 	if err != nil {
 		return nil, err
@@ -191,6 +216,9 @@ type RegistrationResponse struct {
 // Finish checks a registration response against the challenge Begin kept
 // for the Session and saves the Passkey, named after its authenticator.
 func (s *Store) Finish(ctx context.Context, sub, session string, response []byte) (Passkey, error) {
+	if err := s.enabled(ctx); err != nil {
+		return Passkey{}, err
+	}
 	ch, err := s.q.TakePasskeyChallenge(ctx, session)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Passkey{}, ErrNotBegun
@@ -240,8 +268,11 @@ func (s *Store) Finish(ctx context.Context, sub, session string, response []byte
 // for the caller to keep until the response arrives (the AuthnSession store
 // on the hosted page, an auth_session in the direct API); rendering the first
 // step again asks for a new one, which is what makes a replayed assertion
-// fail.
-func (s *Store) LoginOptions() (options json.RawMessage, challenge string, err error) {
+// fail. ErrOff while the instance has Passkey login off.
+func (s *Store) LoginOptions(ctx context.Context) (options json.RawMessage, challenge string, err error) {
+	if err = s.enabled(ctx); err != nil {
+		return nil, "", err
+	}
 	assertion, sd, err := s.wa.BeginDiscoverableLogin()
 	if err != nil {
 		return nil, "", err
@@ -259,6 +290,9 @@ func (s *Store) LoginOptions() (options json.RawMessage, challenge string, err e
 // ponytail: shares passkey_challenges' one slot per Session with Begin (adding
 // one), so starting either cancels the other; the UI never has both open.
 func (s *Store) ReauthOptions(ctx context.Context, sub, session string) (json.RawMessage, error) {
+	if err := s.enabled(ctx); err != nil {
+		return nil, err
+	}
 	rows, err := s.q.PasskeyExclusions(ctx, sub)
 	if err != nil {
 		return nil, err
@@ -284,6 +318,9 @@ func (s *Store) ReauthOptions(ctx context.Context, sub, session string) (json.Ra
 // against the challenge ReauthOptions kept for the Session. Another User's
 // Passkey does not pass.
 func (s *Store) Reauth(ctx context.Context, sub, session string, response []byte) (SignIn, error) {
+	if err := s.enabled(ctx); err != nil {
+		return SignIn{}, err
+	}
 	ch, err := s.q.TakePasskeyChallenge(ctx, session)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return SignIn{}, ErrNotBegun
@@ -305,6 +342,9 @@ func (s *Store) Reauth(ctx context.Context, sub, session string, response []byte
 // key, one that never leaves its device a hardware one. Nothing here creates
 // a User; a Passkey only ever signs in the User it was added to.
 func (s *Store) SignIn(ctx context.Context, challenge string, response []byte) (SignIn, error) {
+	if err := s.enabled(ctx); err != nil {
+		return SignIn{}, err
+	}
 	return s.assert(ctx, challenge, response, "")
 }
 
@@ -420,9 +460,19 @@ func (s *Store) Remove(ctx context.Context, sub, id, by string) error {
 }
 
 // RegisterWellKnown serves /.well-known/passkey-endpoints, where password
-// managers look up where to add and manage Passkeys.
+// managers look up where to add and manage Passkeys. With Passkey login off
+// there is nowhere to point them, so it is not there.
 func (s *Store) RegisterWellKnown(mux *http.ServeMux) {
-	mux.HandleFunc("GET /.well-known/passkey-endpoints", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /.well-known/passkey-endpoints", func(w http.ResponseWriter, r *http.Request) {
+		on, err := s.Enabled(r.Context())
+		if err != nil {
+			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		if !on {
+			http.NotFound(w, r)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"enroll": s.issuer + "/account#passkeys",

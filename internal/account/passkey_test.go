@@ -322,6 +322,66 @@ func TestPasskeyEndpointsWellKnown(t *testing.T) {
 	}
 }
 
+// setPasskeyLogin turns the instance's Passkey switch on or off.
+func (e *env) setPasskeyLogin(on bool) {
+	e.t.Helper()
+	if _, err := e.pool.Exec(context.Background(), "UPDATE settings SET passkey_login = $1", on); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// With Passkey login off the account center offers no way to add or
+// reauthenticate with a Passkey, and /.well-known/passkey-endpoints is gone;
+// the Passkeys already added are kept and work once it is back on
+// (docs/spec/consoles.md#设置).
+func TestPasskeyLoginOff(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", "phone:+8613800138000")
+	tok := e.signIn("ALICE", 0)
+	a := passkeytest.New(t)
+	a.Origin, a.UserHandle = e.issuer, []byte("ALICE")
+	if code, _ := e.enroll(tok, a); code != 200 {
+		t.Fatalf("enroll: %d", code)
+	}
+	e.setPasskeyLogin(false)
+
+	// /me tells the account center to hide the Passkey section and its
+	// reauthentication way.
+	var me struct {
+		PasskeyLogin bool `json:"passkeyLogin"`
+	}
+	if code := e.call("GET", tok, "/v1/account/me", nil, &me); code != 200 || me.PasskeyLogin {
+		t.Fatalf("me while off: %d %+v", code, me)
+	}
+	// Adding one is refused, and so is starting the reauthentication ceremony.
+	if code, _ := e.enroll(tok, a); code != 422 {
+		t.Fatalf("add while off: %d, want 422", code)
+	}
+	if code := e.call("POST", tok, "/v1/account/reauth/passkey", nil, nil); code != 422 {
+		t.Fatalf("begin passkey reauth while off: %d, want 422", code)
+	}
+	// The discovery file is gone.
+	resp, err := http.Get(e.issuer + "/.well-known/passkey-endpoints")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != 404 {
+		t.Fatalf("passkey-endpoints while off: %d, want 404", resp.StatusCode)
+	}
+
+	// The Passkey added before is kept: it still lists.
+	if code, list := e.passkeys(tok); code != 200 || len(list) != 1 {
+		t.Fatalf("the Passkey kept: %d %+v", code, list)
+	}
+
+	// Back on, the Passkey works again.
+	e.setPasskeyLogin(true)
+	if options := e.passkeyReauthOptions(tok, 200); options == nil {
+		t.Fatal("no reauthentication options once Passkey login is back on")
+	}
+}
+
 // mustDecodeB64 decodes a base64url credential ID from options.
 func mustDecodeB64(t *testing.T, s string) []byte {
 	t.Helper()

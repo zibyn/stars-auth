@@ -32,6 +32,7 @@
 - **托管页**:渲染第一步时生成 challenge 存进 AuthnSession store(每次渲染换新的,重放即失效),断言选项内嵌在页面里;不引入前端 WebAuthn 库,base64url 由服务端在 `/login/passkey.js` 提供,账号中心共用同一份。标识输入框的 `autocomplete` 在现有取值后追加 `webauthn`,页面加载后发起 `mediation: "conditional"` 的自动填充;「使用 Passkey 登录」按钮只在支持 `PublicKeyCredential` 的浏览器上显示,电脑上可用手机扫码。断言以隐藏表单 `op=passkey` 提交,之后照常走绑手机号、同意协议。
 - **断言校验**(passkey 模块,托管页与直连 API 共用):不认识的凭证、签名错误、缺 UV、challenge 重放都拒绝,并且不建 User;计数器非零且回退时拒绝,并记审计 `passkey.counter_regressed`;成功后更新 `last_used_at` 和计数器。
 - **两步验证**:Passkey 每次都要求生物识别或 PIN,本身已满足两步验证,所以 `amr` 直接为 `["swk", "mfa"]`(凭证可跨设备同步,BE=1)或 `["hwk", "mfa"]`(仅本机,BE=0),开了两步验证的 User 不再进入 TOTP 步骤。
+- **实例开关**:设置组「登录方式」Tab 的 Passkey 开关,默认打开。关闭后托管页不渲染断言选项和「使用 Passkey 登录」按钮,直连 API 的 challenge、账号中心的添加与重新认证、以及一切断言校验都按"没开这项功能"拒绝;`/.well-known/passkey-endpoints` 返回 404。Passkey 行保留,重新打开后照常可用;`/.well-known/` 的两个关联文件还服务密码自动填充,不受影响。
 - **直连 API**:增加 WebAuthn challenge;KMP SDK 只调用系统凭证 API(Credential Manager / ASAuthorization),界面由系统弹出。
 - **大陆 Android**:先探测能力,有才展示。
 - **小程序**:不提供。
@@ -43,6 +44,7 @@
   - 持有 Role 但既没开两步验证也没有 Passkey 的 User 调用任何 Management API 接口,都返回 403,错误体带 `code: "two_factor_required"`;满足要求后立即恢复,不用等令牌过期。只看代表 User 的令牌,`client_credentials` 的服务账号不受影响。
   - 持有 Role 的 User 不能在账号中心删掉自己最后的满足项:还有 Passkey 时可以关闭两步验证,开了两步验证时可以删除最后一把 Passkey,两者都不剩时动哪个都返回 409;恢复码仍可重新生成。管理员仍可为别人重置两步验证,重置不动 Passkey。
   - 当前管理员自己不满足要求时,保存"打开"会被拒绝(422,「请先为自己开启两步验证」),免得把自己锁在外面。
+  - Passkey 开关关掉后 Passkey 不再算满足项;只剩 Passkey 的管理员保存"关闭"会被拒绝(422,同一句提示;同一次保存里把这个要求也关掉就放行),理由同上。
 - **生效范围**:开启后,除 Passkey 外,任何第一因素登录都要再输一次 TOTP。不把短信或邮箱验证码当第二因素。
 - **TOTP 参数**:`otpauth://` 固定 SHA1 / 6 位 / 30 秒,同时显示可复制的 Base32 密钥。
 - **恢复码**:开启时生成 10 个一次性恢复码,只显示一次,可以重新生成。

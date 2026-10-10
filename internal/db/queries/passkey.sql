@@ -1,3 +1,8 @@
+-- name: PasskeyLogin :one
+-- Whether the instance offers Passkey login (docs/spec/consoles.md#设置); a
+-- ceremony while it is off is refused.
+SELECT passkey_login FROM settings;
+
 -- name: UserPasskeys :many
 SELECT id, name, created_at, last_used_at FROM passkeys
 WHERE user_id = $1 ORDER BY created_at;

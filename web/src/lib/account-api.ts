@@ -21,6 +21,8 @@ export type Me = {
 	identifiers: Identifier[];
 	hasPassword: boolean;
 	passwordAllowed: boolean;
+	// Whether the instance offers Passkey login at all.
+	passkeyLogin: boolean;
 	recentAuthUntil: string;
 	twoFactor: {
 		enabled: boolean;

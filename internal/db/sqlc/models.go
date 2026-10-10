@@ -249,6 +249,7 @@ type Setting struct {
 	TermsVersion        string
 	AuditRetentionDays  int32
 	AdminsNeedTwoFactor bool
+	PasskeyLogin        bool
 }
 
 type SigningKey struct {
