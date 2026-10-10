@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -61,8 +63,15 @@ func start(t *testing.T) *env {
 	}
 	ts := httptest.NewServer(nil)
 	t.Cleanup(ts.Close)
-	ts.Config.Handler = server.New(pool.Ping, http.NotFoundHandler(), nil, management.New(pool, keyring, ts.URL).Register)
-	return &env{t: t, pool: pool, issuer: ts.URL, keys: keys, owner: owner}
+	// A Passkey's RP ID is the issuer's hostname, which may not be an IP
+	// address; the test server is reached at localhost.
+	issuer := "http://localhost:" + strconv.Itoa(ts.Listener.Addr().(*net.TCPAddr).Port)
+	svc, err := management.New(pool, keyring, issuer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts.Config.Handler = server.New(pool.Ping, http.NotFoundHandler(), nil, svc.Register)
+	return &env{t: t, pool: pool, issuer: issuer, keys: keys, owner: owner}
 }
 
 // user adds a User with the given Identifiers ("kind:value") and Management

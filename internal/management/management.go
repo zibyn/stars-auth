@@ -22,6 +22,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/db/sqlc"
 	"github.com/zibyn/stars-auth/internal/identity"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
+	"github.com/zibyn/stars-auth/internal/passkey"
 	"github.com/zibyn/stars-auth/internal/provider"
 	"github.com/zibyn/stars-auth/internal/twofactor"
 )
@@ -39,10 +40,15 @@ type Service struct {
 	channels  *channel.Store
 	twoFactor *twofactor.Store
 	providers *provider.Store
+	passkeys  *passkey.Store
 }
 
-func New(pool *pgxpool.Pool, keyring *crypt.Keyring, issuer string) *Service {
-	return &Service{issuer: issuer, pool: pool, keyring: keyring, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring), channels: channel.NewStore(pool, keyring), twoFactor: twofactor.New(pool, keyring), providers: provider.NewStore(pool, keyring)}
+func New(pool *pgxpool.Pool, keyring *crypt.Keyring, issuer string) (*Service, error) {
+	passkeys, err := passkey.New(pool, issuer)
+	if err != nil {
+		return nil, err
+	}
+	return &Service{issuer: issuer, pool: pool, keyring: keyring, q: sqlc.New(pool), keys: oidcstore.NewKeys(pool, keyring), channels: channel.NewStore(pool, keyring), twoFactor: twofactor.New(pool, keyring), providers: provider.NewStore(pool, keyring), passkeys: passkeys}, nil
 }
 
 type callerKey struct{}
@@ -86,6 +92,8 @@ func (s *Service) Register(mux *http.ServeMux) {
 	op(api, http.MethodDelete, "delete-user", "users:write", "/users/{sub}", "Delete a User and all their data", s.deleteUser, http.StatusConflict)
 	op(api, http.MethodDelete, "reset-two-factor", "users:write", "/users/{sub}/2fa", "Reset a User's 两步验证: their TOTP and 恢复码 go, their Sessions stay", s.resetTwoFactor, http.StatusConflict)
 	op(api, http.MethodPut, "replace-identifier", "users:write", "/users/{sub}/identifiers/{kind}", "Set a User's Identifier of a kind, replacing theirs", s.replaceIdentifier, http.StatusConflict)
+	get(api, "list-user-passkeys", "users:read", "/users/{sub}/passkeys", "A User's Passkeys", s.listPasskeys)
+	op(api, http.MethodDelete, "remove-user-passkey", "users:write", "/users/{sub}/passkeys/{id}", "Delete one of a User's Passkeys; its audit names the admin, not the User", s.removePasskey)
 	get(api, "list-external-identities", "users:read", "/users/{sub}/external-identities", "A User's External Identities", s.listExternalIdentities)
 	op(api, http.MethodDelete, "unbind-external-identity", "users:write", "/users/{sub}/external-identities/{provider}", "Unbind a User's External Identity, unless it is their last way to sign in; its Provider is told to revoke", s.unbindExternalIdentity, http.StatusConflict)
 	get(api, "overview", "users:read", "/overview", "Counts for the console's overview", s.overview)

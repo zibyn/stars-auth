@@ -35,9 +35,7 @@ func (s *Service) setUserRoles(ctx context.Context, in *setUserRolesInput) (*str
 	} else if err != nil {
 		return nil, err
 	}
-	if _, err := s.q.GetUser(ctx, in.Sub); errors.Is(err, pgx.ErrNoRows) {
-		return nil, huma.Error404NotFound("no such User")
-	} else if err != nil {
+	if err := s.ensureUser(ctx, in.Sub); err != nil {
 		return nil, err
 	}
 	return nil, pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {

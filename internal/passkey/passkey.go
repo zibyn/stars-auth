@@ -92,7 +92,8 @@ func (u user) WebAuthnName() string                       { return u.name }
 func (u user) WebAuthnDisplayName() string                { return u.name }
 func (u user) WebAuthnCredentials() []webauthn.Credential { return nil }
 
-// Passkey is one of a User's Passkeys as the Account API shows it.
+// Passkey is one of a User's Passkeys as the Account and Management APIs
+// show it.
 type Passkey struct {
 	ID         string     `json:"id"`
 	Name       string     `json:"name"`

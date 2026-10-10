@@ -43,6 +43,9 @@ export const eventGroups: [string, [string, string][]][] = [
 			["roles.assigned", "设置角色"],
 			["external_identity.added", "绑定外部账号"],
 			["external_identity.removed", "解绑外部账号"],
+			["passkey.added", "添加 Passkey"],
+			["passkey.removed", "删除 Passkey"],
+			["passkey.renamed", "重命名 Passkey"],
 		],
 	],
 	[
@@ -89,6 +92,7 @@ export const eventGroups: [string, [string, string][]][] = [
 			["login.password_locked", "密码输错次数过多，暂时锁定"],
 			["login.ip_locked", "同一 IP 登录失败过多，暂时锁定"],
 			["refresh_token.reused", "疑似登录凭据被盗用，已下线会话"],
+			["passkey.counter_regressed", "Passkey 计数器回退，拒绝登录"],
 		],
 	],
 ];
@@ -247,6 +251,23 @@ export function describe(
 		case "external_identity.removed":
 			return {
 				parts: ["解绑了", ...user, " 的外部账号 ", raw(str("provider"))],
+			};
+		case "passkey.added":
+			return { parts: ["给", ...user, " 添加了 Passkey ", str("name")] };
+		case "passkey.removed":
+			return { parts: ["删除了", ...user, " 的 Passkey ", str("name")] };
+		case "passkey.renamed":
+			return { parts: ["把", ...user, " 的 Passkey 重命名为 ", str("name")] };
+		case "passkey.counter_regressed":
+			return {
+				parts: [
+					"拒绝了",
+					...user,
+					" 的 Passkey ",
+					str("name"),
+					" 登录：计数器回退，疑似被克隆",
+				],
+				title: typeof d.count === "number" ? `计数器：${d.count}` : undefined,
 			};
 		case "create-provider":
 			return { parts: ["添加了认证源 ", raw(str("id"))] };

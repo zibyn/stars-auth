@@ -2,11 +2,9 @@ package management
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/zibyn/stars-auth/internal/db/sqlc"
 )
@@ -32,9 +30,7 @@ type listSessionsOutput struct {
 func (s *Service) listSessions(ctx context.Context, in *struct {
 	Sub string `path:"sub"`
 }) (*listSessionsOutput, error) {
-	if _, err := s.q.GetUser(ctx, in.Sub); errors.Is(err, pgx.ErrNoRows) {
-		return nil, huma.Error404NotFound("no such User")
-	} else if err != nil {
+	if err := s.ensureUser(ctx, in.Sub); err != nil {
 		return nil, err
 	}
 	rows, err := s.q.UserSessions(ctx, in.Sub)

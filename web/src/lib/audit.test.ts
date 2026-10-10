@@ -31,6 +31,9 @@ const spec: Record<string, [string, string][]> = {
 		["roles.assigned", "设置角色"],
 		["external_identity.added", "绑定外部账号"],
 		["external_identity.removed", "解绑外部账号"],
+		["passkey.added", "添加 Passkey"],
+		["passkey.removed", "删除 Passkey"],
+		["passkey.renamed", "重命名 Passkey"],
 	],
 	应用: [
 		["create-application", "创建应用"],
@@ -65,6 +68,7 @@ const spec: Record<string, [string, string][]> = {
 		["login.password_locked", "密码输错次数过多，暂时锁定"],
 		["login.ip_locked", "同一 IP 登录失败过多，暂时锁定"],
 		["refresh_token.reused", "疑似登录凭据被盗用，已下线会话"],
+		["passkey.counter_regressed", "Passkey 计数器回退，拒绝登录"],
 	],
 };
 
@@ -250,6 +254,38 @@ test("every event reads as a sentence", () => {
 				detail: { provider: "google" },
 			},
 			"解绑了用户 a@x.com 的外部账号 google",
+		],
+		[
+			{
+				event: "passkey.added",
+				...alice,
+				detail: { by: "ALICE", name: "工作电脑" },
+			},
+			"给用户 a@x.com 添加了 Passkey 工作电脑",
+		],
+		[
+			{
+				event: "passkey.removed",
+				...alice,
+				detail: { by: "ADMIN01X", name: "工作电脑" },
+			},
+			"删除了用户 a@x.com 的 Passkey 工作电脑",
+		],
+		[
+			{
+				event: "passkey.renamed",
+				...alice,
+				detail: { by: "ALICE", name: "新电脑" },
+			},
+			"把用户 a@x.com 的 Passkey 重命名为 新电脑",
+		],
+		[
+			{
+				event: "passkey.counter_regressed",
+				...alice,
+				detail: { name: "工作电脑", count: 7 },
+			},
+			"拒绝了用户 a@x.com 的 Passkey 工作电脑 登录：计数器回退，疑似被克隆",
 		],
 		[
 			{ event: "create-provider", detail: { id: "google" } },

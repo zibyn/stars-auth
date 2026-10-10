@@ -46,6 +46,7 @@ import {
 	type Session,
 	type UserDetail,
 } from "#/lib/console-api";
+import type { Passkey } from "#/lib/passkey";
 import {
 	identifierKinds,
 	kindName,
@@ -63,6 +64,7 @@ export const Route = createFileRoute("/console/users/$sub")({
 		Promise.all([
 			queryClient.ensureQueryData(userQuery(sub)),
 			queryClient.ensureQueryData(sessionsQuery(sub)),
+			queryClient.ensureQueryData(passkeysQuery(sub)),
 			queryClient.ensureQueryData(externalIdentitiesQuery(sub)),
 			queryClient.ensureQueryData(rolesQuery),
 		]).catch((e) => {
@@ -91,6 +93,15 @@ const sessionsQuery = (sub: string) =>
 		queryFn: () =>
 			api<{ sessions: Session[] }>(
 				`/users/${encodeURIComponent(sub)}/sessions`,
+			),
+	});
+
+const passkeysQuery = (sub: string) =>
+	queryOptions({
+		queryKey: ["passkeys", sub],
+		queryFn: () =>
+			api<{ passkeys: Passkey[] }>(
+				`/users/${encodeURIComponent(sub)}/passkeys`,
 			),
 	});
 
@@ -283,6 +294,9 @@ function UserPage() {
 						)}
 					</Row>
 				</ItemList>
+			</Section>
+			<Section title="Passkey">
+				<Passkeys sub={u.sub} who={name} writable={writable} />
 			</Section>
 			<Section title="会话">
 				<Sessions sub={u.sub} writable={writable} />
@@ -482,6 +496,64 @@ function Sessions({ sub, writable }: { sub: string; writable: boolean }) {
 				</div>
 			)}
 		</>
+	);
+}
+
+// Passkeys lists the User's Passkeys for a lost-device report; deleting
+// one is the admin's, written to the audit under their own name.
+function Passkeys({
+	sub,
+	who,
+	writable,
+}: {
+	sub: string;
+	who?: string;
+	writable: boolean;
+}) {
+	const client = useQueryClient();
+	const list = useSuspenseQuery(passkeysQuery(sub)).data.passkeys;
+	const remove = useMutation({
+		mutationFn: (id: string) =>
+			api(
+				`/users/${encodeURIComponent(sub)}/passkeys/${encodeURIComponent(id)}`,
+				{ method: "DELETE" },
+			),
+		onSuccess: () => client.invalidateQueries({ queryKey: ["passkeys", sub] }),
+		onError: failed("删除 Passkey 失败"),
+	});
+	if (list.length === 0) {
+		return (
+			<p className="py-3 text-muted-foreground text-sm">
+				这个用户还没有添加过 Passkey。
+			</p>
+		);
+	}
+	return (
+		<ItemList>
+			{list.map((p) => (
+				<Row key={p.id} label={p.name}>
+					<span className="text-muted-foreground text-xs">
+						添加于 {date(p.createdAt)} ·{" "}
+						{p.lastUsedAt ? `最后使用 ${date(p.lastUsedAt)}` : "尚未使用"}
+					</span>
+					{writable && (
+						<ConfirmDialog
+							trigger={
+								<Button size="sm" variant="ghost" disabled={remove.isPending}>
+									删除
+								</Button>
+							}
+							title={`删除${who ? `用户 ${who} ` : "这个用户"}的 Passkey ${p.name}？`}
+							action="删除 Passkey"
+							onConfirm={() => remove.mutate(p.id)}
+						>
+							删除后这把 Passkey
+							不能再用来登录；处理设备丢失的报告时在这里删掉它。
+						</ConfirmDialog>
+					)}
+				</Row>
+			))}
+		</ItemList>
 	);
 }
 

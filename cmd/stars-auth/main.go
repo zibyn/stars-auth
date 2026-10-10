@@ -101,10 +101,14 @@ func serve() error {
 	if err != nil {
 		return err
 	}
+	managementSvc, err := management.New(pool, keyring, cfg.Issuer)
+	if err != nil {
+		return err
+	}
 	srv := &http.Server{
 		Addr: cfg.Listen,
 		Handler: server.New(pool.Ping, spa, cfg.TrustedProxies, auth.Register,
-			management.New(pool, keyring, cfg.Issuer).Register, accountSvc.Register),
+			managementSvc.Register, accountSvc.Register),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go runCleanup(ctx, pool)

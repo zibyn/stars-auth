@@ -16,6 +16,15 @@ type subPath struct {
 	Sub string `path:"sub"`
 }
 
+// ensureUser is the 404 for a User a path names who is not.
+func (s *Service) ensureUser(ctx context.Context, sub string) error {
+	_, err := s.q.GetUser(ctx, sub)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return huma.Error404NotFound("no such User")
+	}
+	return err
+}
+
 // mayManage checks that the caller may act on sub: acting on an admin
 // needs admin-roles:assign, as making one does.
 func (s *Service) mayManage(ctx context.Context, sub string) error {
