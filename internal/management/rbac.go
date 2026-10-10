@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5"
@@ -78,11 +79,12 @@ type PermissionInfo struct {
 }
 
 type RoleDef struct {
-	Key         string   `json:"key"`
-	Name        string   `json:"name"`
-	Builtin     bool     `json:"builtin"`
-	Permissions []string `json:"permissions" nullable:"false" doc:"Keys of its Permissions"`
-	Users       int      `json:"users" doc:"How many Users hold it"`
+	Key          string   `json:"key"`
+	Name         string   `json:"name"`
+	Builtin      bool     `json:"builtin"`
+	Permissions  []string `json:"permissions" nullable:"false" doc:"Keys of its Permissions"`
+	Users        int      `json:"users" doc:"How many Users hold it"`
+	Applications int      `json:"applications" doc:"How many M2M Applications hold it"`
 }
 
 type listAPIsOutput struct {
@@ -256,9 +258,21 @@ func (s *Service) deleteRole(ctx context.Context, in *struct {
 	if n, err := s.q.DeleteRole(ctx, sqlc.DeleteRoleParams{Api: in.API, Key: in.Key, Force: in.Force}); err != nil {
 		return nil, err
 	} else if n == 0 {
-		return nil, huma.Error409Conflict(fmt.Sprintf("仍分配给 %d 个 User;确认后连同分配一起删除", max(r.Users, 1)))
+		return nil, huma.Error409Conflict(heldBy(r.Users, r.Applications) + ";确认后连同分配一起删除")
 	}
 	return nil, nil
+}
+
+// heldBy says who still holds a Role, for the 409 that asks to confirm.
+func heldBy(users, applications int64) string {
+	var who []string
+	if users > 0 {
+		who = append(who, fmt.Sprintf("%d 个 User", users))
+	}
+	if applications > 0 {
+		who = append(who, fmt.Sprintf("%d 个 Application", applications))
+	}
+	return strings.Join(who, "、") + " 仍持有它"
 }
 
 func isFKViolation(err error) bool {

@@ -116,6 +116,9 @@ func (s *Service) Register(mux *http.ServeMux) {
 	op(api, http.MethodPost, "new-application-secret", "applications:write", "/applications/{clientId}/secret", "Replace a confidential Application's client secret", s.newSecret, http.StatusConflict)
 	op(api, http.MethodPut, "set-user-roles", "roles:assign", "/users/{sub}/roles", "Set a User's Roles on one API", s.setUserRoles, http.StatusConflict)
 
+	get(api, "list-application-roles", "applications:read", "/applications/{clientId}/roles", "The Roles an M2M Application holds on its API", s.listApplicationRoles)
+	op(api, http.MethodPut, "set-application-roles", "roles:assign", "/applications/{clientId}/roles", "Set an M2M Application's Roles on its API", s.setApplicationRoles, http.StatusConflict)
+
 	get(api, "list-channels", "config:read", "/channels", "Channel plugins and the enabled Channel of each Identifier kind", s.listChannels)
 	op(api, http.MethodPut, "put-channel", "config:write", "/channels/{kind}", "Enable and configure the Channel of an Identifier kind", s.putChannel)
 	op(api, http.MethodDelete, "delete-channel", "config:write", "/channels/{kind}", "Turn off codes of an Identifier kind", s.deleteChannel)

@@ -39,6 +39,33 @@ func (q *Queries) Application(ctx context.Context, clientID string) (Application
 	return i, err
 }
 
+const applicationTokenRoles = `-- name: ApplicationTokenRoles :one
+SELECT COALESCE(array_agg(DISTINCT ar.role ORDER BY ar.role), '{}')::text[] AS roles,
+       COALESCE(array_agg(DISTINCT rp.permission ORDER BY rp.permission)
+                FILTER (WHERE rp.permission IS NOT NULL), '{}')::text[] AS entitlements
+FROM application_roles ar LEFT JOIN role_permissions rp USING (api, role)
+WHERE ar.client_id = $1 AND ar.api = $2
+`
+
+type ApplicationTokenRolesParams struct {
+	ClientID string
+	Api      string
+}
+
+type ApplicationTokenRolesRow struct {
+	Roles        []string
+	Entitlements []string
+}
+
+// An M2M Application's Roles on its API and the Permissions they add up to,
+// for its client_credentials access token (ADR 0015).
+func (q *Queries) ApplicationTokenRoles(ctx context.Context, arg ApplicationTokenRolesParams) (ApplicationTokenRolesRow, error) {
+	row := q.db.QueryRow(ctx, applicationTokenRoles, arg.ClientID, arg.Api)
+	var i ApplicationTokenRolesRow
+	err := row.Scan(&i.Roles, &i.Entitlements)
+	return i, err
+}
+
 const authnSession = `-- name: AuthnSession :one
 SELECT data FROM oidc_authn_sessions WHERE id = $1 AND expires_at > now()
 `

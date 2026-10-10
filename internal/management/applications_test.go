@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -295,5 +296,118 @@ func TestWellKnownAssociation(t *testing.T) {
 		s.Target.Namespace != "android_app" || s.Target.PackageName != "com.example.app" ||
 		len(s.Target.SHA256CertFingerprints) != 1 || s.Target.SHA256CertFingerprints[0] != fingerprint {
 		t.Errorf("statement: %+v", s)
+	}
+}
+
+// An M2M Application holds Roles on its one default API; its
+// client_credentials token carries them (ADR 0015). Only an m2m Application
+// may hold any, Management API Roles need admin-roles:assign, and 「所有者」
+// never goes to an Application.
+func TestM2MApplicationRoles(t *testing.T) {
+	e := start(t)
+	e.trackAPI() // track with viewer/editor
+	e.user("RO", []string{"readonly"})
+	e.user("ADMIN", []string{"admin"})
+	owner, ro, admin := e.token(e.owner, nil), e.token("RO", nil), e.token("ADMIN", nil)
+
+	m2m := func(defaultAPI string) string {
+		t.Helper()
+		var created struct{ Application application }
+		s := map[string]any{
+			"name": "对账任务", "redirectUris": []string{}, "postLogoutRedirectUris": []string{},
+			"defaultApi": defaultAPI, "refreshTokens": false, "appleAppIds": []string{}, "androidApps": []any{},
+		}
+		if code := e.call("POST", owner, "/applications", map[string]any{"type": "m2m", "settings": s}, &created); code != 200 {
+			t.Fatalf("create m2m: %d", code)
+		}
+		return created.Application.ClientID
+	}
+	batch := m2m(track)
+	path := "/applications/" + batch + "/roles"
+	var held struct {
+		API   string
+		Roles []string
+	}
+	set := func(tok string, roles ...string) int {
+		return e.call("PUT", tok, path, map[string]any{"roles": append([]string{}, roles...)}, nil)
+	}
+
+	// Listed for anyone who may read Applications; empty at first.
+	if code := e.get(ro, path, &held); code != 200 || held.API != track || len(held.Roles) != 0 {
+		t.Errorf("list: %d %+v", code, held)
+	}
+	// Assigning needs roles:assign.
+	if code := set(ro, "viewer"); code != 403 {
+		t.Errorf("readonly assigns: %d", code)
+	}
+	// Several Roles on its API; setting replaces.
+	if code := set(owner, "editor", "viewer"); code != 204 {
+		t.Fatalf("assign: %d", code)
+	}
+	if e.get(owner, path, &held); !slices.Equal(held.Roles, []string{"editor", "viewer"}) {
+		t.Errorf("assigned: %+v", held)
+	}
+	if code := set(owner, "viewer"); code != 204 {
+		t.Errorf("replace: %d", code)
+	}
+	if e.get(owner, path, &held); !slices.Equal(held.Roles, []string{"viewer"}) {
+		t.Errorf("replaced: %+v", held)
+	}
+	// The impact statistic the console shows counts Applications too: editor
+	// was taken away, viewer is held by the one Application, no User.
+	if r := e.apis(owner)[track].Roles; len(r) != 2 ||
+		r[0].Key != "editor" || r[0].Applications != 0 ||
+		r[1].Key != "viewer" || r[1].Applications != 1 || r[1].Users != 0 {
+		t.Errorf("role impact after replace: %+v", r)
+	}
+	// Only its default API's Roles: a Role elsewhere is refused.
+	if code := e.call("PUT", owner, apiPath("https://other.example"), map[string]any{"name": "Other"}, nil); code != 204 {
+		t.Fatalf("define other API: %d", code)
+	}
+	e.call("PUT", owner, apiPath("https://other.example")+"/roles/boss", map[string]any{"name": "B", "permissions": []string{}}, nil)
+	if code := set(owner, "boss"); code != 422 {
+		t.Errorf("a Role on another API: %d", code)
+	}
+	if code := set(owner, "nope"); code != 422 {
+		t.Errorf("an unknown Role: %d", code)
+	}
+	if code := e.call("PUT", owner, "/applications/NOPE/roles", map[string]any{"roles": []string{}}, nil); code != 404 {
+		t.Errorf("an unknown Application: %d", code)
+	}
+
+	// Only an M2M Application holds Roles: a confidential one refuses.
+	var web struct{ Application application }
+	e.call("POST", owner, "/applications", map[string]any{"type": "confidential", "settings": map[string]any{
+		"name": "导航 Web", "redirectUris": []string{"https://track.example/cb"}, "postLogoutRedirectUris": []string{},
+		"defaultApi": track, "refreshTokens": false, "appleAppIds": []string{}, "androidApps": []any{},
+	}}, &web)
+	if code := e.call("PUT", owner, "/applications/"+web.Application.ClientID+"/roles", map[string]any{"roles": []string{"viewer"}}, nil); code != 422 {
+		t.Errorf("a confidential Application holds Roles: %d", code)
+	}
+
+	// A Management API Role needs admin-roles:assign, which admin lacks, and
+	// 「所有者」never goes to an Application.
+	ops := m2m(identity.ManagementAPI)
+	opsPath := "/applications/" + ops + "/roles"
+	if code := e.call("PUT", admin, opsPath, map[string]any{"roles": []string{"readonly"}}, nil); code != 403 {
+		t.Errorf("admin assigns a Management API Role: %d", code)
+	}
+	if code := e.call("PUT", owner, opsPath, map[string]any{"roles": []string{"readonly"}}, nil); code != 204 {
+		t.Errorf("owner assigns a Management API Role: %d", code)
+	}
+	if code := e.call("PUT", owner, opsPath, map[string]any{"roles": []string{"owner"}}, nil); code != 422 {
+		t.Errorf("owner assigns 「所有者」: %d", code)
+	}
+
+	// Deleting a Role counts the Applications holding it, then takes them
+	// with it once confirmed.
+	if code := e.call("DELETE", owner, apiPath(track)+"/roles/viewer", nil, nil); code != 409 {
+		t.Errorf("delete a Role an Application holds: %d, want 409", code)
+	}
+	if code := e.call("DELETE", owner, apiPath(track)+"/roles/viewer?force=true", nil, nil); code != 204 {
+		t.Errorf("confirmed: %d", code)
+	}
+	if e.get(owner, path, &held); len(held.Roles) != 0 {
+		t.Errorf("the Application kept %v", held.Roles)
 	}
 }

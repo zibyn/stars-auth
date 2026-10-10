@@ -1,5 +1,6 @@
 import { revalidateLogic, useForm, useStore } from "@tanstack/react-form";
 import {
+	queryOptions,
 	useMutation,
 	useQuery,
 	useQueryClient,
@@ -33,6 +34,8 @@ import {
 	Field,
 	FieldDescription,
 	FieldLabel,
+	FieldLegend,
+	FieldSet,
 	FieldTitle,
 } from "#/components/ui/field";
 import { Input } from "#/components/ui/input";
@@ -60,6 +63,7 @@ import {
 } from "#/lib/apps";
 import {
 	type Application,
+	type ApplicationRoles,
 	type ApplicationSettings,
 	api,
 } from "#/lib/console-api";
@@ -71,6 +75,7 @@ import {
 	platformKeys,
 	snippet,
 } from "#/lib/onboarding";
+import { managementAPI } from "#/lib/users";
 import { ConfirmDialog } from "#/routes/console/-components/confirm-dialog";
 import {
 	DangerZone,
@@ -83,22 +88,31 @@ import { type Header, useCan } from "#/routes/console/route";
 import { date } from "#/routes/console/users/index";
 
 // tabsFor gives an Application's tabs in order; an M2M Application has no
-// login to configure.
+// login to configure, but does carry Roles.
 const tabsFor = (type: Application["type"]): [string, string][] => [
 	["basic", "基本"],
-	...(type === "m2m" ? [] : ([["login", "登录"]] as [string, string][])),
+	...(type === "m2m"
+		? ([["roles", "角色"]] as [string, string][])
+		: ([["login", "登录"]] as [string, string][])),
 	["webhook", "用户删除通知"],
 ];
 
 const defaults = { tab: "basic" } as const;
 const search = z.object({
 	tab: z
-		.enum(["basic", "login", "webhook"])
+		.enum(["basic", "login", "roles", "webhook"])
 		.default(defaults.tab)
 		.catch(defaults.tab),
 	// set once, by the create page: show the 接入清单 for this platform
 	onboarding: z.enum(platformKeys).optional().catch(undefined),
 });
+
+// applicationRolesQuery reads the Roles an M2M Application holds on its API.
+export const applicationRolesQuery = (clientId: string) =>
+	queryOptions({
+		queryKey: ["applications", clientId, "roles"],
+		queryFn: () => api<ApplicationRoles>(`/applications/${clientId}/roles`),
+	});
 
 export const Route = createFileRoute("/console/apps/$clientId")({
 	staticData: { crumb: ApplicationName, useHeader },
@@ -109,8 +123,13 @@ export const Route = createFileRoute("/console/apps/$clientId")({
 			queryClient.ensureQueryData(applicationsQuery),
 			queryClient.ensureQueryData(apisQuery),
 		]);
-		if (!apps.applications.some((a) => a.clientId === params.clientId)) {
+		const app = apps.applications.find((a) => a.clientId === params.clientId);
+		if (!app) {
 			throw notFound();
+		}
+		// Only an M2M Application has a 角色 Tab.
+		if (app.type === "m2m") {
+			await queryClient.ensureQueryData(applicationRolesQuery(params.clientId));
 		}
 	},
 	notFoundComponent: () => (
@@ -222,6 +241,11 @@ function ApplicationPage() {
 			{app.type !== "m2m" && (
 				<TabsContent value="login">
 					<LoginTab app={app} editable={editable} />
+				</TabsContent>
+			)}
+			{app.type === "m2m" && (
+				<TabsContent value="roles">
+					<RolesTab app={app} />
 				</TabsContent>
 			)}
 			<TabsContent value="webhook">
@@ -777,6 +801,91 @@ function WebhookTab({ app, editable }: TabProps) {
 							</>
 						)}
 					</FormField>
+				)}
+			</form.Field>
+		</Section>
+	);
+}
+
+// RolesTab assigns the Roles an M2M Application holds on its one API; its
+// access token carries them (ADR 0015). Management API Roles need
+// admin-roles:assign, like everywhere else.
+function RolesTab({ app }: { app: Application }) {
+	const can = useCan();
+	const client = useQueryClient();
+	const { apis } = useSuspenseQuery(apisQuery).data;
+	const held = useSuspenseQuery(applicationRolesQuery(app.clientId)).data.roles;
+	const apiDef = apis.find((a) => a.identifier === app.defaultApi);
+	const roles = apiDef?.roles ?? [];
+	const editable = can(
+		app.defaultApi === managementAPI ? "admin-roles:assign" : "roles:assign",
+	);
+	const save = useMutation({
+		mutationFn: (keys: string[]) =>
+			api(`/applications/${app.clientId}/roles`, {
+				method: "PUT",
+				body: { roles: keys },
+			}),
+		onSuccess: () => client.invalidateQueries(),
+	});
+	const form = useForm({
+		defaultValues: { roles: held },
+		onSubmit: ({ value }) => save.mutate(value.roles, { onSuccess: saved }),
+	});
+	if (roles.length === 0) {
+		return (
+			<Section title="角色" editable={false}>
+				<Alert>
+					<AlertDescription>
+						这个 API 资源还没有角色。
+						<Link
+							to="/console/apis/$api"
+							params={{ api: app.defaultApi ?? "" }}
+							className="underline"
+						>
+							去添加角色
+						</Link>
+					</AlertDescription>
+				</Alert>
+			</Section>
+		);
+	}
+	return (
+		<Section
+			title="角色"
+			intro="它换到的 access token 带上这里勾选的角色与权限。"
+			editable={editable}
+			form={form}
+			footer={editable && <SaveBar save={save} />}
+		>
+			<form.Field name="roles">
+				{(field) => (
+					<FieldSet>
+						<FieldLegend
+							variant="label"
+							className="text-[13px] text-muted-foreground font-normal"
+						>
+							{apiDef?.name}
+						</FieldLegend>
+						<div className="flex flex-wrap gap-x-4 gap-y-2">
+							{roles.map((r) => (
+								<Label key={r.key} className="font-normal">
+									<Checkbox
+										disabled={!editable}
+										checked={field.state.value.includes(r.key)}
+										onCheckedChange={(on) =>
+											field.handleChange(
+												on
+													? [...field.state.value, r.key]
+													: field.state.value.filter((k) => k !== r.key),
+											)
+										}
+									/>
+									{r.name}
+								</Label>
+							))}
+						</div>
+					</FieldSet>
 				)}
 			</form.Field>
 		</Section>

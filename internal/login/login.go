@@ -239,9 +239,10 @@ func clientCredentialsRules(next http.Handler) http.Handler {
 	})
 }
 
-// audience makes an access token for the Application's default API, with
-// the User's Roles there (RFC 9068 §2.2.3.1), read as they stand now. It
-// names the Session it was issued in as sid.
+// audience makes an access token for the Application's default API, with the
+// Roles held there (RFC 9068 §2.2.3.1), read as they stand now. A User's
+// token carries the User's Roles; an M2M Application's carries its own
+// (ADR 0015). It names the Session it was issued in as sid.
 // ponytail: two PG reads per token; fold into Client if it shows up.
 func (s *Service) audience(ctx context.Context, _ *goidc.Token, g *goidc.Grant) map[string]any {
 	claims := map[string]any{}
@@ -253,13 +254,24 @@ func (s *Service) audience(ctx context.Context, _ *goidc.Token, g *goidc.Grant) 
 		return claims
 	}
 	claims[goidc.ClaimAudience] = app.DefaultApi.String
-	r, err := s.q.TokenRoles(ctx, sqlc.TokenRolesParams{UserID: g.Subject, Api: app.DefaultApi.String})
-	if err != nil {
-		slog.Error("token roles", "err", err)
-		return claims
+	var roles, entitlements []string
+	if app.Type == "m2m" {
+		r, err := s.q.ApplicationTokenRoles(ctx, sqlc.ApplicationTokenRolesParams{ClientID: app.ClientID, Api: app.DefaultApi.String})
+		if err != nil {
+			slog.Error("token roles", "err", err)
+			return claims
+		}
+		roles, entitlements = r.Roles, r.Entitlements
+	} else {
+		r, err := s.q.TokenRoles(ctx, sqlc.TokenRolesParams{UserID: g.Subject, Api: app.DefaultApi.String})
+		if err != nil {
+			slog.Error("token roles", "err", err)
+			return claims
+		}
+		roles, entitlements = r.Roles, r.Entitlements
 	}
-	if len(r.Roles) > 0 {
-		claims["roles"], claims["entitlements"] = r.Roles, r.Entitlements
+	if len(roles) > 0 {
+		claims["roles"], claims["entitlements"] = roles, entitlements
 	}
 	return claims
 }

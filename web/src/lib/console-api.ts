@@ -148,6 +148,7 @@ export type RoleDef = {
 	builtin: boolean;
 	permissions: string[];
 	users: number;
+	applications: number;
 };
 export type APIDef = {
 	identifier: string;
@@ -156,6 +157,8 @@ export type APIDef = {
 	permissions: PermissionInfo[];
 	roles: RoleDef[];
 };
+// The Roles an M2M Application holds on its API (its default API).
+export type ApplicationRoles = { api: string; roles: string[] };
 
 // apiPath names an API in a Management API path; identifiers are often URLs.
 export const apiPath = (identifier: string) =>

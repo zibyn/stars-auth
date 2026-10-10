@@ -72,7 +72,8 @@ INSERT INTO audit_log (event, sub, detail)
 VALUES ('roles.assigned', @user_id::text, jsonb_build_object('api', @api::text, 'roles', @roles::text[], 'by', @by::text));
 
 -- name: ListAPIs :many
--- Every API with its Permissions and Roles; users counts who holds a Role.
+-- Every API with its Permissions and Roles; users and applications count who
+-- holds a Role.
 SELECT a.identifier, a.name, a.builtin,
        COALESCE((SELECT json_agg(json_build_object('key', p.key, 'name', p.name, 'builtin', p.builtin) ORDER BY p.key)
                  FROM permissions p WHERE p.api = a.identifier), '[]')::jsonb AS permissions,
@@ -80,7 +81,8 @@ SELECT a.identifier, a.name, a.builtin,
                      'key', r.key, 'name', r.name, 'builtin', r.builtin,
                      'permissions', COALESCE((SELECT json_agg(rp.permission ORDER BY rp.permission) FROM role_permissions rp
                                               WHERE rp.api = r.api AND rp.role = r.key), '[]'),
-                     'users', (SELECT count(*) FROM user_roles ur WHERE ur.api = r.api AND ur.role = r.key))
+                     'users', (SELECT count(*) FROM user_roles ur WHERE ur.api = r.api AND ur.role = r.key),
+                     'applications', (SELECT count(*) FROM application_roles ar WHERE ar.api = r.api AND ar.role = r.key))
                      ORDER BY r.builtin DESC, r.key)
                  FROM roles r WHERE r.api = a.identifier), '[]')::jsonb AS roles
 FROM apis a
@@ -122,15 +124,35 @@ SELECT @api, @role, p FROM unnest(@permissions::text[]) AS p
 ON CONFLICT DO NOTHING;
 
 -- name: RoleUsers :one
-SELECT r.builtin, (SELECT count(*) FROM user_roles ur WHERE ur.api = r.api AND ur.role = r.key) AS users
+-- How many Users and how many M2M Applications hold the Role; its built-in
+-- flag guards changes.
+SELECT r.builtin,
+       (SELECT count(*) FROM user_roles ur WHERE ur.api = r.api AND ur.role = r.key) AS users,
+       (SELECT count(*) FROM application_roles ar WHERE ar.api = r.api AND ar.role = r.key) AS applications
 FROM roles r WHERE r.api = $1 AND r.key = $2;
 
 -- name: DeleteRole :execrows
--- Its assignments go with it (user_roles cascades), but only when force
--- confirms that; no row while someone holds it.
+-- Its assignments go with it (user_roles and application_roles cascade), but
+-- only when force confirms that; no row while anyone holds it.
 DELETE FROM roles
 WHERE roles.api = @api AND roles.key = @key AND NOT roles.builtin
-  AND (@force::boolean OR NOT EXISTS (SELECT 1 FROM user_roles ur WHERE ur.api = roles.api AND ur.role = roles.key));
+  AND (@force::boolean OR NOT EXISTS (SELECT 1 FROM user_roles ur WHERE ur.api = roles.api AND ur.role = roles.key)
+                             AND NOT EXISTS (SELECT 1 FROM application_roles ar WHERE ar.api = roles.api AND ar.role = roles.key));
+
+-- name: SetApplicationRoles :exec
+-- Makes roles an M2M Application's Roles on an API; the API is its default
+-- API, and the audit is the generic set-application-roles event.
+WITH gone AS (
+    DELETE FROM application_roles
+    WHERE application_roles.client_id = @client_id AND application_roles.api = @api AND NOT (application_roles.role = ANY (@roles::text[]))
+)
+INSERT INTO application_roles (client_id, api, role)
+SELECT @client_id, @api, r FROM unnest(@roles::text[]) AS r
+ON CONFLICT DO NOTHING;
+
+-- name: ApplicationRoles :many
+-- Keys of the Roles an M2M Application holds on its API.
+SELECT role FROM application_roles WHERE client_id = $1 AND api = $2 ORDER BY role;
 
 -- name: ListApplications :many
 -- One Application, or all of them for an empty client_id.

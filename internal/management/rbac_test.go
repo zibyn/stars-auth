@@ -110,10 +110,11 @@ type apiDef struct {
 		Builtin   bool
 	}
 	Roles []struct {
-		Key, Name   string
-		Builtin     bool
-		Permissions []string
-		Users       int
+		Key, Name    string
+		Builtin      bool
+		Permissions  []string
+		Users        int
+		Applications int
 	}
 }
 
@@ -175,10 +176,11 @@ func TestDefineAPIPermissionsAndRoles(t *testing.T) {
 	}
 	m := e.apis(ro)[identity.ManagementAPI]
 	owners := slices.IndexFunc(m.Roles, func(r struct {
-		Key, Name   string
-		Builtin     bool
-		Permissions []string
-		Users       int
+		Key, Name    string
+		Builtin      bool
+		Permissions  []string
+		Users        int
+		Applications int
 	}) bool {
 		return r.Key == "owner"
 	})

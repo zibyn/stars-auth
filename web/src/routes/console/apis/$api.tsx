@@ -417,6 +417,13 @@ function Roles({
 	);
 }
 
+// holders names who holds a Role, for the count line and the delete prompt.
+const holders = (role: RoleDef): string[] =>
+	[
+		role.users ? `${role.users} 个用户` : "",
+		role.applications ? `${role.applications} 个 Application` : "",
+	].filter(Boolean);
+
 // RoleRow shows a Role and edits it in place; built-in Roles stay as they are.
 function RoleRow({
 	def,
@@ -444,6 +451,7 @@ function RoleRow({
 			</Item>
 		);
 	}
+	const held = holders(role);
 	return (
 		<Item>
 			<ItemContent>
@@ -462,6 +470,7 @@ function RoleRow({
 					>
 						{role.users} 个用户
 					</Link>
+					{role.applications > 0 && ` · ${role.applications} 个 Application`}
 				</ItemDescription>
 			</ItemContent>
 			{editable && (
@@ -477,11 +486,11 @@ function RoleRow({
 						}
 						title={`删除角色「${role.name}」？`}
 						action="删除角色"
-						onConfirm={() => remove.mutate(role.users > 0)}
+						onConfirm={() => remove.mutate(held.length > 0)}
 					>
-						{role.users
-							? `它仍分配给 ${role.users} 个用户，删除后这些用户随即失去它。此操作无法撤销。`
-							: "没有用户持有它。此操作无法撤销。"}
+						{held.length
+							? `它仍分配给 ${held.join("、")}，删除后这些持有者随即失去它。此操作无法撤销。`
+							: "没有用户或 Application 持有它。此操作无法撤销。"}
 					</ConfirmDialog>
 				</ItemActions>
 			)}

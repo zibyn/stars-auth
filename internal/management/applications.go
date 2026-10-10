@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -279,6 +280,62 @@ func (s *Service) deleteApplication(ctx context.Context, in *clientIDPath) (*str
 		return nil, err
 	}
 	return nil, s.q.DeleteApplication(ctx, in.ClientID)
+}
+
+// ApplicationRoles are the Roles an M2M Application holds on its default API;
+// its client_credentials token carries them (ADR 0015).
+type ApplicationRoles struct {
+	API   string   `json:"api" doc:"Identifier of the API the Roles are on; the Application's default API"`
+	Roles []string `json:"roles" nullable:"false" doc:"Keys of every Role it holds"`
+}
+
+type applicationRolesOutput struct{ Body ApplicationRoles }
+
+func (s *Service) listApplicationRoles(ctx context.Context, in *clientIDPath) (*applicationRolesOutput, error) {
+	app, err := s.application(ctx, in.ClientID)
+	if err != nil {
+		return nil, err
+	}
+	out := &applicationRolesOutput{}
+	out.Body.API = app.DefaultAPI
+	out.Body.Roles, err = s.q.ApplicationRoles(ctx, sqlc.ApplicationRolesParams{ClientID: in.ClientID, Api: app.DefaultAPI})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+type setApplicationRolesInput struct {
+	ClientID string `path:"clientId"`
+	Body     struct {
+		Roles []string `json:"roles" nullable:"false" doc:"Keys of every Role it should hold on its default API; Roles left out are taken away"`
+	}
+}
+
+func (s *Service) setApplicationRoles(ctx context.Context, in *setApplicationRolesInput) (*struct{}, error) {
+	app, err := s.application(ctx, in.ClientID)
+	if err != nil {
+		return nil, err
+	}
+	// Only an M2M Application calls an API as itself, and only on its one
+	// default API; the Role has to live there (ADR 0015).
+	if app.Type != "m2m" {
+		return nil, huma.Error422UnprocessableEntity("只有 M2M Application 能持有 Role")
+	}
+	if app.DefaultAPI == identity.ManagementAPI {
+		if err := mayMakeAdmins(ctx); err != nil {
+			return nil, err
+		}
+		// 「所有者」is a person; an Application never is one.
+		if slices.Contains(in.Body.Roles, "owner") {
+			return nil, huma.Error422UnprocessableEntity("「所有者」不能分配给 Application")
+		}
+	}
+	err = s.q.SetApplicationRoles(ctx, sqlc.SetApplicationRolesParams{ClientID: in.ClientID, Api: app.DefaultAPI, Roles: in.Body.Roles})
+	if isFKViolation(err) {
+		return nil, huma.Error422UnprocessableEntity("没有这个 Role")
+	}
+	return nil, err
 }
 
 // registerAssociation serves the /.well-known/ association files iOS and

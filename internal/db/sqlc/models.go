@@ -34,6 +34,12 @@ type Application struct {
 	AndroidApps            []byte
 }
 
+type ApplicationRole struct {
+	ClientID string
+	Api      string
+	Role     string
+}
+
 type AuditLog struct {
 	ID     int64
 	At     pgtype.Timestamptz

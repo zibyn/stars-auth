@@ -566,8 +566,9 @@ func TestClientCredentials(t *testing.T) {
 	if at := e.claims(tok.AccessToken); at["aud"] != trackAPI || at["sub"] != "batch" || at["client_id"] != "batch" {
 		t.Errorf("claims: %v", at)
 	}
+	// No Roles assigned yet, so the token carries none.
 	if id := e.claims(tok.AccessToken); id["roles"] != nil || id["entitlements"] != nil {
-		t.Errorf("an M2M token carries no Roles yet: %v", id)
+		t.Errorf("an M2M token with no Roles carries none: %v", id)
 	}
 
 	// A scope in the request is ignored: the token is for the Application's
@@ -631,5 +632,67 @@ func TestClientCredentials(t *testing.T) {
 		if resp.StatusCode != 401 || !strings.Contains(body, "unauthorized_client") {
 			t.Errorf("%s: %d %s", c.id, resp.StatusCode, body)
 		}
+	}
+}
+
+// An M2M Application's token carries the Roles assigned to it on its default
+// API, with their Permissions as entitlements, in the same shape as a User's
+// token (ADR 0015).
+func TestClientCredentialsTokenCarriesApplicationRoles(t *testing.T) {
+	e := start(t)
+	const trackAPI = "https://track.example"
+	if _, err := e.pool.Exec(context.Background(), `
+		INSERT INTO apis (identifier, name) VALUES ('https://track.example', 'Track'), ('https://other.example', 'Other');
+		INSERT INTO permissions (api, key, name) VALUES
+			('https://track.example', 'track:read', 'r'), ('https://track.example', 'track:write', 'w'),
+			('https://other.example', 'other:x', 'x');
+		INSERT INTO roles (api, key, name) VALUES
+			('https://track.example', 'viewer', 'V'), ('https://track.example', 'editor', 'E'), ('https://other.example', 'boss', 'B');
+		INSERT INTO role_permissions VALUES
+			('https://track.example', 'viewer', 'track:read'), ('https://track.example', 'editor', 'track:read'),
+			('https://track.example', 'editor', 'track:write'), ('https://other.example', 'boss', 'other:x')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := oidcstore.CreateApplication(context.Background(), e.pool, oidcstore.Application{
+		ClientID: "batch", Name: "对账任务", Type: "m2m", Secret: "m2m-secret", DefaultAPI: trackAPI,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	token := func() map[string]any {
+		u, err := url.Parse(e.issuer)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u.User = url.UserPassword("batch", "m2m-secret")
+		u.Path = "/token"
+		resp, body := e.do("POST", u.String(), url.Values{"grant_type": {"client_credentials"}})
+		var tok struct {
+			AccessToken string `json:"access_token"`
+		}
+		if resp.StatusCode != 200 || json.Unmarshal([]byte(body), &tok) != nil || tok.AccessToken == "" {
+			t.Fatalf("client_credentials: %d %s", resp.StatusCode, body)
+		}
+		return e.claims(tok.AccessToken)
+	}
+
+	// Two Roles on its API: both, and the union of their Permissions. A Role
+	// on another API is out of reach.
+	if _, err := e.pool.Exec(context.Background(), `
+		INSERT INTO application_roles (client_id, api, role) VALUES
+			('batch', 'https://track.example', 'viewer'), ('batch', 'https://track.example', 'editor')`); err != nil {
+		t.Fatal(err)
+	}
+	at := token()
+	if at["aud"] != trackAPI || fmt.Sprint(at["roles"]) != "[editor viewer]" || fmt.Sprint(at["entitlements"]) != "[track:read track:write]" {
+		t.Errorf("with Roles: %v", at)
+	}
+
+	// Revoking one drops its Permissions with it.
+	if _, err := e.pool.Exec(context.Background(), `DELETE FROM application_roles WHERE role = 'editor'`); err != nil {
+		t.Fatal(err)
+	}
+	at = token()
+	if fmt.Sprint(at["roles"]) != "[viewer]" || fmt.Sprint(at["entitlements"]) != "[track:read]" {
+		t.Errorf("after revoking a Role: %v", at)
 	}
 }

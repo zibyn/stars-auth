@@ -22,6 +22,36 @@ func (q *Queries) APIBuiltin(ctx context.Context, identifier string) (bool, erro
 	return builtin, err
 }
 
+const applicationRoles = `-- name: ApplicationRoles :many
+SELECT role FROM application_roles WHERE client_id = $1 AND api = $2 ORDER BY role
+`
+
+type ApplicationRolesParams struct {
+	ClientID string
+	Api      string
+}
+
+// Keys of the Roles an M2M Application holds on its API.
+func (q *Queries) ApplicationRoles(ctx context.Context, arg ApplicationRolesParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, applicationRoles, arg.ClientID, arg.Api)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var role string
+		if err := rows.Scan(&role); err != nil {
+			return nil, err
+		}
+		items = append(items, role)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const caller = `-- name: Caller :one
 SELECT count(*) > 0 AS admin,
        COALESCE(array_agg(DISTINCT rp.permission ORDER BY rp.permission)
@@ -127,7 +157,8 @@ func (q *Queries) DeletePermission(ctx context.Context, arg DeletePermissionPara
 const deleteRole = `-- name: DeleteRole :execrows
 DELETE FROM roles
 WHERE roles.api = $1 AND roles.key = $2 AND NOT roles.builtin
-  AND ($3::boolean OR NOT EXISTS (SELECT 1 FROM user_roles ur WHERE ur.api = roles.api AND ur.role = roles.key))
+  AND ($3::boolean OR NOT EXISTS (SELECT 1 FROM user_roles ur WHERE ur.api = roles.api AND ur.role = roles.key)
+                             AND NOT EXISTS (SELECT 1 FROM application_roles ar WHERE ar.api = roles.api AND ar.role = roles.key))
 `
 
 type DeleteRoleParams struct {
@@ -136,8 +167,8 @@ type DeleteRoleParams struct {
 	Force bool
 }
 
-// Its assignments go with it (user_roles cascades), but only when force
-// confirms that; no row while someone holds it.
+// Its assignments go with it (user_roles and application_roles cascade), but
+// only when force confirms that; no row while anyone holds it.
 func (q *Queries) DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, error) {
 	result, err := q.db.Exec(ctx, deleteRole, arg.Api, arg.Key, arg.Force)
 	if err != nil {
@@ -276,7 +307,8 @@ SELECT a.identifier, a.name, a.builtin,
                      'key', r.key, 'name', r.name, 'builtin', r.builtin,
                      'permissions', COALESCE((SELECT json_agg(rp.permission ORDER BY rp.permission) FROM role_permissions rp
                                               WHERE rp.api = r.api AND rp.role = r.key), '[]'),
-                     'users', (SELECT count(*) FROM user_roles ur WHERE ur.api = r.api AND ur.role = r.key))
+                     'users', (SELECT count(*) FROM user_roles ur WHERE ur.api = r.api AND ur.role = r.key),
+                     'applications', (SELECT count(*) FROM application_roles ar WHERE ar.api = r.api AND ar.role = r.key))
                      ORDER BY r.builtin DESC, r.key)
                  FROM roles r WHERE r.api = a.identifier), '[]')::jsonb AS roles
 FROM apis a
@@ -291,7 +323,8 @@ type ListAPIsRow struct {
 	Roles       []byte
 }
 
-// Every API with its Permissions and Roles; users counts who holds a Role.
+// Every API with its Permissions and Roles; users and applications count who
+// holds a Role.
 func (q *Queries) ListAPIs(ctx context.Context) ([]ListAPIsRow, error) {
 	rows, err := q.db.Query(ctx, listAPIs)
 	if err != nil {
@@ -722,7 +755,9 @@ func (q *Queries) ReplaceIdentifier(ctx context.Context, arg ReplaceIdentifierPa
 }
 
 const roleUsers = `-- name: RoleUsers :one
-SELECT r.builtin, (SELECT count(*) FROM user_roles ur WHERE ur.api = r.api AND ur.role = r.key) AS users
+SELECT r.builtin,
+       (SELECT count(*) FROM user_roles ur WHERE ur.api = r.api AND ur.role = r.key) AS users,
+       (SELECT count(*) FROM application_roles ar WHERE ar.api = r.api AND ar.role = r.key) AS applications
 FROM roles r WHERE r.api = $1 AND r.key = $2
 `
 
@@ -732,15 +767,41 @@ type RoleUsersParams struct {
 }
 
 type RoleUsersRow struct {
-	Builtin bool
-	Users   int64
+	Builtin      bool
+	Users        int64
+	Applications int64
 }
 
+// How many Users and how many M2M Applications hold the Role; its built-in
+// flag guards changes.
 func (q *Queries) RoleUsers(ctx context.Context, arg RoleUsersParams) (RoleUsersRow, error) {
 	row := q.db.QueryRow(ctx, roleUsers, arg.Api, arg.Key)
 	var i RoleUsersRow
-	err := row.Scan(&i.Builtin, &i.Users)
+	err := row.Scan(&i.Builtin, &i.Users, &i.Applications)
 	return i, err
+}
+
+const setApplicationRoles = `-- name: SetApplicationRoles :exec
+WITH gone AS (
+    DELETE FROM application_roles
+    WHERE application_roles.client_id = $1 AND application_roles.api = $2 AND NOT (application_roles.role = ANY ($3::text[]))
+)
+INSERT INTO application_roles (client_id, api, role)
+SELECT $1, $2, r FROM unnest($3::text[]) AS r
+ON CONFLICT DO NOTHING
+`
+
+type SetApplicationRolesParams struct {
+	ClientID string
+	Api      string
+	Roles    []string
+}
+
+// Makes roles an M2M Application's Roles on an API; the API is its default
+// API, and the audit is the generic set-application-roles event.
+func (q *Queries) SetApplicationRoles(ctx context.Context, arg SetApplicationRolesParams) error {
+	_, err := q.db.Exec(ctx, setApplicationRoles, arg.ClientID, arg.Api, arg.Roles)
+	return err
 }
 
 const setApplicationSecret = `-- name: SetApplicationSecret :execrows

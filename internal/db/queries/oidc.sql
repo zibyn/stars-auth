@@ -123,3 +123,12 @@ SELECT COALESCE(array_agg(DISTINCT ur.role ORDER BY ur.role), '{}')::text[] AS r
                 FILTER (WHERE rp.permission IS NOT NULL), '{}')::text[] AS entitlements
 FROM user_roles ur LEFT JOIN role_permissions rp USING (api, role)
 WHERE ur.user_id = $1 AND ur.api = $2;
+
+-- name: ApplicationTokenRoles :one
+-- An M2M Application's Roles on its API and the Permissions they add up to,
+-- for its client_credentials access token (ADR 0015).
+SELECT COALESCE(array_agg(DISTINCT ar.role ORDER BY ar.role), '{}')::text[] AS roles,
+       COALESCE(array_agg(DISTINCT rp.permission ORDER BY rp.permission)
+                FILTER (WHERE rp.permission IS NOT NULL), '{}')::text[] AS entitlements
+FROM application_roles ar LEFT JOIN role_permissions rp USING (api, role)
+WHERE ar.client_id = $1 AND ar.api = $2;
