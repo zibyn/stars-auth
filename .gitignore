@@ -2,3 +2,4 @@
 .env
 /conformance-suite/
 /conformance-results/
+.gocache/

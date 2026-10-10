@@ -37,7 +37,9 @@ import {
 	passkeyNameSchema,
 	passwordSchema,
 	providerReturn,
+	type ReauthChoice,
 	type ReauthMethod,
+	reauthChoices,
 	reauthMethods,
 	reauthSchema,
 	recoveryCodesText,
@@ -53,8 +55,10 @@ import {
 	type TOTPSetup,
 } from "#/lib/account-api";
 import {
+	type AssertionOptions,
 	type CreationOptions,
 	createPasskey,
+	getPasskey,
 	type Passkey,
 	passkeySupported,
 } from "#/lib/passkey";
@@ -1017,8 +1021,9 @@ function DeleteAccount({
 	);
 }
 
-// Reauth proves the User again with a code to one of their Identifiers, or
-// their password; with 两步验证 on, only with a TOTP or recovery code.
+// Reauth proves the User again with a Passkey, a code to one of their
+// Identifiers, their password, or — with 两步验证 on — a TOTP or recovery
+// code.
 function Reauth({
 	me,
 	open,
@@ -1030,18 +1035,11 @@ function Reauth({
 	onClose: () => void;
 	onDone: () => void;
 }) {
-	const codeKinds = me.identifiers
-		.map((i) => i.kind)
-		.filter((k): k is "phone" | "email" => k !== "username");
+	// A Passkey's options name this User's Passkeys; there is one to offer
+	// only once the account center has loaded them.
+	const hasPasskey = useSuspenseQuery(passkeysQuery).data.passkeys.length > 0;
 	const twoFactor = me.twoFactor.enabled;
-	const methods: ReauthMethod[] = twoFactor
-		? ["totp"]
-		: [
-				...codeKinds,
-				...(me.hasPassword && me.passwordAllowed
-					? (["password"] as const)
-					: []),
-			];
+	const choices = reauthChoices(me, hasPasskey, passkeySupported);
 	// A Provider the User bound signs them in afresh, without 两步验证.
 	const viaProvider = twoFactor
 		? []
@@ -1049,14 +1047,19 @@ function Reauth({
 	const leave = useMutation({
 		mutationFn: (id: string) => toProvider(id, "reauth"),
 	});
-	const [method, setMethod] = useState<ReauthMethod | undefined>();
+	const [method, setMethod] = useState<ReauthChoice | undefined>();
 	const current =
-		method && (twoFactor ? method === "recovery" : methods.includes(method))
+		method && (choices.includes(method) || (twoFactor && method === "recovery"))
 			? method
-			: methods[0];
+			: choices[0];
+	const byPasskey = current === "passkey";
+	// The method whose secret the form checks, where there is one; the
+	// Passkey branch never reads it.
+	const secretMethod: ReauthMethod =
+		current && current !== "passkey" ? current : "password";
 	const byCode = current === "phone" || current === "email";
 	const [sent, setSent] = useState(false);
-	const pick = (m: ReauthMethod) => {
+	const pick = (m: ReauthChoice) => {
 		setMethod(m);
 		setSent(false);
 		form.reset();
@@ -1070,7 +1073,7 @@ function Reauth({
 		mutationFn: (secret: string) =>
 			api("/reauth", {
 				method: "POST",
-				body: current && reauthMethods[current].body(secret),
+				body: reauthMethods[secretMethod].body(secret),
 			}),
 		onSuccess: () => {
 			form.reset();
@@ -1078,14 +1081,32 @@ function Reauth({
 			onDone();
 		},
 	});
+	// The Passkey ceremony: options naming the User's own Passkeys, then the
+	// assertion the API checks.
+	const authenticate = useMutation({
+		mutationFn: async () => {
+			const { options } = await api<{ options: AssertionOptions }>(
+				"/reauth/passkey",
+				{ method: "POST" },
+			);
+			const assertion = await getPasskey(options);
+			return api("/reauth", {
+				method: "POST",
+				body: { passkey: JSON.stringify(assertion) },
+			});
+		},
+		onSuccess: onDone,
+	});
 	const form = useForm({
 		defaultValues: { secret: "" },
 		validationLogic: revalidateLogic(),
-		validators: { onDynamic: reauthSchema(current ?? "password", sent) },
+		validators: {
+			onDynamic: reauthSchema(secretMethod, sent),
+		},
 		onSubmit: ({ value }) =>
 			byCode && !sent ? send.mutate() : verify.mutate(value.secret),
 	});
-	const error = send.error ?? verify.error ?? leave.error;
+	const error = send.error ?? verify.error ?? authenticate.error ?? leave.error;
 	const target = me.identifiers.find((i) => i.kind === current)?.value;
 	return (
 		<Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -1094,24 +1115,36 @@ function Reauth({
 				<DialogDescription>
 					换绑、解绑、两步验证、导出和注销,须在 10 分钟内验证过身份。
 				</DialogDescription>
-				{methods.length > 1 && (
-					<div className="flex gap-2">
-						{methods.map((m) => (
+				{choices.length > 1 && (
+					<div className="flex flex-wrap gap-2">
+						{choices.map((m) => (
 							<Button
 								key={m}
 								size="sm"
 								variant={m === current ? "secondary" : "ghost"}
 								onClick={() => pick(m)}
 							>
-								{m === "phone" || m === "email"
-									? `${kindName[m]}验证码`
-									: "密码"}
+								{choiceLabel(m)}
 							</Button>
 						))}
 					</div>
 				)}
 				{current === undefined ? (
 					viaProvider.length === 0 && <p>没有可用的验证方式,请联系管理员。</p>
+				) : byPasskey ? (
+					<div className="space-y-3">
+						<p className="text-muted-foreground">
+							用这台设备或密码管理器里的 Passkey 验证一下。
+						</p>
+						<FormError error={error} />
+						<Button
+							type="button"
+							disabled={authenticate.isPending}
+							onClick={() => authenticate.mutate()}
+						>
+							使用 Passkey 验证
+						</Button>
+					</div>
 				) : (
 					<form
 						noValidate
@@ -1127,9 +1160,15 @@ function Reauth({
 						{(!byCode || sent) && (
 							<form.Field name="secret">
 								{(field) => (
-									<FormField field={field} label={reauthMethods[current].label}>
+									<FormField
+										field={field}
+										label={reauthMethods[secretMethod].label}
+									>
 										{(control) => (
-											<Input {...control} {...reauthMethods[current].input} />
+											<Input
+												{...control}
+												{...reauthMethods[secretMethod].input}
+											/>
 										)}
 									</FormField>
 								)}
@@ -1180,6 +1219,23 @@ function Reauth({
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+// choiceLabel is a reauthentication choice's button text.
+function choiceLabel(m: ReauthChoice): string {
+	switch (m) {
+		case "passkey":
+			return "Passkey";
+		case "phone":
+		case "email":
+			return `${kindName[m]}验证码`;
+		case "totp":
+			return "验证器";
+		case "recovery":
+			return "恢复码";
+		default:
+			return "密码";
+	}
 }
 
 function Row({

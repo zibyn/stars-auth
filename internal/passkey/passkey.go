@@ -26,11 +26,12 @@ import (
 
 	"github.com/zibyn/stars-auth/internal/db/sqlc"
 	"github.com/zibyn/stars-auth/internal/identity"
+	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 )
 
 const (
-	ErrNotBegun   identity.Invalid = "没有正在进行的添加,请重新开始"
-	ErrExpired    identity.Invalid = "验证已过期,请重新添加"
+	ErrNotBegun   identity.Invalid = "没有正在进行的验证,请重新开始"
+	ErrExpired    identity.Invalid = "验证已过期,请重新开始"
 	ErrDuplicate  identity.Invalid = "这把 Passkey 已经添加过了"
 	ErrNoUV       identity.Invalid = "设备未验证用户身份,不能添加为 Passkey"
 	ErrVerifyFail identity.Invalid = "Passkey 注册未通过验证,请重试"
@@ -41,7 +42,25 @@ const (
 	// ErrCloned is a counter that went backwards: the Passkey may be a
 	// clone's. Audited before it is returned.
 	ErrCloned identity.Invalid = "这把 Passkey 的计数器异常,已拒绝登录"
+	// ErrNoPasskeys is a reauthentication asked for by a User who has added
+	// no Passkey to reauthenticate with.
+	ErrNoPasskeys identity.Invalid = "你还没有添加 Passkey"
 )
+
+// amrMFA marks an authentication that passed 两步验证 (RFC 8176).
+const amrMFA = "mfa"
+
+// AMR is the amr claim a Passkey authentication carries: hwk, or swk when the
+// credential is synced through a password manager. The Passkey verified the
+// User itself, so mfa joins it and no TOTP is asked for (RFC 8176). Signing
+// in and reauthenticating both carry this.
+func AMR(synced bool) []string {
+	key := string(goidc.AMRHardwareSecuredKey)
+	if synced { // synced through a password manager: software
+		key = string(goidc.AMRSoftwareSecuredKey)
+	}
+	return []string{key, amrMFA}
+}
 
 // ErrGone is a Passkey of the User's that is not; the Account API answers
 // 404 for it.
@@ -86,13 +105,17 @@ func New(pool *pgxpool.Pool, issuer string) (*Store, error) {
 	return &Store{q: sqlc.New(pool), issuer: issuer, wa: wa}, nil
 }
 
-// user is a User as go-webauthn sees one: their handle is their sub.
-type user struct{ sub, name string }
+// user is a User as go-webauthn sees one: their handle is their sub, and
+// creds, when the ceremony names them, the Passkeys of theirs to offer.
+type user struct {
+	sub, name string
+	creds     []webauthn.Credential
+}
 
 func (u user) WebAuthnID() []byte                         { return []byte(u.sub) }
 func (u user) WebAuthnName() string                       { return u.name }
 func (u user) WebAuthnDisplayName() string                { return u.name }
-func (u user) WebAuthnCredentials() []webauthn.Credential { return nil }
+func (u user) WebAuthnCredentials() []webauthn.Credential { return u.creds }
 
 // Passkey is one of a User's Passkeys as the Account and Management APIs
 // show it.
@@ -131,24 +154,25 @@ func (s *Store) Begin(ctx context.Context, sub, name, session string) (json.RawM
 	}
 	exclude := make([]protocol.CredentialDescriptor, len(rows))
 	for i, r := range rows {
-		ts := make([]protocol.AuthenticatorTransport, len(r.Transports))
-		for j, t := range r.Transports {
-			ts[j] = protocol.AuthenticatorTransport(t)
-		}
-		exclude[i] = protocol.CredentialDescriptor{CredentialID: r.CredentialID, Transport: ts}
+		exclude[i] = protocol.CredentialDescriptor{CredentialID: r.CredentialID, Transport: authenticatorTransports(r.Transports)}
 	}
-	creation, sd, err := s.wa.BeginRegistration(user{sub, name}, webauthn.WithExclusions(exclude))
+	creation, sd, err := s.wa.BeginRegistration(user{sub: sub, name: name}, webauthn.WithExclusions(exclude))
 	if err != nil {
 		return nil, err
 	}
-	err = s.q.PutPasskeyChallenge(ctx, sqlc.PutPasskeyChallengeParams{
-		SessionID: session, UserID: sub, Challenge: sd.Challenge,
-		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(challengeTTL), Valid: true},
-	})
-	if err != nil {
+	if err := s.putChallenge(ctx, session, sub, sd.Challenge); err != nil {
 		return nil, err
 	}
 	return json.Marshal(creation)
+}
+
+// putChallenge keeps challenge for sub's Session until it expires; Finish or
+// Reauth takes it once.
+func (s *Store) putChallenge(ctx context.Context, session, sub, challenge string) error {
+	return s.q.PutPasskeyChallenge(ctx, sqlc.PutPasskeyChallengeParams{
+		SessionID: session, UserID: sub, Challenge: challenge,
+		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(challengeTTL), Valid: true},
+	})
 }
 
 // RegistrationResponse is the RegistrationResponseJSON the browser or App
@@ -192,7 +216,7 @@ func (s *Store) Finish(ctx context.Context, sub, session string, response []byte
 		Challenge: ch.Challenge, UserID: []byte(sub), RelyingPartyID: s.rpID(),
 		UserVerification: protocol.VerificationRequired, CredParams: webauthn.CredentialParametersDefault(),
 	}
-	cred, err := s.wa.CreateCredential(user{sub, sub}, sd, parsed)
+	cred, err := s.wa.CreateCredential(user{sub: sub, name: sub}, sd, parsed)
 	if err != nil {
 		return Passkey{}, ErrVerifyFail
 	}
@@ -228,12 +252,65 @@ func (s *Store) LoginOptions() (options json.RawMessage, challenge string, err e
 	return options, sd.Challenge, nil
 }
 
+// ReauthOptions begins reauthenticating sub: the assertion options a browser
+// or App is given, naming only sub's own Passkeys so no other User's is even
+// offered. The challenge is kept for the Session, taken by Reauth.
+//
+// ponytail: shares passkey_challenges' one slot per Session with Begin (adding
+// one), so starting either cancels the other; the UI never has both open.
+func (s *Store) ReauthOptions(ctx context.Context, sub, session string) (json.RawMessage, error) {
+	rows, err := s.q.PasskeyExclusions(ctx, sub)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, ErrNoPasskeys
+	}
+	creds := make([]webauthn.Credential, len(rows))
+	for i, r := range rows {
+		creds[i] = webauthn.Credential{ID: r.CredentialID, Transport: authenticatorTransports(r.Transports)}
+	}
+	assertion, sd, err := s.wa.BeginLogin(user{sub: sub, name: sub, creds: creds})
+	if err != nil {
+		return nil, err
+	}
+	if err := s.putChallenge(ctx, session, sub, sd.Challenge); err != nil {
+		return nil, err
+	}
+	return json.Marshal(assertion)
+}
+
+// Reauth reauthenticates sub with a Passkey of theirs: the assertion checked
+// against the challenge ReauthOptions kept for the Session. Another User's
+// Passkey does not pass.
+func (s *Store) Reauth(ctx context.Context, sub, session string, response []byte) (SignIn, error) {
+	ch, err := s.q.TakePasskeyChallenge(ctx, session)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return SignIn{}, ErrNotBegun
+	} else if err != nil {
+		return SignIn{}, err
+	}
+	if ch.UserID != sub {
+		return SignIn{}, ErrNotBegun
+	}
+	if !ch.Live {
+		return SignIn{}, ErrExpired
+	}
+	return s.assert(ctx, ch.Challenge, response, sub)
+}
+
 // SignIn is one of a User's Passkeys signing them in: the assertion response
 // checked against the challenge LoginOptions issued. BackupEligible says
 // which key the amr claim names the login by: a synced Passkey is a software
 // key, one that never leaves its device a hardware one. Nothing here creates
 // a User; a Passkey only ever signs in the User it was added to.
 func (s *Store) SignIn(ctx context.Context, challenge string, response []byte) (SignIn, error) {
+	return s.assert(ctx, challenge, response, "")
+}
+
+// assert verifies an assertion against challenge. own, when not empty, is
+// the only User whose Passkey may pass: a reauthentication, not a sign-in.
+func (s *Store) assert(ctx context.Context, challenge string, response []byte, own string) (SignIn, error) {
 	parsed, err := protocol.ParseCredentialRequestResponseBytes(response)
 	if err != nil {
 		return SignIn{}, ErrLoginFail
@@ -253,8 +330,9 @@ func (s *Store) SignIn(ctx context.Context, challenge string, response []byte) (
 			lookupErr = err
 			return nil, err
 		}
-		// The credential belongs to the User its handle names, or to nobody.
-		if !bytes.Equal(userHandle, []byte(row.UserID)) {
+		// The credential belongs to the User its handle names, or to nobody;
+		// a reauthentication takes only the User's own.
+		if !bytes.Equal(userHandle, []byte(row.UserID)) || (own != "" && row.UserID != own) {
 			lookupErr = ErrNoPasskey
 			return nil, ErrNoPasskey
 		}
@@ -266,7 +344,7 @@ func (s *Store) SignIn(ctx context.Context, challenge string, response []byte) (
 		}}, nil
 	}
 	// ponytail: no deadline of its own; the challenge's holder (AuthnSession,
-	// auth_session) is what expires it.
+	// auth_session, passkey_challenges) is what expires it.
 	sd := webauthn.SessionData{
 		Challenge: challenge, RelyingPartyID: s.rpID(),
 		UserVerification: protocol.VerificationRequired,
@@ -431,6 +509,14 @@ func transportsOf(ts []protocol.AuthenticatorTransport) []string {
 	out := make([]string, len(ts))
 	for i, t := range ts {
 		out[i] = string(t)
+	}
+	return out
+}
+
+func authenticatorTransports(ts []string) []protocol.AuthenticatorTransport {
+	out := make([]protocol.AuthenticatorTransport, len(ts))
+	for i, t := range ts {
+		out[i] = protocol.AuthenticatorTransport(t)
 	}
 	return out
 }

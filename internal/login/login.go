@@ -76,17 +76,6 @@ const amrMFA = "mfa"
 // amrFed marks a login through a Provider (docs/spec/protocol.md).
 const amrFed = "fed"
 
-// passkeyAMR is the amr claim a Passkey sign-in carries: hwk, or swk when the
-// credential is synced through a password manager. The Passkey verified the
-// User itself, so mfa joins it and no TOTP is asked for (RFC 8176).
-func passkeyAMR(synced bool) []string {
-	key := string(goidc.AMRHardwareSecuredKey)
-	if synced { // synced through a password manager: software
-		key = string(goidc.AMRSoftwareSecuredKey)
-	}
-	return []string{key, amrMFA}
-}
-
 type Service struct {
 	issuer    string
 	q         *sqlc.Queries
@@ -464,7 +453,7 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		// already, so the amr claim says mfa and TOTP never comes up. The
 		// form is the page's own script that posts it — no box was ticked, so
 		// no version: the consent step comes after, as for a Provider.
-		return s.login(w, r, as, c, in.Sub, passkeyAMR(in.BackupEligible), "")
+		return s.login(w, r, as, c, in.Sub, passkey.AMR(in.BackupEligible), "")
 
 	case "provider":
 		if pending != "" {

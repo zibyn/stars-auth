@@ -5,6 +5,7 @@ import {
 	deleteSchema,
 	passwordSchema,
 	providerReturn,
+	reauthChoices,
 	reauthSchema,
 	recoveryCodesText,
 	totpSchema,
@@ -141,4 +142,30 @@ test("recovery codes download as a text file, one per line", () => {
 		recoveryCodesText("auth.example.com", ["abcd-efgh", "ijkl-mnop"]),
 		"auth.example.com 两步验证恢复码\n每个只能用一次。\n\nabcd-efgh\nijkl-mnop\n",
 	);
+});
+
+// meUser is the part of the Account API's /me the reauthentication choices
+// come from.
+const meUser = (over: Partial<Parameters<typeof reauthChoices>[0]> = {}) => ({
+	identifiers: [{ kind: "phone" }],
+	hasPassword: false,
+	passwordAllowed: false,
+	twoFactor: { enabled: false },
+	...over,
+});
+
+test("reauthentication offers a Passkey only to a User who has one", () => {
+	assert.deepEqual(reauthChoices(meUser(), false, true), ["phone"]);
+	assert.deepEqual(reauthChoices(meUser(), true, true), ["passkey", "phone"]);
+	// A browser that cannot run the ceremony is offered no Passkey.
+	assert.deepEqual(reauthChoices(meUser(), true, false), ["phone"]);
+});
+
+test("with 两步验证 on, a Passkey joins the TOTP as a way to reauthenticate", () => {
+	const twoFactor = { twoFactor: { enabled: true } };
+	assert.deepEqual(reauthChoices(meUser(twoFactor), false, true), ["totp"]);
+	assert.deepEqual(reauthChoices(meUser(twoFactor), true, true), [
+		"passkey",
+		"totp",
+	]);
 });

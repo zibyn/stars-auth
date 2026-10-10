@@ -86,6 +86,34 @@ export const reauthMethods = {
 
 export type ReauthMethod = keyof typeof reauthMethods;
 
+// reauthChoices is the ways of reauthenticating to offer a User: a Passkey
+// when they have one and the browser can run the ceremony, then — with
+// 两步验证 on — their TOTP, or otherwise the codes to their Identifiers and
+// their password. A Passkey itself passes 两步验证.
+export const reauthChoices = (
+	me: {
+		identifiers: { kind: string }[];
+		hasPassword: boolean;
+		passwordAllowed: boolean;
+		twoFactor: { enabled: boolean };
+	},
+	hasPasskey: boolean,
+	supported: boolean,
+): ReauthChoice[] => {
+	const passkey: ReauthChoice[] = hasPasskey && supported ? ["passkey"] : [];
+	if (me.twoFactor.enabled) return [...passkey, "totp"];
+	const codes = me.identifiers
+		.map((i) => i.kind)
+		.filter((k): k is "phone" | "email" => k !== "username");
+	const password: ReauthChoice[] =
+		me.hasPassword && me.passwordAllowed ? ["password"] : [];
+	return [...passkey, ...codes, ...password];
+};
+
+// ReauthChoice is a way of reauthenticating: one reauthMethods knows the
+// secret of, or the Passkey ceremony.
+export type ReauthChoice = ReauthMethod | "passkey";
+
 // reauthSchema checks the secret of method; a code only once it is sent.
 export const reauthSchema = (method: ReauthMethod, sent: boolean) =>
 	z.object({

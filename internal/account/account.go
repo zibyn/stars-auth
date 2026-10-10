@@ -97,7 +97,8 @@ func (s *Service) Register(mux *http.ServeMux) {
 
 	op(api, http.MethodGet, "me", "/me", "The signed-in User", s.me)
 	op(api, http.MethodPost, "send-reauth-code", "/reauth/code", "Send a code to one of the User's Identifiers, to reauthenticate with", s.sendReauthCode)
-	op(api, http.MethodPost, "reauth", "/reauth", "Reauthenticate this Session with a code or the password", s.reauth)
+	op(api, http.MethodPost, "reauth", "/reauth", "Reauthenticate this Session with a code, the password or a Passkey", s.reauth)
+	op(api, http.MethodPost, "begin-passkey-reauth", "/reauth/passkey", "Begin reauthenticating with one of the User's Passkeys: assertion options for the browser or native App", s.beginPasskeyReauth)
 	// Sensitive actions answer 403 until the User has reauthenticated in the last 10 minutes.
 	op(api, http.MethodPost, "send-identifier-code", "/identifiers/{kind}/code", "Send a code to a phone number or email to bind", s.sendIdentifierCode, http.StatusForbidden, http.StatusConflict)
 	op(api, http.MethodPut, "put-identifier", "/identifiers/{kind}", "Bind a phone number or email with its code, replacing the User's", s.putIdentifier, http.StatusForbidden, http.StatusConflict)
@@ -350,14 +351,40 @@ type reauthInput struct {
 		Password     string `json:"password,omitempty" doc:"Instead of a code"`
 		TOTP         string `json:"totp,omitempty" doc:"A code from the User's TOTP; with 两步验证 on, this or a recovery code is the only way"`
 		RecoveryCode string `json:"recoveryCode,omitempty" doc:"One of the User's recovery codes, instead of a TOTP code; used up"`
+		Passkey      string `json:"passkey,omitempty" doc:"The assertion response from POST /reauth/passkey; a Passkey has passed 两步验证 already"`
 	}
 }
 
+// passkeyOptionsOutput is what beginning a Passkey ceremony answers: the
+// creation or assertion options for the browser or native App.
+type passkeyOptionsOutput struct {
+	Body struct {
+		Options json.RawMessage `json:"options" doc:"Options as sent to the browser: the PublicKeyCredentialCreationOptionsJSON or PublicKeyCredentialRequestOptionsJSON under publicKey, which goes to navigator.credentials.create or get, or the system credential API"`
+	}
+}
+
+// beginPasskeyReauth starts reauthenticating with a Passkey; the options name
+// only the User's own Passkeys.
+func (s *Service) beginPasskeyReauth(ctx context.Context, _ *struct{}) (*passkeyOptionsOutput, error) {
+	c := callerOf(ctx)
+	js, err := s.passkeys.ReauthOptions(ctx, c.sub, c.session)
+	if err != nil {
+		return nil, fail(err)
+	}
+	out := &passkeyOptionsOutput{}
+	out.Body.Options = js
+	return out, nil
+}
+
 // reauth makes a fresh authentication of this Session, counted toward the
-// same lockouts as logging in. With 两步验证 on, only a TOTP or recovery
-// code does.
+// same lockouts as logging in; a Passkey is one attempt per challenge, as at
+// login. With 两步验证 on, only a TOTP, recovery code or Passkey does; a
+// Passkey is 两步验证 by itself.
 func (s *Service) reauth(ctx context.Context, in *reauthInput) (*struct{}, error) {
 	c := callerOf(ctx)
+	if in.Body.Passkey != "" {
+		return nil, passkeyErr(s.reauthPasskey(ctx, in.Body.Passkey))
+	}
 	on, err := s.twoFactor.On(ctx, c.sub)
 	if err != nil {
 		return nil, err
@@ -406,6 +433,17 @@ func (s *Service) reauthTwoFactor(ctx context.Context, in *reauthInput) error {
 		return err
 	}
 	return s.q.Reauthenticate(ctx, sqlc.ReauthenticateParams{ID: c.session, UserID: c.sub, Amr: []string{"otp", "mfa"}})
+}
+
+// reauthPasskey reauthenticates with one of the User's Passkeys, writing the
+// amr a Passkey sign-in writes.
+func (s *Service) reauthPasskey(ctx context.Context, response string) error {
+	c := callerOf(ctx)
+	in, err := s.passkeys.Reauth(ctx, c.sub, c.session, []byte(response))
+	if err != nil {
+		return err
+	}
+	return s.q.Reauthenticate(ctx, sqlc.ReauthenticateParams{ID: c.session, UserID: c.sub, Amr: passkey.AMR(in.BackupEligible)})
 }
 
 type kindPath struct {
@@ -681,12 +719,6 @@ func (s *Service) listPasskeys(ctx context.Context, _ *struct{}) (*passkeysOutpu
 	return out, nil
 }
 
-type passkeyOptionsOutput struct {
-	Body struct {
-		Options json.RawMessage `json:"options" doc:"Creation options as sent to the browser: PublicKeyCredentialCreationOptionsJSON under publicKey, which goes to navigator.credentials.create or the system credential API"`
-	}
-}
-
 // beginPasskey starts adding a Passkey; the options exclude the User's
 // existing credentials so an authenticator offers no second copy of one.
 func (s *Service) beginPasskey(ctx context.Context, _ *struct{}) (*passkeyOptionsOutput, error) {
@@ -739,7 +771,7 @@ func (s *Service) addPasskey(ctx context.Context, in *addPasskeyInput) (*passkey
 }
 
 type renamePasskeyInput struct {
-	ID string `path:"id"`
+	ID   string `path:"id"`
 	Body struct {
 		Name string `json:"name" doc:"How the User knows this Passkey, such as 工作电脑"`
 	}

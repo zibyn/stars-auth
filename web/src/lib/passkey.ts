@@ -48,6 +48,30 @@ export type RegistrationResponse = {
 	};
 };
 
+// Assertion options as the API sends them: which Passkeys the User may pick
+// from, in allowCredentials.
+export type AssertionOptions = {
+	publicKey: {
+		challenge: string;
+		rpId?: string;
+		timeout?: number;
+		userVerification?: UserVerificationRequirement;
+		allowCredentials?: { type: "public-key"; id: string }[];
+	};
+};
+
+export type AssertionResponse = {
+	id: string;
+	rawId: string;
+	type: string;
+	response: {
+		clientDataJSON: string;
+		authenticatorData: string;
+		signature: string;
+		userHandle?: string;
+	};
+};
+
 // passkeySupported is whether this browser can make one at all.
 export const passkeySupported = typeof PublicKeyCredential !== "undefined";
 
@@ -95,6 +119,38 @@ export async function createPasskey(
 			clientDataJSON: b64url.encode(response.clientDataJSON),
 			attestationObject: b64url.encode(response.attestationObject),
 			transports: response.getTransports?.() ?? ["internal"],
+		},
+	};
+}
+
+// getPasskey runs the browser's Passkey prompt for an assertion and returns
+// the response the API takes, the way createPasskey does for adding one.
+export async function getPasskey(
+	options: AssertionOptions,
+): Promise<AssertionResponse> {
+	const b64url = await loadB64url();
+	const cred = (await navigator.credentials.get({
+		publicKey: {
+			...options.publicKey,
+			challenge: b64url.decode(options.publicKey.challenge),
+			allowCredentials: (options.publicKey.allowCredentials ?? []).map((c) => ({
+				...c,
+				id: b64url.decode(c.id),
+			})),
+		},
+	})) as PublicKeyCredential;
+	const response = cred.response as AuthenticatorAssertionResponse;
+	return {
+		id: cred.id,
+		rawId: b64url.encode(cred.rawId),
+		type: cred.type,
+		response: {
+			clientDataJSON: b64url.encode(response.clientDataJSON),
+			authenticatorData: b64url.encode(response.authenticatorData),
+			signature: b64url.encode(response.signature),
+			userHandle: response.userHandle
+				? b64url.encode(response.userHandle)
+				: undefined,
 		},
 	};
 }

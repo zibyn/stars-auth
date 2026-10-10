@@ -16,6 +16,7 @@ import (
 	"github.com/zibyn/stars-auth/internal/identity"
 	"github.com/zibyn/stars-auth/internal/oidc/goidc"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
+	"github.com/zibyn/stars-auth/internal/passkey"
 	"github.com/zibyn/stars-auth/internal/provider"
 	"github.com/zibyn/stars-auth/internal/twofactor"
 )
@@ -301,7 +302,7 @@ func (s *Service) runChallenge(w http.ResponseWriter, r *http.Request) (answer, 
 			return answer{}, invalid(bad.Error())
 		}
 		// The amr says mfa, which signedIn reads as 两步验证 passed.
-		return signedIn(in.Sub, time.Now(), passkeyAMR(in.BackupEligible))
+		return signedIn(in.Sub, time.Now(), passkey.AMR(in.BackupEligible))
 
 	case r.PostFormValue("code") != "":
 		if st.Identifier == "" {

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"testing"
 	"time"
 
@@ -329,4 +330,155 @@ func mustDecodeB64(t *testing.T, s string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// passkeyReauthOptions begins a Passkey reauthentication and returns the
+// assertion options, failing the test unless the status is want.
+func (e *env) passkeyReauthOptions(tok string, want int) json.RawMessage {
+	e.t.Helper()
+	var out struct {
+		Options json.RawMessage `json:"options"`
+	}
+	if code := e.call("POST", tok, "/v1/account/reauth/passkey", nil, &out); code != want {
+		e.t.Fatalf("passkey reauth options: %d, want %d", code, want)
+	}
+	return out.Options
+}
+
+// reauthPasskey submits an assertion to reauthenticate and returns the status.
+func (e *env) reauthPasskey(tok string, assertion json.RawMessage) int {
+	e.t.Helper()
+	return e.call("POST", tok, "/v1/account/reauth", map[string]string{"passkey": string(assertion)}, nil)
+}
+
+// A User with a Passkey reauthenticates with it before a sensitive action:
+// the options name only their own Passkeys, and the Session's amr and
+// auth_time come out as after a Passkey sign-in.
+func TestPasskeyReauthentication(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", "phone:+8613800138000")
+	tok := e.signIn("ALICE", 0)
+	a := passkeytest.New(t)
+	a.Origin, a.UserHandle = e.issuer, []byte("ALICE")
+	if code, added := e.enroll(tok, a); code != 200 {
+		t.Fatalf("enroll: %d %+v", code, added)
+	}
+	// The Session's authentication ages; a sensitive action is refused.
+	if _, err := e.pool.Exec(context.Background(), "UPDATE sessions SET auth_time = now() - interval '20 minutes'"); err != nil {
+		t.Fatal(err)
+	}
+	if code := e.call("GET", tok, "/v1/account/export", nil, nil); code != 403 {
+		t.Fatalf("export before reauthentication: %d", code)
+	}
+
+	options := e.passkeyReauthOptions(tok, 200)
+	var pk struct {
+		PublicKey struct {
+			Challenge        string `json:"challenge"`
+			UserVerification string `json:"userVerification"`
+			AllowCredentials []struct {
+				ID string `json:"id"`
+			} `json:"allowCredentials"`
+		} `json:"publicKey"`
+	}
+	if err := json.Unmarshal(options, &pk); err != nil {
+		t.Fatalf("options: %v: %s", err, options)
+	}
+	if pk.PublicKey.Challenge == "" || pk.PublicKey.UserVerification != "required" || len(pk.PublicKey.AllowCredentials) != 1 {
+		t.Fatalf("assertion options: %s", options)
+	}
+
+	// Without User Verification the assertion is refused, as at login.
+	a.UV = false
+	if code := e.reauthPasskey(tok, a.Assert(options)); code != 422 {
+		t.Fatalf("reauth without UV: %d", code)
+	}
+	a.UV = true
+
+	// The refused assertion spent the challenge; a fresh ceremony passes.
+	options = e.passkeyReauthOptions(tok, 200)
+	a.SignCount = 1
+	if code := e.reauthPasskey(tok, a.Assert(options)); code != 204 {
+		t.Fatalf("reauth: %d", code)
+	}
+	var amr []string
+	var authTime time.Time
+	if err := e.pool.QueryRow(context.Background(), "SELECT amr, auth_time FROM sessions").Scan(&amr, &authTime); err != nil ||
+		!slices.Equal(amr, []string{"hwk", "mfa"}) || time.Since(authTime) > time.Minute {
+		t.Fatalf("after reauth: amr %v, auth_time %v: %v", amr, authTime, err)
+	}
+	if code := e.call("GET", tok, "/v1/account/export", nil, nil); code != 200 {
+		t.Fatalf("export after reauthentication: %d", code)
+	}
+}
+
+// With 两步验证 on, a Passkey also reauthenticates, as it signs the User in
+// past the TOTP.
+func TestPasskeyReauthPastTOTP(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", "phone:+8613800138000")
+	tok := e.signIn("ALICE", 0)
+	a := passkeytest.New(t)
+	a.Origin, a.UserHandle = e.issuer, []byte("ALICE")
+	if code, _ := e.enroll(tok, a); code != 200 {
+		t.Fatalf("enroll: %d", code)
+	}
+	e.enableTwoFactor(tok)
+	if _, err := e.pool.Exec(context.Background(), "UPDATE sessions SET auth_time = now() - interval '20 minutes'"); err != nil {
+		t.Fatal(err)
+	}
+	options := e.passkeyReauthOptions(tok, 200)
+	a.SignCount = 1
+	if code := e.reauthPasskey(tok, a.Assert(options)); code != 204 {
+		t.Fatalf("reauth with 两步验证 on: %d", code)
+	}
+}
+
+// A User's own Passkey passes; another User's does not, and a counter that
+// went backwards is refused and audited like at login.
+func TestPasskeyReauthRefused(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", "phone:+8613800138000")
+	e.user("BOB", "username:bob")
+	alice, bob := e.signIn("ALICE", 0), e.signIn("BOB", 0)
+	a := passkeytest.New(t)
+	a.Origin, a.UserHandle = e.issuer, []byte("ALICE")
+	if code, _ := e.enroll(alice, a); code != 200 {
+		t.Fatalf("enroll ALICE: %d", code)
+	}
+	b := passkeytest.New(t)
+	b.Origin, b.UserHandle = e.issuer, []byte("BOB")
+	if code, _ := e.enroll(bob, b); code != 200 {
+		t.Fatalf("enroll BOB: %d", code)
+	}
+
+	// BOB's Passkey on ALICE's ceremony reauthenticates nobody.
+	b.SignCount = 1
+	if code := e.reauthPasskey(alice, b.Assert(e.passkeyReauthOptions(alice, 200))); code != 422 {
+		t.Fatalf("another User's Passkey: %d", code)
+	}
+
+	a.SignCount = 1
+	if code := e.reauthPasskey(alice, a.Assert(e.passkeyReauthOptions(alice, 200))); code != 204 {
+		t.Fatalf("the User's own Passkey: %d", code)
+	}
+
+	// The counter goes backwards: refused, and audited.
+	a.SignCount = 0
+	if code := e.reauthPasskey(alice, a.Assert(e.passkeyReauthOptions(alice, 200))); code != 422 {
+		t.Fatalf("a counter that went backwards: %d", code)
+	}
+	var n int
+	if err := e.pool.QueryRow(context.Background(),
+		"SELECT count(*) FROM audit_log WHERE event = 'passkey.counter_regressed' AND sub = 'ALICE'").Scan(&n); err != nil || n != 1 {
+		t.Fatalf("counter audit: %d: %v", n, err)
+	}
+}
+
+// A User without a Passkey has nothing to reauthenticate with.
+func TestPasskeyReauthWithoutAPasskey(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", "phone:+8613800138000")
+	tok := e.signIn("ALICE", 0)
+	e.passkeyReauthOptions(tok, 422)
 }
