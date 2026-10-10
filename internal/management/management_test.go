@@ -96,6 +96,21 @@ func (e *env) user(sub string, roles []string, idents ...string) {
 	}
 }
 
+// m2mApp adds an M2M Application whose default API is api, holding roles on
+// it, and returns its client_id — the sub of its client_credentials token.
+func (e *env) m2mApp(api string, roles ...string) string {
+	e.t.Helper()
+	var created struct{ Application application }
+	owner := e.token(e.owner, nil)
+	if code := e.call("POST", owner, "/applications", map[string]any{"type": "m2m", "settings": m2mSettings(api)}, &created); code != 200 {
+		e.t.Fatalf("create an m2m Application: %d", code)
+	}
+	if code := e.call("PUT", owner, "/applications/"+created.Application.ClientID+"/roles", map[string]any{"roles": append([]string{}, roles...)}, nil); code != 204 {
+		e.t.Fatalf("assign Roles to an m2m Application: %d", code)
+	}
+	return created.Application.ClientID
+}
+
 // token signs an access token the way the OIDC provider does, with the
 // current signing key; edit tweaks the claims and header type.
 func (e *env) token(sub string, edit func(claims map[string]any, typ *string)) string {
@@ -291,6 +306,81 @@ func TestOnlyAdminsWithValidTokens(t *testing.T) {
 	}
 	if code := e.get(carol, "/users", nil); code != 403 {
 		t.Errorf("after losing her Role: %d, want 403", code)
+	}
+}
+
+// An M2M Application calls the Management API as itself: its token's sub is
+// its client_id, and the Management API takes it as the caller, authorized
+// live on the Management API Roles the Application holds (ADR 0015).
+func TestM2MCallsManagementAPI(t *testing.T) {
+	e := start(t)
+	e.user("RO", []string{"readonly"})
+	reader := e.m2mApp(identity.ManagementAPI, "readonly")
+	tok := e.token(reader, nil)
+
+	// Its Roles are readonly's: users:read, but no users:write.
+	if code := e.get(tok, "/users", nil); code != 200 {
+		t.Errorf("an M2M Application reading Users: %d, want 200", code)
+	}
+	if code := e.call("POST", tok, "/users/RO/disable", nil, nil); code != 403 {
+		t.Errorf("an M2M Application without users:write: %d, want 403", code)
+	}
+	var me struct {
+		Sub         string
+		Identifier  string
+		Permissions []string
+	}
+	if code := e.get(tok, "/me", &me); code != 200 || me.Sub != reader || me.Identifier != "" || !slices.Contains(me.Permissions, "users:read") {
+		t.Errorf("me as an M2M Application: %d %+v", code, me)
+	}
+	// Holding no Role is no admin, exactly as for a User.
+	if code := e.get(e.token(e.m2mApp(identity.ManagementAPI), nil), "/users", nil); code != 403 {
+		t.Errorf("an M2M Application holding no Role: %d, want 403", code)
+	}
+
+	// Its Roles are read on every request: taking them away closes it out at
+	// once, with the same token.
+	owner := e.token(e.owner, nil)
+	if code := e.call("PUT", owner, "/applications/"+reader+"/roles", map[string]any{"roles": []string{}}, nil); code != 204 {
+		t.Fatalf("take its Roles away: %d", code)
+	}
+	if code := e.get(tok, "/users", nil); code != 403 {
+		t.Errorf("after losing its Role: %d, want 403", code)
+	}
+	// Deleting the Application rejects its token at once too, whatever Roles
+	// it held.
+	gone := e.m2mApp(identity.ManagementAPI, "readonly")
+	goneTok := e.token(gone, nil)
+	if code := e.get(goneTok, "/users", nil); code != 200 {
+		t.Fatalf("a fresh M2M Application: %d", code)
+	}
+	if code := e.call("DELETE", owner, "/applications/"+gone, nil, nil); code != 204 {
+		t.Fatalf("delete an m2m Application: %d", code)
+	}
+	if code := e.get(goneTok, "/users", nil); code != 403 {
+		t.Errorf("after deleting the Application: %d, want 403", code)
+	}
+
+	// An M2M Application is never an owner, so holding a Management API Role
+	// does not stand in for the last one: the guard counts Users only.
+	e.m2mApp(identity.ManagementAPI, "readonly")
+	if code := e.call("PUT", owner, "/users/"+e.owner+"/roles", map[string]any{"api": identity.ManagementAPI, "roles": []string{"admin"}}, nil); code != 409 {
+		t.Errorf("the last owner steps down while an M2M Application holds a Management API Role: %d, want 409", code)
+	}
+
+	// 管理员必须启用两步验证或 Passkey turns an admin away; not an M2M
+	// Application, which has no one to turn 两步验证 on for it.
+	e.user("CAROL", []string{"readonly"})
+	e.twoFactorOn(e.owner)
+	policy := settings{PasswordLogin: "admins", DailySendLimit: 1000, AuditRetentionDays: 180, AdminsNeedTwoFactor: true, PasskeyLogin: true}
+	if code := e.call("PUT", owner, "/settings", policy, nil); code != 204 {
+		t.Fatalf("turn on 管理员必须启用两步验证: %d", code)
+	}
+	if code, err := e.problem(e.token("CAROL", nil), "/users"); code != 403 || err != management.TwoFactorRequired {
+		t.Errorf("an admin without 两步验证: %d %q, want 403 %s", code, err, management.TwoFactorRequired)
+	}
+	if code := e.get(e.token(e.m2mApp(identity.ManagementAPI, "readonly"), nil), "/users", nil); code != 200 {
+		t.Errorf("an M2M Application under 管理员必须启用两步验证: %d, want 200", code)
 	}
 }
 

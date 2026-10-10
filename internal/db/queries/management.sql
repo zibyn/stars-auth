@@ -12,6 +12,18 @@ FROM user_roles ur LEFT JOIN role_permissions rp USING (api, role)
 WHERE ur.user_id = @sub AND ur.api = @api
   AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = ur.user_id AND u.disabled_at IS NOT NULL);
 
+-- name: M2MCaller :one
+-- An M2M Application calling an API as itself (ADR 0015): the Permissions of
+-- the Roles it holds there, read live, so deleting the Application or taking
+-- a Role away closes it out on the next request. is_m2m_application is false
+-- when the sub names no m2m Application, and then the caller is no one we know.
+SELECT EXISTS (SELECT 1 FROM applications a WHERE a.client_id = @client_id AND a.type = 'm2m') AS is_m2m_application,
+       count(*) > 0 AS admin,
+       COALESCE(array_agg(DISTINCT rp.permission ORDER BY rp.permission)
+                FILTER (WHERE rp.permission IS NOT NULL), '{}')::text[] AS permissions
+FROM application_roles ar LEFT JOIN role_permissions rp USING (api, role)
+WHERE ar.client_id = @client_id AND ar.api = @api;
+
 -- name: ListUsers :many
 -- Search matches part of the sub or of any Identifier. An empty role skips
 -- the Role filter.

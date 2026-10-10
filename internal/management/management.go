@@ -60,6 +60,7 @@ type caller struct {
 	permissions []string
 	satisfied   bool // 两步验证或 Passkey 已满足
 	totp        bool // a confirmed TOTP, whether or not a Passkey also does
+	application bool // an M2M Application calling as itself, not a User
 }
 
 // TwoFactorRequired is the code of the 403 an admin without 两步验证 or a
@@ -169,7 +170,8 @@ func describe(permission string) string {
 
 // authorize checks the bearer token, then the caller's Permissions as they
 // stand in PG now: taking a Role away locks the admin out on the next
-// request, not when the token expires.
+// request, not when the token expires. The caller is a User, or an M2M
+// Application calling as itself (ADR 0015).
 func (s *Service) authorize(api huma.API) func(huma.Context, func(huma.Context)) {
 	return func(ctx huma.Context, next func(huma.Context)) {
 		tok, err := s.keys.Verify(ctx.Context(), s.issuer, identity.ManagementAPI, ctx.Header("Authorization"))
@@ -184,13 +186,27 @@ func (s *Service) authorize(api huma.API) func(huma.Context, func(huma.Context))
 			_ = huma.WriteErr(api, ctx, http.StatusInternalServerError, "internal error")
 			return
 		}
-		want, _ := ctx.Operation().Metadata["permission"].(string)
-		if !c.Admin {
+		// An M2M Application's token has its client_id as sub, and it holds
+		// Roles on the API that the User tables know nothing about.
+		call := caller{sub: sub, permissions: c.Permissions, satisfied: c.TwoFactor, totp: c.Totp}
+		required, admin := c.TwoFactorRequired, c.Admin
+		if !admin {
+			a, err := s.q.M2MCaller(ctx.Context(), sqlc.M2MCallerParams{ClientID: sub, Api: identity.ManagementAPI})
+			if err != nil {
+				_ = huma.WriteErr(api, ctx, http.StatusInternalServerError, "internal error")
+				return
+			}
+			// A deleted Application answers false here, so its tokens stop
+			// working at once, like a User losing their last Role.
+			call.application, call.permissions, admin = a.IsM2mApplication, a.Permissions, a.Admin
+		}
+		if !admin {
 			_ = huma.WriteErr(api, ctx, http.StatusForbidden, "not an admin")
 			return
 		}
-		// No client_credentials exemption yet: the provider doesn't enable that grant, and a client's sub holds no Role.
-		if c.TwoFactorRequired && !c.TwoFactor {
+		// An M2M Application is exempt from 管理员必须启用两步验证或 Passkey:
+		// there is no one to turn either on for it. Every other check holds.
+		if required && !call.satisfied && !call.application {
 			// The console shows a page sending the admin to the account center.
 			ctx.SetHeader("Content-Type", "application/problem+json")
 			ctx.SetStatus(http.StatusForbidden)
@@ -200,11 +216,12 @@ func (s *Service) authorize(api huma.API) func(huma.Context, func(huma.Context))
 			}{huma.ErrorModel{Title: "Forbidden", Status: http.StatusForbidden, Detail: "需要先开启两步验证或添加 Passkey"}, TwoFactorRequired})
 			return
 		}
-		if want != "" && !slices.Contains(c.Permissions, want) {
+		want, _ := ctx.Operation().Metadata["permission"].(string)
+		if want != "" && !slices.Contains(call.permissions, want) {
 			_ = huma.WriteErr(api, ctx, http.StatusForbidden, "missing permission "+want)
 			return
 		}
-		next(huma.WithValue(ctx, callerKey{}, caller{sub: sub, permissions: c.Permissions, satisfied: c.TwoFactor, totp: c.Totp}))
+		next(huma.WithValue(ctx, callerKey{}, call))
 		s.auditWrite(ctx, sub)
 	}
 }
@@ -238,7 +255,7 @@ type UserDetail struct {
 type meOutput struct {
 	Body struct {
 		Sub         string   `json:"sub"`
-		Identifier  string   `json:"identifier" doc:"The caller's primary Identifier: phone, else email, else username"`
+		Identifier  string   `json:"identifier" doc:"The caller's primary Identifier: phone, else email, else username; empty for an M2M Application, which has none"`
 		Permissions []string `json:"permissions"`
 	}
 }
@@ -247,6 +264,9 @@ func (s *Service) me(ctx context.Context, _ *struct{}) (*meOutput, error) {
 	c := ctx.Value(callerKey{}).(caller)
 	out := &meOutput{}
 	out.Body.Sub, out.Body.Permissions = c.sub, c.permissions
+	if c.application {
+		return out, nil
+	}
 	r, err := s.q.GetUser(ctx, c.sub)
 	if err != nil {
 		return nil, err

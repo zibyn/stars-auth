@@ -145,6 +145,15 @@ func TestManageApplications(t *testing.T) {
 	}
 }
 
+// m2mSettings is the settings an M2M Application is created with: a name, one
+// default API, a secret, and no login (ADR 0015).
+func m2mSettings(defaultAPI string) map[string]any {
+	return map[string]any{
+		"name": "对账任务", "redirectUris": []string{}, "postLogoutRedirectUris": []string{},
+		"defaultApi": defaultAPI, "refreshTokens": false, "appleAppIds": []string{}, "androidApps": []any{},
+	}
+}
+
 // TestManageM2MApplication covers the M2M Application type: a backend service
 // that calls one API as itself (ADR 0015). It has a secret and a default API,
 // no login, and its default API cannot be changed later.
@@ -153,24 +162,17 @@ func TestManageM2MApplication(t *testing.T) {
 	owner := e.token(e.owner, nil)
 	e.call("PUT", owner, apiPath(track), map[string]any{"name": "Track"}, nil)
 
-	settings := func(defaultAPI string) map[string]any {
-		return map[string]any{
-			"name": "对账任务", "redirectUris": []string{}, "postLogoutRedirectUris": []string{},
-			"defaultApi": defaultAPI, "refreshTokens": false, "appleAppIds": []string{}, "androidApps": []any{},
-		}
-	}
-
 	// It needs a default API; it cannot be the Account API.
 	for name, s := range map[string]map[string]any{
-		"no default API": settings(""),
-		"the Account API": settings(identity.AccountAPI),
+		"no default API":  m2mSettings(""),
+		"the Account API": m2mSettings(identity.AccountAPI),
 		"a redirect URI": func() map[string]any {
-			s := settings(track)
+			s := m2mSettings(track)
 			s["redirectUris"] = []string{"https://track.example/cb"}
 			return s
 		}(),
 		"a native App": func() map[string]any {
-			s := settings(track)
+			s := m2mSettings(track)
 			s["appleAppIds"] = []string{"ABCDE12345.com.example.track"}
 			return s
 		}(),
@@ -184,7 +186,7 @@ func TestManageM2MApplication(t *testing.T) {
 		Application application
 		Secret      string
 	}
-	if code := e.call("POST", owner, "/applications", map[string]any{"type": "m2m", "settings": settings(track)}, &created); code != 200 || created.Secret == "" {
+	if code := e.call("POST", owner, "/applications", map[string]any{"type": "m2m", "settings": m2mSettings(track)}, &created); code != 200 || created.Secret == "" {
 		t.Fatalf("create: %d %+v", code, created)
 	}
 	a := created.Application
@@ -202,10 +204,10 @@ func TestManageM2MApplication(t *testing.T) {
 
 	// The default API is fixed once it exists; the rest of the settings are
 	// not.
-	if code := e.call("PUT", owner, path, settings(identity.ManagementAPI), nil); code != 422 {
+	if code := e.call("PUT", owner, path, m2mSettings(identity.ManagementAPI), nil); code != 422 {
 		t.Errorf("change the default API: %d, want 422", code)
 	}
-	renamed := settings(track)
+	renamed := m2mSettings(track)
 	renamed["name"] = "对账任务 v2"
 	if code := e.call("PUT", owner, path, renamed, nil); code != 204 {
 		t.Errorf("rename: %d", code)
@@ -213,7 +215,7 @@ func TestManageM2MApplication(t *testing.T) {
 
 	// The Management API is a valid default API for an M2M Application, and
 	// rotating its secret replaces the old one.
-	mgmt := settings(identity.ManagementAPI)
+	mgmt := m2mSettings(identity.ManagementAPI)
 	mgmt["name"] = "运维脚本"
 	var onMgmt struct{ Application application }
 	if code := e.call("POST", owner, "/applications", map[string]any{"type": "m2m", "settings": mgmt}, &onMgmt); code != 200 || onMgmt.Application.DefaultAPI != identity.ManagementAPI {
@@ -313,11 +315,7 @@ func TestM2MApplicationRoles(t *testing.T) {
 	m2m := func(defaultAPI string) string {
 		t.Helper()
 		var created struct{ Application application }
-		s := map[string]any{
-			"name": "对账任务", "redirectUris": []string{}, "postLogoutRedirectUris": []string{},
-			"defaultApi": defaultAPI, "refreshTokens": false, "appleAppIds": []string{}, "androidApps": []any{},
-		}
-		if code := e.call("POST", owner, "/applications", map[string]any{"type": "m2m", "settings": s}, &created); code != 200 {
+		if code := e.call("POST", owner, "/applications", map[string]any{"type": "m2m", "settings": m2mSettings(defaultAPI)}, &created); code != 200 {
 			t.Fatalf("create m2m: %d", code)
 		}
 		return created.Application.ClientID

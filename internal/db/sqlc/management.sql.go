@@ -636,6 +636,37 @@ func (q *Queries) LockOwners(ctx context.Context) error {
 	return err
 }
 
+const m2MCaller = `-- name: M2MCaller :one
+SELECT EXISTS (SELECT 1 FROM applications a WHERE a.client_id = $1 AND a.type = 'm2m') AS is_m2m_application,
+       count(*) > 0 AS admin,
+       COALESCE(array_agg(DISTINCT rp.permission ORDER BY rp.permission)
+                FILTER (WHERE rp.permission IS NOT NULL), '{}')::text[] AS permissions
+FROM application_roles ar LEFT JOIN role_permissions rp USING (api, role)
+WHERE ar.client_id = $1 AND ar.api = $2
+`
+
+type M2MCallerParams struct {
+	ClientID string
+	Api      string
+}
+
+type M2MCallerRow struct {
+	IsM2mApplication bool
+	Admin            bool
+	Permissions      []string
+}
+
+// An M2M Application calling an API as itself (ADR 0015): the Permissions of
+// the Roles it holds there, read live, so deleting the Application or taking
+// a Role away closes it out on the next request. is_m2m_application is false
+// when the sub names no m2m Application, and then the caller is no one we know.
+func (q *Queries) M2MCaller(ctx context.Context, arg M2MCallerParams) (M2MCallerRow, error) {
+	row := q.db.QueryRow(ctx, m2MCaller, arg.ClientID, arg.Api)
+	var i M2MCallerRow
+	err := row.Scan(&i.IsM2mApplication, &i.Admin, &i.Permissions)
+	return i, err
+}
+
 const overview = `-- name: Overview :one
 SELECT (SELECT count(*) FROM users) AS users,
        (SELECT count(*) FROM sessions WHERE auth_time >= date_trunc('day', now())) AS logins_today,
