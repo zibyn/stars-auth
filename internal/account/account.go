@@ -110,7 +110,7 @@ func (s *Service) Register(mux *http.ServeMux) {
 	op(api, http.MethodDelete, "remove-password", "/password", "Delete the User's password", s.removePassword, http.StatusForbidden)
 	op(api, http.MethodPost, "begin-totp", "/2fa/totp", "Begin turning 两步验证 on: a new TOTP to add to an authenticator, replacing one not yet confirmed", s.beginTOTP, http.StatusForbidden, http.StatusConflict)
 	op(api, http.MethodPost, "confirm-totp", "/2fa/totp/confirm", "Turn 两步验证 on with a code from the new TOTP; the recovery codes are shown this once", s.confirmTOTP, http.StatusForbidden, http.StatusConflict)
-	op(api, http.MethodDelete, "disable-2fa", "/2fa", "Turn 两步验证 off, deleting the TOTP and recovery codes; 409 for an admin while 管理员必须启用两步验证 is on", s.disableTwoFactor, http.StatusForbidden, http.StatusConflict)
+	op(api, http.MethodDelete, "disable-2fa", "/2fa", "Turn 两步验证 off, deleting the TOTP and recovery codes; 409 for an admin while 管理员必须启用两步验证或 Passkey is on and no Passkey is left", s.disableTwoFactor, http.StatusForbidden, http.StatusConflict)
 	// A Provider redirect comes back to the account center with ?bound=<id>,
 	// ?reauthenticated=<id> or ?error=<what to show the User>.
 	op(api, http.MethodPost, "bind-provider", "/providers/{id}/bind", "Where to send the browser to bind an External Identity of the enabled Provider", s.bindProvider, http.StatusForbidden, http.StatusNotFound)
@@ -121,7 +121,7 @@ func (s *Service) Register(mux *http.ServeMux) {
 	op(api, http.MethodPost, "begin-passkey", "/passkeys/options", "Begin adding a Passkey: creation options for the browser or native App", s.beginPasskey, http.StatusForbidden)
 	op(api, http.MethodPost, "add-passkey", "/passkeys", "Finish adding a Passkey with its registration response", s.addPasskey, http.StatusForbidden, http.StatusConflict)
 	op(api, http.MethodPatch, "rename-passkey", "/passkeys/{id}", "Rename one of the User's Passkeys; no reauthentication needed", s.renamePasskey, http.StatusNotFound)
-	op(api, http.MethodDelete, "remove-passkey", "/passkeys/{id}", "Delete one of the User's Passkeys", s.removePasskey, http.StatusForbidden, http.StatusNotFound)
+	op(api, http.MethodDelete, "remove-passkey", "/passkeys/{id}", "Delete one of the User's Passkeys; 409 for the last one while 管理员必须启用两步验证或 Passkey is on, no TOTP is left and the User holds a Role", s.removePasskey, http.StatusForbidden, http.StatusNotFound, http.StatusConflict)
 }
 
 // op registers an operation; errs are its errors beyond the usual.
@@ -578,11 +578,12 @@ func (s *Service) disableTwoFactor(ctx context.Context, _ *struct{}) (*struct{},
 		return nil, err
 	}
 	sub := callerOf(ctx).sub
-	// The switch would be pointless if admins could turn 两步验证 off.
+	// The switch would be pointless if admins could turn 两步验证 off; a
+	// Passkey left satisfies it just as well.
 	if must, err := s.q.MustKeepTwoFactor(ctx, sub); err != nil {
 		return nil, err
 	} else if must {
-		return nil, huma.Error409Conflict("管理员必须启用两步验证,你持有管理员角色,不能关闭")
+		return nil, huma.Error409Conflict("管理员必须启用两步验证或 Passkey,你持有管理员角色,不能关闭")
 	}
 	return nil, twoFactorErr(s.twoFactor.Disable(ctx, sub, "mfa.disabled", sub))
 }
@@ -754,5 +755,12 @@ func (s *Service) removePasskey(ctx context.Context, in *providerPath) (*struct{
 		return nil, err
 	}
 	c := callerOf(ctx)
+	// Deleting the last Passkey would lock a Role-holding User out of the
+	// Management API while the switch is on and no TOTP is left.
+	if must, err := s.q.MustKeepPasskey(ctx, sqlc.MustKeepPasskeyParams{Sub: c.sub, ID: in.ID}); err != nil {
+		return nil, err
+	} else if must {
+		return nil, huma.Error409Conflict("管理员必须启用两步验证或 Passkey,你持有管理员角色,不能删除最后一把 Passkey")
+	}
 	return nil, passkeyErr(s.passkeys.Remove(ctx, c.sub, in.ID, c.sub))
 }

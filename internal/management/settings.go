@@ -21,7 +21,7 @@ type Policy struct {
 	PrivacyURL          string `json:"privacyUrl" doc:"隐私政策; https"`
 	TermsVersion        string `json:"termsVersion" maxLength:"64" doc:"Users agree to this version on their next login after it changes; empty for no terms"`
 	AuditRetentionDays  int32  `json:"auditRetentionDays" minimum:"1"`
-	AdminsNeedTwoFactor bool   `json:"adminsNeedTwoFactor" doc:"管理员必须启用两步验证: Users holding a Management API Role can't use it without 两步验证; only an admin with 两步验证 turns it on"`
+	AdminsNeedTwoFactor bool   `json:"adminsNeedTwoFactor" doc:"管理员必须启用两步验证或 Passkey: Users holding a Management API Role can't use it without 两步验证 or a Passkey; only an admin who has either turns it on"`
 }
 
 type policyBody struct{ Body Policy }
@@ -46,9 +46,9 @@ func (s *Service) putSettings(ctx context.Context, in *policyBody) (*struct{}, e
 		}
 	}
 	c := ctx.Value(callerKey{}).(caller)
-	// With the switch on, an admin here has 两步验证 already; this stops one
-	// turning it on and locking themselves out.
-	if b.AdminsNeedTwoFactor && !c.twoFactor {
+	// With the switch on, an admin here satisfies it (两步验证 or a Passkey)
+	// already; this stops one turning it on and locking themselves out.
+	if b.AdminsNeedTwoFactor && !c.satisfied {
 		return nil, huma.Error422UnprocessableEntity("请先为自己开启两步验证")
 	}
 	return nil, s.q.UpdateSettings(ctx, sqlc.UpdateSettingsParams{

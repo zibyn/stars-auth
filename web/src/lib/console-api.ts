@@ -23,7 +23,11 @@ export type User = {
 	identifiers: Identifier[];
 	roles: Role[];
 };
-export type UserDetail = User & { hasPassword: boolean; twoFactor: boolean };
+export type UserDetail = User & {
+	hasPassword: boolean;
+	twoFactor: boolean;
+	twoFactorOrPasskey: boolean;
+};
 export type RoleInfo = Role & { apiName: string; builtin: boolean };
 export type Me = { sub: string; identifier: string; permissions: string[] };
 export type Session = {

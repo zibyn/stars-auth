@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/zibyn/stars-auth/internal/identity"
 	"github.com/zibyn/stars-auth/internal/passkey/passkeytest"
 )
 
@@ -37,6 +39,20 @@ func (e *env) passkeys(tok string) (int, []map[string]any) {
 	}
 	code := e.call("GET", tok, "/v1/account/passkeys", nil, &got)
 	return code, got.Passkeys
+}
+
+// passkey inserts a Passkey row for sub, as if added from the account center.
+func (e *env) passkey(sub, name string) string {
+	e.t.Helper()
+	var id string
+	err := e.pool.QueryRow(context.Background(), `
+		INSERT INTO passkeys (user_id, credential_id, public_key, sign_count, aaguid, backup_eligible, backup_state, name)
+		VALUES ($1, decode(replace(gen_random_uuid()::text, '-', ''), 'hex'), '\x00'::bytea, 0, gen_random_uuid(), true, true, $2)
+		RETURNING id`, sub, name).Scan(&id)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	return id
 }
 
 // A User adds Passkeys from the account center, names them, and deletes
@@ -181,6 +197,50 @@ func TestPasskeyNeedsUserVerification(t *testing.T) {
 	}
 	if code, list := e.passkeys(tok); code != 200 || len(list) != 0 {
 		t.Fatalf("list: %d %+v", code, list)
+	}
+}
+
+// While 管理员必须启用两步验证或 Passkey is on, a User holding a Management
+// API Role may turn 两步验证 off once a Passkey is left, but may not delete
+// their last Passkey while nothing else satisfies the switch.
+func TestAdminKeepsPasskeyOrTwoFactor(t *testing.T) {
+	e := start(t)
+	e.user("ALICE", "username:alice")
+	e.user("BOB", "username:bob")
+	if _, err := e.pool.Exec(context.Background(), fmt.Sprintf(`
+		INSERT INTO user_roles VALUES ('ALICE', '%s', 'readonly');
+		UPDATE settings SET admins_need_two_factor = true`, identity.ManagementAPI)); err != nil {
+		t.Fatal(err)
+	}
+	alice, bob := e.signIn("ALICE", 0), e.signIn("BOB", 0)
+	e.enableTwoFactor(alice)
+	second := e.passkey("ALICE", "手机")
+	last := e.passkey("ALICE", "工作电脑")
+
+	// A Passkey left satisfies the switch, so 两步验证 may go off.
+	if c := e.call("DELETE", alice, "/v1/account/2fa", nil, nil); c != 204 {
+		t.Fatalf("turn off with a Passkey: %d", c)
+	}
+	// One of two Passkeys goes; the last one stays.
+	if c := e.call("DELETE", alice, "/v1/account/passkeys/"+second, nil, nil); c != 204 {
+		t.Fatalf("delete one of two: %d", c)
+	}
+	if c := e.call("DELETE", alice, "/v1/account/passkeys/"+last, nil, nil); c != 409 {
+		t.Fatalf("delete the last: %d, want 409", c)
+	}
+	if code, list := e.passkeys(alice); code != 200 || len(list) != 1 {
+		t.Fatalf("the last Passkey kept: %d %+v", code, list)
+	}
+	// Turning 两步验证 back on takes the guard off.
+	e.enableTwoFactor(alice)
+	if c := e.call("DELETE", alice, "/v1/account/passkeys/"+last, nil, nil); c != 204 {
+		t.Fatalf("delete the last with 两步验证 on: %d", c)
+	}
+
+	// Without a Role, the last Passkey goes like any other.
+	lastBob := e.passkey("BOB", "工作电脑")
+	if c := e.call("DELETE", bob, "/v1/account/passkeys/"+lastBob, nil, nil); c != 204 {
+		t.Errorf("no Role, delete the last: %d", c)
 	}
 }
 

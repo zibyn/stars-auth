@@ -58,11 +58,11 @@ type callerKey struct{}
 type caller struct {
 	sub         string
 	permissions []string
-	twoFactor   bool // 两步验证 is on
+	satisfied   bool // 两步验证或 Passkey 已满足
 }
 
-// TwoFactorRequired is the code of the 403 an admin without 两步验证 gets
-// while 管理员必须启用两步验证 is on.
+// TwoFactorRequired is the code of the 403 an admin without 两步验证 or a
+// Passkey gets while 管理员必须启用两步验证或 Passkey is on.
 const TwoFactorRequired = "two_factor_required"
 
 // Register adds the Management API and its OpenAPI document to mux.
@@ -175,7 +175,7 @@ func (s *Service) authorize(api huma.API) func(huma.Context, func(huma.Context))
 			return
 		}
 		sub := tok.Subject
-		c, err := s.q.Caller(ctx.Context(), sqlc.CallerParams{UserID: sub, Api: identity.ManagementAPI})
+		c, err := s.q.Caller(ctx.Context(), sqlc.CallerParams{Sub: sub, Api: identity.ManagementAPI})
 		if err != nil {
 			_ = huma.WriteErr(api, ctx, http.StatusInternalServerError, "internal error")
 			return
@@ -193,14 +193,14 @@ func (s *Service) authorize(api huma.API) func(huma.Context, func(huma.Context))
 			_ = json.NewEncoder(ctx.BodyWriter()).Encode(struct {
 				huma.ErrorModel
 				Code string `json:"code"`
-			}{huma.ErrorModel{Title: "Forbidden", Status: http.StatusForbidden, Detail: "需要先开启两步验证"}, TwoFactorRequired})
+			}{huma.ErrorModel{Title: "Forbidden", Status: http.StatusForbidden, Detail: "需要先开启两步验证或添加 Passkey"}, TwoFactorRequired})
 			return
 		}
 		if want != "" && !slices.Contains(c.Permissions, want) {
 			_ = huma.WriteErr(api, ctx, http.StatusForbidden, "missing permission "+want)
 			return
 		}
-		next(huma.WithValue(ctx, callerKey{}, caller{sub: sub, permissions: c.Permissions, twoFactor: c.TwoFactor}))
+		next(huma.WithValue(ctx, callerKey{}, caller{sub: sub, permissions: c.Permissions, satisfied: c.TwoFactor}))
 		s.auditWrite(ctx, sub)
 	}
 }
@@ -226,8 +226,9 @@ type User struct {
 
 type UserDetail struct {
 	User
-	HasPassword bool `json:"hasPassword"`
-	TwoFactor   bool `json:"twoFactor" doc:"两步验证 is on"`
+	HasPassword        bool `json:"hasPassword"`
+	TwoFactor          bool `json:"twoFactor" doc:"两步验证 is on"`
+	TwoFactorOrPasskey bool `json:"twoFactorOrPasskey" doc:"已开启两步验证或仍有至少一把 Passkey"`
 }
 
 type meOutput struct {
@@ -316,7 +317,7 @@ func (s *Service) getUser(ctx context.Context, in *struct {
 	if err != nil {
 		return nil, err
 	}
-	return &getUserOutput{Body: UserDetail{User: u, HasPassword: r.HasPassword, TwoFactor: r.TwoFactor}}, nil
+	return &getUserOutput{Body: UserDetail{User: u, HasPassword: r.HasPassword, TwoFactor: r.TwoFactor, TwoFactorOrPasskey: r.TwoFactorOrPasskey}}, nil
 }
 
 func user(sub string, created time.Time, disabled pgtype.Timestamptz, identifiers, roles []byte) (User, error) {

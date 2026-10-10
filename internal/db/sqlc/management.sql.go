@@ -26,7 +26,7 @@ const caller = `-- name: Caller :one
 SELECT count(*) > 0 AS admin,
        COALESCE(array_agg(DISTINCT rp.permission ORDER BY rp.permission)
                 FILTER (WHERE rp.permission IS NOT NULL), '{}')::text[] AS permissions,
-       EXISTS (SELECT 1 FROM totp_credentials t WHERE t.user_id = $1 AND t.confirmed_at IS NOT NULL) AS two_factor,
+       two_factor_satisfied($1) AS two_factor,
        (SELECT admins_need_two_factor FROM settings) AS two_factor_required
 FROM user_roles ur LEFT JOIN role_permissions rp USING (api, role)
 WHERE ur.user_id = $1 AND ur.api = $2
@@ -34,8 +34,8 @@ WHERE ur.user_id = $1 AND ur.api = $2
 `
 
 type CallerParams struct {
-	UserID string
-	Api    string
+	Sub string
+	Api string
 }
 
 type CallerRow struct {
@@ -46,9 +46,10 @@ type CallerRow struct {
 }
 
 // Holding any Role on the API makes an admin, even one with no Permissions;
-// a disabled User is none. Admins must use 两步验证 when the settings say so.
+// a disabled User is none. Admins must satisfy 两步验证或 Passkey when the
+// settings say so.
 func (q *Queries) Caller(ctx context.Context, arg CallerParams) (CallerRow, error) {
-	row := q.db.QueryRow(ctx, caller, arg.UserID, arg.Api)
+	row := q.db.QueryRow(ctx, caller, arg.Sub, arg.Api)
 	var i CallerRow
 	err := row.Scan(
 		&i.Admin,
@@ -214,19 +215,21 @@ SELECT u.id, u.created_at, u.disabled_at,
                  FROM user_roles ur JOIN roles r ON r.api = ur.api AND r.key = ur.role
                  WHERE ur.user_id = u.id), '[]')::jsonb AS roles,
        EXISTS (SELECT 1 FROM passwords p WHERE p.user_id = u.id) AS has_password,
-       EXISTS (SELECT 1 FROM totp_credentials t WHERE t.user_id = u.id AND t.confirmed_at IS NOT NULL) AS two_factor
+       totp_confirmed(u.id) AS two_factor,
+       two_factor_satisfied(u.id) AS two_factor_or_passkey
 FROM users u
 WHERE u.id = $1
 `
 
 type GetUserRow struct {
-	ID          string
-	CreatedAt   pgtype.Timestamptz
-	DisabledAt  pgtype.Timestamptz
-	Identifiers []byte
-	Roles       []byte
-	HasPassword bool
-	TwoFactor   bool
+	ID                 string
+	CreatedAt          pgtype.Timestamptz
+	DisabledAt         pgtype.Timestamptz
+	Identifiers        []byte
+	Roles              []byte
+	HasPassword        bool
+	TwoFactor          bool
+	TwoFactorOrPasskey bool
 }
 
 func (q *Queries) GetUser(ctx context.Context, id string) (GetUserRow, error) {
@@ -240,6 +243,7 @@ func (q *Queries) GetUser(ctx context.Context, id string) (GetUserRow, error) {
 		&i.Roles,
 		&i.HasPassword,
 		&i.TwoFactor,
+		&i.TwoFactorOrPasskey,
 	)
 	return i, err
 }

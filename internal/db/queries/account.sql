@@ -18,9 +18,21 @@ FROM users u, settings s
 WHERE u.id = $1;
 
 -- name: MustKeepTwoFactor :one
--- 管理员必须启用两步验证 is on and the User holds a Management API Role.
-SELECT (s.admins_need_two_factor AND EXISTS (
+-- 管理员必须启用两步验证或 Passkey is on, the User holds a Management API
+-- Role, and no Passkey is left to satisfy it: turning 两步验证 off would
+-- lock them out of the Management API.
+SELECT (s.admins_need_two_factor AND NOT has_passkey($1) AND EXISTS (
     SELECT 1 FROM user_roles r WHERE r.user_id = $1 AND r.api = 'urn:stars-auth:management-api'))::boolean AS must
+FROM settings s;
+
+-- name: MustKeepPasskey :one
+-- The switch is on, the User holds a Management API Role, has no confirmed
+-- TOTP, and id is their last Passkey: deleting it would lock them out. The
+-- id must be theirs, so an unknown id is 404, not 409.
+SELECT (s.admins_need_two_factor AND NOT totp_confirmed(@sub) AND EXISTS (
+    SELECT 1 FROM user_roles r WHERE r.user_id = @sub AND r.api = 'urn:stars-auth:management-api')
+    AND EXISTS (SELECT 1 FROM passkeys p WHERE p.user_id = @sub AND p.id = @id)
+    AND NOT EXISTS (SELECT 1 FROM passkeys p WHERE p.user_id = @sub AND p.id <> @id))::boolean AS must
 FROM settings s;
 
 -- name: Reauthenticate :exec

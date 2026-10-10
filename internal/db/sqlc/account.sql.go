@@ -101,15 +101,40 @@ func (q *Queries) LoginPaths(ctx context.Context, userID string) (LoginPathsRow,
 	return i, err
 }
 
+const mustKeepPasskey = `-- name: MustKeepPasskey :one
+SELECT (s.admins_need_two_factor AND NOT totp_confirmed($1) AND EXISTS (
+    SELECT 1 FROM user_roles r WHERE r.user_id = $1 AND r.api = 'urn:stars-auth:management-api')
+    AND EXISTS (SELECT 1 FROM passkeys p WHERE p.user_id = $1 AND p.id = $2)
+    AND NOT EXISTS (SELECT 1 FROM passkeys p WHERE p.user_id = $1 AND p.id <> $2))::boolean AS must
+FROM settings s
+`
+
+type MustKeepPasskeyParams struct {
+	Sub string
+	ID  string
+}
+
+// The switch is on, the User holds a Management API Role, has no confirmed
+// TOTP, and id is their last Passkey: deleting it would lock them out. The
+// id must be theirs, so an unknown id is 404, not 409.
+func (q *Queries) MustKeepPasskey(ctx context.Context, arg MustKeepPasskeyParams) (bool, error) {
+	row := q.db.QueryRow(ctx, mustKeepPasskey, arg.Sub, arg.ID)
+	var must bool
+	err := row.Scan(&must)
+	return must, err
+}
+
 const mustKeepTwoFactor = `-- name: MustKeepTwoFactor :one
-SELECT (s.admins_need_two_factor AND EXISTS (
+SELECT (s.admins_need_two_factor AND NOT has_passkey($1) AND EXISTS (
     SELECT 1 FROM user_roles r WHERE r.user_id = $1 AND r.api = 'urn:stars-auth:management-api'))::boolean AS must
 FROM settings s
 `
 
-// 管理员必须启用两步验证 is on and the User holds a Management API Role.
-func (q *Queries) MustKeepTwoFactor(ctx context.Context, userID string) (bool, error) {
-	row := q.db.QueryRow(ctx, mustKeepTwoFactor, userID)
+// 管理员必须启用两步验证或 Passkey is on, the User holds a Management API
+// Role, and no Passkey is left to satisfy it: turning 两步验证 off would
+// lock them out of the Management API.
+func (q *Queries) MustKeepTwoFactor(ctx context.Context, uid string) (bool, error) {
+	row := q.db.QueryRow(ctx, mustKeepTwoFactor, uid)
 	var must bool
 	err := row.Scan(&must)
 	return must, err

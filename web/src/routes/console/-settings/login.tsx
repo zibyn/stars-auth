@@ -49,7 +49,7 @@ export function LoginTab() {
 }
 
 // AdminsNeedTwoFactor: the server turns it down while the admin saving it
-// has no 两步验证 of their own; SaveBar shows why.
+// has neither 两步验证 nor a Passkey of their own; SaveBar shows why.
 function AdminsNeedTwoFactor({ current, editable }: SectionProps) {
 	const save = useSavePolicy();
 	const form = useForm({
@@ -67,8 +67,8 @@ function AdminsNeedTwoFactor({ current, editable }: SectionProps) {
 				{(field) => (
 					<FormField
 						field={field}
-						label="管理员必须启用两步验证"
-						help="管理员账号被盗会暴露整个实例。开启后，没有开启两步验证的管理员不能使用管理端，要先去账号中心开启，也不能在账号中心关闭两步验证。你自己要先开启两步验证。"
+						label="管理员必须启用两步验证或 Passkey"
+						help="管理员账号被盗会暴露整个实例。开启后，既没开启两步验证也没有 Passkey 的管理员不能使用管理端，要先去账号中心开启或添加，也不能让两者一样都不剩。你自己要先满足其中一项。"
 					>
 						{({ id }) => (
 							<Switch

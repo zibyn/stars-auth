@@ -271,7 +271,11 @@ function UserPage() {
 			<Section title="两步验证">
 				<ItemList>
 					<Row label="状态">
-						{u.twoFactor ? "已开启" : "未开启"}
+						{u.twoFactor
+							? "已开启"
+							: u.twoFactorOrPasskey
+								? "由 Passkey 满足"
+								: "未开启"}
 						{writable && u.twoFactor && (
 							<ConfirmDialog
 								trigger={

@@ -71,6 +71,41 @@ func TestAdminsMustUseTwoFactor(t *testing.T) {
 	}
 }
 
+// A Passkey meets 管理员必须启用两步验证或 Passkey too: an admin with only a Passkey
+// turns the switch on, and one is let into the Management API by their
+// Passkey alone. The user detail says which way the requirement is met.
+func TestPasskeyMeetsAdminsTwoFactor(t *testing.T) {
+	e := start(t)
+	e.user("CAROL", []string{"readonly"})
+	e.passkey(e.owner, "工作电脑", false) // the owner has no TOTP, only a Passkey
+	owner := e.token(e.owner, nil)
+
+	policy := settings{PasswordLogin: "admins", DailySendLimit: 1000, AuditRetentionDays: 180, AdminsNeedTwoFactor: true}
+	if code := e.call("PUT", owner, "/settings", policy, nil); code != 204 {
+		t.Fatalf("turn on with only a Passkey: %d", code)
+	}
+	carol := e.token("CAROL", nil)
+	if code, err := e.problem(carol, "/me"); code != 403 || err != "two_factor_required" {
+		t.Errorf("CAROL with neither: %d %q", code, err)
+	}
+	e.passkey("CAROL", "手机", true)
+	if code := e.get(carol, "/me", nil); code != 200 {
+		t.Errorf("CAROL with a Passkey: %d", code)
+	}
+
+	var detail struct {
+		TwoFactor          bool `json:"twoFactor"`
+		TwoFactorOrPasskey bool `json:"twoFactorOrPasskey"`
+	}
+	if code := e.get(owner, "/users/CAROL", &detail); code != 200 || detail.TwoFactor || !detail.TwoFactorOrPasskey {
+		t.Errorf("detail, met by a Passkey: %d %+v", code, detail)
+	}
+	e.twoFactorOn("CAROL")
+	if code := e.get(owner, "/users/CAROL", &detail); code != 200 || !detail.TwoFactor || !detail.TwoFactorOrPasskey {
+		t.Errorf("detail, met by 两步验证: %d %+v", code, detail)
+	}
+}
+
 func TestAdminChangesLoginPolicy(t *testing.T) {
 	e := start(t)
 	e.user("RO", []string{"readonly"})

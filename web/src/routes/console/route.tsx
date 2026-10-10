@@ -84,14 +84,15 @@ export const Route = createFileRoute("/console")({
 	component: Console,
 });
 
-// TwoFactorFirst stands in for the console while 管理员必须启用两步验证
-// turns the admin away.
+// TwoFactorFirst stands in for the console while 管理员必须启用两步验证或
+// Passkey turns the admin away.
 function TwoFactorFirst() {
 	return (
 		<Alert>
-			<AlertTitle>需要先开启两步验证</AlertTitle>
+			<AlertTitle>需要先开启两步验证或添加 Passkey</AlertTitle>
 			<AlertDescription>
-				这个实例要求管理员开启两步验证。在账号中心开启后，回来就能继续使用管理端。
+				这个实例要求管理员开启两步验证或添加
+				Passkey。在账号中心完成后，回来就能继续使用管理端。
 			</AlertDescription>
 			<AlertAction>
 				<Button size="sm" render={<Link to="/account" />}>
