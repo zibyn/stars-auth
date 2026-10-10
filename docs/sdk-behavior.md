@@ -11,6 +11,15 @@
 - **外部登录**(Apple):App 用系统的 Sign in with Apple 拿到 `authorization_code`,原样作为 `authorization_code`、连同 Provider ID 作为 `provider` 提交(KMP:`signInWithProvider`),不提交 identity token,也不需要 nonce(ADR 0011)。code 只能用一次,`400 invalid_grant` 表示 Apple 没认这个 code,让 User 重新用 Apple 登录。之后照常按 `next` 走。
 - **用户错误**:`400 invalid_request` 的 `error_description` 可直接展示;返回了 `auth_session` 时它仍然可用(比如重输验证码)。`invalid_session` 表示从头再来。
 
+## Passkey
+
+- **系统界面**:断言和注册都由系统凭证 API 完成(Android Credential Manager、iOS ASAuthorization),SDK 不带界面,也不自己实现 WebAuthn。服务的 options 是 `publicKey` 包一层的 `PublicKeyCredentialCreationOptionsJSON` / `PublicKeyCredentialRequestOptionsJSON`;Credential Manager 要的是里面那层,SDK 拆开再给。
+- **登录(两次往返)**:第一步在 challenge 上带 `passkey=begin`,得到 `200 {auth_session, options}`(**不发 PoW**:begin 不验证任何凭证,由按 IP 的预算兜底);把 `options.publicKey` 交给系统界面,拿到断言后在同一 `auth_session` 上带 `passkey=<AuthenticationResponseJSON>` 提交,得到授权码,或 `403 insufficient_authorization` 带 `next`(照常按 `next` 走)。断言被拒(含 challenge 重放)时服务端作废这个 `auth_session`,要重新 begin。
+- **添加**:走账号中心(`POST /v1/account/passkeys/options` → 系统界面 → `POST /v1/account/passkeys`),令牌的 `aud` 必须是 `urn:stars-auth:account-api`,只有内置的 `stars-auth-account` 能签发,所以 SDK 内置一份账号中心的会话(内存里,不落存储)。两个接口都要求 10 分钟内登录过:服务端返回 `403`,SDK 报"需要重新认证"(`insufficient_user_authentication`),App 重新登录账号中心后再调一次。凭证重复是 `409`。
+- **能力探测**:大陆 Android 机型可能没有 Google Play 服务,Passkey 一定失败。App 先问一声再决定是否展示入口:Android 看 GMS 是否安装且系统 ≥ 9;iOS 直接可用。
+- **User 取消**:关掉系统界面不是失败,是可区分的结果(KMP:`StarsAuthException.PASSKEY_CANCELLED`),界面保持原样。系统给不出凭证的其它原因(iOS 没声明关联域等)照常按失败抛出,不要当成取消。
+- **关联文件**:系统只在 RP ID 与 App 声明过关联时才弹界面——iOS 的 Associated Domains `webcredentials:`、Android 的 `/.well-known/assetlinks.json`。两者都按管理端登记的 Team ID + Bundle ID、包名 + 签名指纹生成,`/.well-known/` 始终返回这两个文件,不受 Passkey 开关影响。
+
 ## 刷新
 
 - **single-flight(必须)**:同一时间只有一个刷新请求,其余调用方等它的结果。服务端没有宽限窗口:同一个 refresh token 用两次即视为泄露。

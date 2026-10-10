@@ -4,7 +4,6 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
-import io.ktor.client.request.HttpRequestData
 import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -15,6 +14,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -28,25 +28,38 @@ import kotlinx.io.IOException
 /** A Stars Auth that answers by path; tests set the answers they need. */
 class FakeServer {
   val forms = mutableListOf<Pair<String, Map<String, String>>>()
+  val bodies = mutableListOf<Pair<String, String>>()
+  val authHeaders = mutableListOf<Pair<String, String?>>()
   var handlers = mutableMapOf<String, MockRequestHandleScope.(Map<String, String>) -> HttpResponseData>()
   val store = MemoryTokenStore()
 
   fun calls(path: String) = forms.count { it.first == path }
 
-  fun auth() = StarsAuth(
+  fun auth(passkeys: PasskeyPrompt? = null) = StarsAuth(
     StarsAuthConfig(issuer = "https://auth.test", clientId = "app"),
     store,
     HttpClient(MockEngine { req ->
-      val form = formOf(req)
+      val body = (req.body as? OutgoingContent.ByteArrayContent)?.bytes()?.decodeToString().orEmpty()
+      val form = parseQueryString(body).entries().associate { it.key to it.value.firstOrNull().orEmpty() }
       forms += req.url.encodedPath to form
+      bodies += req.url.encodedPath to body
+      authHeaders += req.url.encodedPath to req.headers[HttpHeaders.Authorization]
       handlers[req.url.encodedPath]?.invoke(this, form) ?: respond("", HttpStatusCode.NotFound)
     }),
+    passkeys,
   )
+}
 
-  private fun formOf(req: HttpRequestData): Map<String, String> {
-    val body = req.body as? OutgoingContent.ByteArrayContent ?: return emptyMap()
-    return parseQueryString(body.bytes().decodeToString()).entries().associate { it.key to it.value.single() }
-  }
+/** The system sheet, faked: hands back [response] (null: the User dismissed it) and keeps what it was given. */
+class FakePasskeys(
+  override val available: Boolean = true,
+  private val response: String? = """{"id":"cred"}""",
+) : PasskeyPrompt {
+  val given = mutableListOf<String>()
+
+  override suspend fun create(optionsJson: String): String? = response.also { given += optionsJson }
+
+  override suspend fun get(optionsJson: String): String? = response.also { given += optionsJson }
 }
 
 fun MockRequestHandleScope.json(body: String, status: HttpStatusCode = HttpStatusCode.OK) =
@@ -254,6 +267,136 @@ class StarsAuthTest {
   fun termsComeFromTheServer() = runTest {
     server.handlers["/v1/auth/terms"] = { json("""{"terms_url":"https://t","privacy_url":"https://p","version":"v2"}""") }
     assertEquals(Terms("https://t", "https://p", "v2"), server.auth().terms())
+  }
+
+  // Passkey: begin gives the sheet its options, then the assertion goes back
+  // on the same auth_session (ADR 0014). No PoW: begin checks no credential.
+  @Test
+  fun passkeySignInBeginsThenSubmitsTheAssertion() = runTest {
+    server.handlers["/v1/auth/challenge"] = { form ->
+      when (form["passkey"]) {
+        "begin" -> json("""{"auth_session":"s1","options":{"publicKey":{"challenge":"ch","rpId":"auth.test"}}}""")
+        "assertion" -> json("""{"authorization_code":"c1"}""")
+        else -> error("unexpected $form")
+      }
+    }
+    val sheet = FakePasskeys(response = "assertion")
+    val auth = server.auth(sheet)
+
+    assertEquals(SignInStep.SignedIn, auth.signInWithPasskey(termsVersion = "2026-01"))
+
+    // The sheet takes what the browser would put under publicKey.
+    assertEquals("""{"challenge":"ch","rpId":"auth.test"}""", sheet.given.single())
+    val (_, begin) = server.forms.first { it.first == "/v1/auth/challenge" }
+    assertEquals("app", begin["client_id"])
+    assertEquals("openid offline_access", begin["scope"])
+    assertEquals("S256", begin["code_challenge_method"])
+    assertEquals(0, server.calls("/altcha/challenge"))
+    val (_, assertion) = server.forms.filter { it.first == "/v1/auth/challenge" }.last()
+    assertEquals("s1", assertion["auth_session"])
+    assertEquals("assertion", assertion["passkey"])
+    assertEquals(listOf<String?>("app"), server.forms.filter { it.first == "/token" }.map { it.second["client_id"] })
+  }
+
+  @Test
+  fun passkeySignInTakesTheNextStepAfterTheAssertion() = runTest {
+    server.handlers["/v1/auth/challenge"] = { form ->
+      when (form["passkey"]) {
+        "begin" -> json("""{"auth_session":"s1","options":{"publicKey":{"challenge":"ch"}}}""")
+        "assertion" -> json(insufficient("s1", "phone"), HttpStatusCode.Forbidden)
+        else -> error("unexpected $form")
+      }
+    }
+    val auth = server.auth(FakePasskeys(response = "assertion"))
+
+    val next = assertIs<SignInStep.PhoneRequired>(auth.signInWithPasskey(termsVersion = ""))
+    assertEquals("s1", next.session.id)
+  }
+
+  // A dismissed sheet leaves the sign-in as it was; it is not a failure.
+  @Test
+  fun dismissingThePasskeySheetIsNotAFailure() = runTest {
+    server.handlers["/v1/auth/challenge"] = { json("""{"auth_session":"s1","options":{"publicKey":{"challenge":"ch"}}}""") }
+    val auth = server.auth(FakePasskeys(response = null))
+
+    assertEquals(StarsAuthException.PASSKEY_CANCELLED, assertFailsWith<StarsAuthException> { auth.signInWithPasskey("") }.error)
+    assertEquals(1, server.calls("/v1/auth/challenge"))
+  }
+
+  // No sheet (or one this device cannot use): the App hides its Passkey entry.
+  @Test
+  fun passkeyWithoutASheetIsUnavailable() = runTest {
+    assertEquals(false, server.auth().passkeysAvailable())
+    assertFalse(server.auth(FakePasskeys(available = false)).passkeysAvailable())
+    assertTrue(server.auth(FakePasskeys()).passkeysAvailable())
+
+    val auth = server.auth()
+    assertEquals(StarsAuthException.PASSKEY_UNAVAILABLE, assertFailsWith<StarsAuthException> { auth.signInWithPasskey("") }.error)
+    assertEquals(StarsAuthException.PASSKEY_UNAVAILABLE, assertFailsWith<StarsAuthException> { auth.addPasskey() }.error)
+    assertEquals(0, server.forms.size)
+  }
+
+  // The Account API takes only the account center's own tokens, so adding a
+  // Passkey signs in as stars-auth-account first, in memory only.
+  @Test
+  fun addPasskeyUsesTheAccountCentersToken() = runTest {
+    server.handlers["/v1/account/passkeys/options"] = { json("""{"options":{"publicKey":{"challenge":"ch","rp":{"id":"auth.test"}}}}""") }
+    server.handlers["/v1/account/passkeys"] = { json("""{"id":"p1","name":"Chrome","createdAt":"2026-10-10T00:00:00Z"}""") }
+    server.handlers["/v1/auth/challenge"] = { json("""{"authorization_code":"c1"}""") }
+    val sheet = FakePasskeys(response = """{"id":"cred","type":"public-key"}""")
+    val auth = server.auth(sheet)
+
+    assertEquals(SignInStep.SignedIn, auth.signInForAccountWithPassword("alice", "pw", termsVersion = ""))
+    val added = auth.addPasskey()
+
+    assertEquals(Passkey("p1", "Chrome", "2026-10-10T00:00:00Z"), added)
+    val (_, signIn) = server.forms.first { it.first == "/v1/auth/challenge" }
+    assertEquals(StarsAuthConfig.ACCOUNT_CLIENT_ID, signIn["client_id"])
+    assertEquals("openid", signIn["scope"])
+    assertEquals(listOf<String?>("Bearer at1", "Bearer at1"), server.authHeaders.filter { it.first.startsWith("/v1/account/") }.map { it.second })
+    assertEquals("""{"challenge":"ch","rp":{"id":"auth.test"}}""", sheet.given.last())
+    assertEquals("""{"id":"cred","type":"public-key"}""", server.bodies.last { it.first == "/v1/account/passkeys" }.second)
+    // The account center's tokens are not the App's: the store is untouched.
+    assertNull(auth.tokens())
+
+    auth.signOut()
+    assertNull(auth.tokens())
+  }
+
+  @Test
+  fun addPasskeyWithoutAnAccountSignInAsksToReauthenticate() = runTest {
+    val auth = server.auth(FakePasskeys())
+
+    assertEquals(StarsAuthException.REAUTHENTICATE, assertFailsWith<StarsAuthException> { auth.addPasskey() }.error)
+    assertEquals(0, server.forms.size)
+  }
+
+  // 10 minutes after signing in to the account center, the Account API
+  // refuses: sign in again and retry.
+  @Test
+  fun aStaleAccountSignInAsksToReauthenticate() = runTest {
+    server.handlers["/v1/auth/challenge"] = { json("""{"authorization_code":"c1"}""") }
+    server.handlers["/v1/account/passkeys/options"] = { json("""{"title":"Forbidden","status":403,"detail":"请先重新验证身份"}""", HttpStatusCode.Forbidden) }
+    val auth = server.auth(FakePasskeys())
+
+    auth.signInForAccountWithPassword("alice", "pw", termsVersion = "")
+    val e = assertFailsWith<StarsAuthException> { auth.addPasskey() }
+    assertEquals(StarsAuthException.REAUTHENTICATE, e.error)
+    assertEquals("请先重新验证身份", e.description)
+  }
+
+  // The Account API refuses a second copy of a Passkey with a Huma error.
+  @Test
+  fun aRefusedRegistrationKeepsTheServersWords() = runTest {
+    server.handlers["/v1/auth/challenge"] = { json("""{"authorization_code":"c1"}""") }
+    server.handlers["/v1/account/passkeys/options"] = { json("""{"options":{"publicKey":{"challenge":"ch"}}}""") }
+    server.handlers["/v1/account/passkeys"] = { json("""{"title":"Conflict","status":409,"detail":"这把 Passkey 已经存在"}""", HttpStatusCode.Conflict) }
+    val auth = server.auth(FakePasskeys())
+
+    auth.signInForAccountWithPassword("alice", "pw", termsVersion = "")
+    val e = assertFailsWith<StarsAuthException> { auth.addPasskey() }
+    assertEquals("http_409", e.error)
+    assertEquals("这把 Passkey 已经存在", e.description)
   }
 }
 

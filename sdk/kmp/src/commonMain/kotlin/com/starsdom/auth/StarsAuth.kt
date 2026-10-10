@@ -5,12 +5,15 @@ import io.ktor.client.request.bearerAuth
 import io.ktor.client.request.forms.submitForm
 import io.ktor.client.request.get
 import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Parameters
 import io.ktor.http.ParametersBuilder
+import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +24,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlin.io.encoding.Base64
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
@@ -31,7 +36,16 @@ public class StarsAuthConfig(
   /** The App's Application (public) in Stars Auth. */
   public val clientId: String,
   public val scope: String = "openid offline_access",
-)
+) {
+  public companion object {
+    /**
+     * The built-in Application the account center signs in as. Tokens issued
+     * to it are for the Account API, which is what adding a Passkey needs;
+     * [StarsAuth.signInForAccountWithPasskey] and friends sign in to it.
+     */
+    public const val ACCOUNT_CLIENT_ID: String = "stars-auth-account"
+  }
+}
 
 /** The tokens of a signed-in User; [expiresAt] is the access token's expiry in Unix seconds. */
 @Serializable
@@ -45,11 +59,25 @@ public data class Tokens(
 /** What the terms checkbox links to, and the version to sign in with once it is ticked. */
 public data class Terms(val termsUrl: String, val privacyUrl: String, val version: String)
 
+/** A Passkey on the User's account, from the account center. */
+@Serializable
+public data class Passkey(
+  val id: String,
+  /** How the User knows it: the provider's name until they rename it. */
+  val name: String,
+  val createdAt: String,
+  /** Null until it has signed in once. */
+  val lastUsedAt: String? = null,
+)
+
 /** A sign-in in progress; pass it to the next step. */
 public class AuthSession internal constructor(
   internal val id: String,
   internal val verifier: String,
   internal val termsVersion: String,
+  // Signing in to the account center rather than the App: a different
+  // Application, whose tokens go to the Account API.
+  internal val account: Boolean = false,
 )
 
 public sealed interface SignInStep {
@@ -76,6 +104,10 @@ public class StarsAuthException(public val error: String, public val description
     public const val REAUTHENTICATE: String = "insufficient_user_authentication"
     /** The server asked for a sign-in step this SDK version does not know: ask the User to update the App. */
     public const val UNSUPPORTED_STEP: String = "unsupported_step"
+    /** The User dismissed the system Passkey sheet. Not a failure: leave the sign-in as it was. */
+    public const val PASSKEY_CANCELLED: String = "passkey_cancelled"
+    /** This device cannot do Passkeys (an Android phone without Google Play services), or the App passed no [PasskeyPrompt]. */
+    public const val PASSKEY_UNAVAILABLE: String = "passkey_unavailable"
   }
 }
 
@@ -86,8 +118,13 @@ public class StarsAuthException(public val error: String, public val description
 public class StarsAuth(
   private val config: StarsAuthConfig,
   private val store: TokenStore,
-  private val http: HttpClient,
+  private val http: HttpClient = HttpClient(),
+  // The system's Passkey sheet; without it Passkey sign-in and adding both
+  // refuse, and passkeysAvailable() is false.
+  private val passkeys: PasskeyPrompt? = null,
 ) {
+  // Swift never sees the defaults above: Kotlin/Native exports one initializer
+  // with every parameter, so the plain two-argument form is spelled out here.
   public constructor(config: StarsAuthConfig, store: TokenStore) : this(config, store, HttpClient())
 
   private val issuer = config.issuer.trimEnd('/')
@@ -97,6 +134,10 @@ public class StarsAuth(
   private val mutex = Mutex()
   private var loaded = false
   private var current: Tokens? = null
+  // The account center's session (docs/sdk-behavior.md#passkey): in memory
+  // only, because everything that uses it — adding a Passkey — needs a
+  // sign-in from the last 10 minutes anyway.
+  private var account: Tokens? = null
 
   @Throws(Exception::class)
   public suspend fun terms(): Terms {
@@ -115,9 +156,14 @@ public class StarsAuth(
   public suspend fun sendCode(identifier: String, session: AuthSession): SignInStep.CodeSent =
     sendCode(identifier, session, session.termsVersion)
 
-  private suspend fun sendCode(identifier: String, session: AuthSession?, termsVersion: String): SignInStep.CodeSent {
+  private suspend fun sendCode(
+    identifier: String,
+    session: AuthSession?,
+    termsVersion: String,
+    asAccount: Boolean = false,
+  ): SignInStep.CodeSent {
     val altcha = altcha()
-    return challenge(session, termsVersion) {
+    return challenge(session, termsVersion, asAccount) {
       append("identifier", identifier)
       append("altcha", altcha)
     } as? SignInStep.CodeSent ?: throw StarsAuthException("unexpected_response", "sending a code signed in")
@@ -139,9 +185,17 @@ public class StarsAuth(
 
   /** Signs in with an Identifier (username, phone number or email) and its password. */
   @Throws(Exception::class)
-  public suspend fun signInWithPassword(identifier: String, password: String, termsVersion: String): SignInStep {
+  public suspend fun signInWithPassword(identifier: String, password: String, termsVersion: String): SignInStep =
+    passwordSignIn(identifier, password, termsVersion, asAccount = false)
+
+  private suspend fun passwordSignIn(
+    identifier: String,
+    password: String,
+    termsVersion: String,
+    asAccount: Boolean,
+  ): SignInStep {
     val altcha = altcha()
-    return challenge(null, termsVersion) {
+    return challenge(null, termsVersion, asAccount) {
       append("username", identifier)
       append("password", password)
       append("altcha", altcha)
@@ -167,29 +221,114 @@ public class StarsAuth(
     return withContext(Dispatchers.Default) { solveAltcha(challenge) }
   }
 
+  /** Whether this device can do Passkeys; the App hides its Passkey entry when it cannot. */
+  public fun passkeysAvailable(): Boolean = passkeys?.available ?: false
+
+  /**
+   * Signs in with a Passkey in two round trips: the SDK asks Stars Auth for
+   * the assertion options, hands them to the system sheet, and submits what
+   * the sheet produced. The User sees one system prompt and nothing else.
+   * Dismissing it throws [StarsAuthException.PASSKEY_CANCELLED], which is not
+   * a failure: leave the sign-in as it was.
+   */
+  @Throws(Exception::class)
+  public suspend fun signInWithPasskey(termsVersion: String): SignInStep =
+    passkeySignIn(termsVersion, asAccount = false)
+
+  /** Sends a code for signing in to the account center, the way [sendCode] does for the App. */
+  @Throws(Exception::class)
+  public suspend fun sendAccountCode(identifier: String, termsVersion: String): SignInStep.CodeSent =
+    sendCode(identifier, session = null, termsVersion, asAccount = true)
+
+  /** Signs in to the account center with an Identifier and its password, the way [signInWithPassword] does for the App. */
+  @Throws(Exception::class)
+  public suspend fun signInForAccountWithPassword(identifier: String, password: String, termsVersion: String): SignInStep =
+    passwordSignIn(identifier, password, termsVersion, asAccount = true)
+
+  /** Signs in to the account center with a Passkey; [signInWithPasskey] for what the App itself signs in as. */
+  @Throws(Exception::class)
+  public suspend fun signInForAccountWithPasskey(termsVersion: String): SignInStep =
+    passkeySignIn(termsVersion, asAccount = true)
+
+  /**
+   * Adds a Passkey to the User's account, through the system sheet. Needs an
+   * account center session — [signInForAccountWithPasskey], [sendAccountCode]
+   * or [signInForAccountWithPassword] — from the last 10 minutes; without one
+   * it throws [StarsAuthException.REAUTHENTICATE]. Dismissing the sheet
+   * throws [StarsAuthException.PASSKEY_CANCELLED].
+   */
+  @Throws(Exception::class)
+  public suspend fun addPasskey(): Passkey {
+    val prompt = systemPasskeys()
+    val token = mutex.withLock { accountAccessToken() }
+    val begin = http.post("$issuer/v1/account/passkeys/options") { bearerAuth(token) }
+    if (begin.status == HttpStatusCode.Forbidden) throw reauthenticated(begin)
+    val options = decode<PasskeyOptionsResponse>(begin).options.underPublicKey()
+    val registration = prompt.create(options) ?: throw StarsAuthException(StarsAuthException.PASSKEY_CANCELLED)
+    val r = http.post("$issuer/v1/account/passkeys") {
+      bearerAuth(token)
+      contentType(ContentType.Application.Json)
+      setBody(registration)
+    }
+    if (r.status == HttpStatusCode.Forbidden) throw reauthenticated(r)
+    return decode<Passkey>(r)
+  }
+
+  private suspend fun passkeySignIn(termsVersion: String, asAccount: Boolean): SignInStep {
+    val prompt = systemPasskeys()
+    val verifier = newVerifier()
+    val begin = http.submitForm("$issuer/v1/auth/challenge", Parameters.build {
+      firstStep(verifier, termsVersion, asAccount)
+      append("passkey", "begin")
+    })
+    val started = decode<PasskeyBeginResponse>(begin)
+    val assertion = prompt.get(started.options.underPublicKey())
+      ?: throw StarsAuthException(StarsAuthException.PASSKEY_CANCELLED)
+    return challenge(AuthSession(started.authSession, verifier, termsVersion, asAccount), termsVersion) {
+      append("passkey", assertion)
+    }
+  }
+
+  private fun systemPasskeys(): PasskeyPrompt =
+    passkeys?.takeIf { it.available }
+      ?: throw StarsAuthException(StarsAuthException.PASSKEY_UNAVAILABLE, "this device has no system Passkey sheet")
+
+  // The first request of a sign-in: everything but the credentials themselves.
+  private fun ParametersBuilder.firstStep(verifier: String, termsVersion: String, asAccount: Boolean) {
+    append("client_id", clientId(asAccount))
+    append("terms_version", termsVersion)
+    append("response_type", "code")
+    append("scope", if (asAccount) ACCOUNT_SCOPE else config.scope)
+    append("code_challenge", base64Url.encode(sha256(verifier.encodeToByteArray())))
+    append("code_challenge_method", "S256")
+  }
+
+  private fun clientId(asAccount: Boolean): String =
+    if (asAccount) StarsAuthConfig.ACCOUNT_CLIENT_ID else config.clientId
+
   private suspend fun challenge(
     session: AuthSession?,
     termsVersion: String,
+    asAccount: Boolean = false,
     step: ParametersBuilder.() -> Unit,
   ): SignInStep {
+    val onAccount = session?.account ?: asAccount
     val verifier = session?.verifier ?: newVerifier()
     val r = http.submitForm("$issuer/v1/auth/challenge", Parameters.build {
-      append("client_id", config.clientId)
-      append("terms_version", termsVersion)
       if (session != null) {
+        append("client_id", clientId(onAccount))
+        append("terms_version", termsVersion)
         append("auth_session", session.id)
       } else {
-        append("response_type", "code")
-        append("scope", config.scope)
-        append("code_challenge", base64Url.encode(sha256(verifier.encodeToByteArray())))
-        append("code_challenge_method", "S256")
+        firstStep(verifier, termsVersion, onAccount)
       }
       step()
     })
     if (r.status == HttpStatusCode.Forbidden) {
-      val e = json.decodeFromString<ErrorResponse>(r.bodyAsText())
+      val body = r.bodyAsText()
+      val e = json.decodeFromString<ErrorResponse>(body)
       if (e.error == "insufficient_authorization" && e.authSession != null) {
-        val next = AuthSession(e.authSession, verifier, termsVersion)
+        val next = AuthSession(e.authSession, verifier, termsVersion, onAccount)
         // Unknown values come from a newer server: fail rather than guess (ADR 0010).
         return when (e.next) {
           "code" -> SignInStep.CodeSent(next)
@@ -198,15 +337,15 @@ public class StarsAuth(
           else -> throw StarsAuthException(StarsAuthException.UNSUPPORTED_STEP, "next step not supported by this SDK version: ${e.next}")
         }
       }
-      throw StarsAuthException(e.error, e.description)
+      throw errorOf(r, body)
     }
     val code = decode<CodeResponse>(r).authorizationCode
-    val t = tokenRequest {
+    val t = tokenRequest(clientId(onAccount)) {
       append("grant_type", "authorization_code")
       append("code", code)
       append("code_verifier", verifier)
     }
-    mutex.withLock { save(t) }
+    mutex.withLock { if (onAccount) account = t else save(t) }
     return SignInStep.SignedIn
   }
 
@@ -230,7 +369,7 @@ public class StarsAuth(
     // leave only the spent token, whose reuse ends the Session.
     return withContext(NonCancellable) {
       val fresh = try {
-        tokenRequest {
+        tokenRequest(clientId(false)) {
           append("grant_type", "refresh_token")
           append("refresh_token", refresh)
         }
@@ -261,6 +400,7 @@ public class StarsAuth(
       if (e is CancellationException) throw e
     } finally {
       save(null)
+      account = null
     }
   }
 
@@ -275,11 +415,12 @@ public class StarsAuth(
       val token = freshAccessToken()
       val r = http.post("$issuer/v1/auth/delete") { bearerAuth(token) }
       when {
-        r.status.isSuccess() -> save(null)
+        r.status.isSuccess() -> { save(null); account = null }
         r.status == HttpStatusCode.Unauthorized -> {
           val why = r.headers[HttpHeaders.WWWAuthenticate].orEmpty()
           if ("insufficient_user_authentication" in why) throw StarsAuthException(StarsAuthException.REAUTHENTICATE)
           save(null)
+          account = null
           throw signedOut()
         }
         else -> decode<Unit>(r)
@@ -287,10 +428,19 @@ public class StarsAuth(
     }
   }
 
-  private suspend fun tokenRequest(grant: ParametersBuilder.() -> Unit): Tokens {
+  // Call with the mutex held. The account center's token, which the Account
+  // API takes; in memory only, so it is either from this run or gone.
+  private fun accountAccessToken(): String {
+    val t = account
+    if (t != null && t.expiresAt - 30 > now()) return t.accessToken
+    account = null
+    throw reauthenticate()
+  }
+
+  private suspend fun tokenRequest(clientId: String, grant: ParametersBuilder.() -> Unit): Tokens {
     val r = http.submitForm("$issuer/token", Parameters.build {
       grant()
-      append("client_id", config.clientId)
+      append("client_id", clientId)
     })
     val t = decode<TokenResponse>(r)
     return Tokens(t.accessToken, t.refreshToken, t.idToken, now() + t.expiresIn)
@@ -315,16 +465,38 @@ public class StarsAuth(
   private suspend inline fun <reified T> decode(r: HttpResponse): T {
     val body = r.bodyAsText()
     if (r.status.isSuccess()) return if (T::class == Unit::class) Unit as T else json.decodeFromString(body)
-    val e = runCatching { json.decodeFromString<ErrorResponse>(body) }.getOrNull()
-    throw StarsAuthException(e?.error ?: "http_${r.status.value}", e?.description)
+    throw errorOf(r, body)
   }
+
+  // The direct auth API answers OAuth errors (error / error_description), the
+  // Account API Huma errors (title / detail).
+  private fun errorOf(r: HttpResponse, body: String): StarsAuthException {
+    val e = runCatching { json.decodeFromString<ErrorResponse>(body) }.getOrNull()
+    return StarsAuthException(
+      e?.error ?: "http_${r.status.value}",
+      e?.description ?: e?.detail ?: e?.title,
+    )
+  }
+
+  // The Account API refuses a sign-in older than 10 minutes with a 403.
+  private suspend fun reauthenticated(r: HttpResponse) = reauthenticate(errorOf(r, r.bodyAsText()))
+
+  private fun reauthenticate(from: StarsAuthException? = null) =
+    StarsAuthException(StarsAuthException.REAUTHENTICATE, from?.description ?: "sign in to the account center first")
 
   private fun signedOut() = StarsAuthException(StarsAuthException.SIGNED_OUT)
 
   private fun now() = Clock.System.now().epochSeconds
 }
 
+private const val ACCOUNT_SCOPE = "openid"
+
 private val base64Url = Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT)
+
+// The system sheets take the options the browser would put under publicKey;
+// Stars Auth answers with the PublicKeyCredential*OptionsJSON wrapped in it.
+private fun JsonElement.underPublicKey(): String =
+  (this as? JsonObject)?.get("publicKey")?.toString() ?: toString()
 
 // RFC 7636: 43 base64url characters. Uuid.random() is cryptographically
 // secure on every platform; two give 244 random bits (each fixes 6).
@@ -336,6 +508,14 @@ private fun newVerifier(): String = base64Url.encode(Uuid.random().toByteArray()
   val version: String,
 )
 
+// passkey=begin answers 200 with the auth_session the assertion goes back on.
+@Serializable private class PasskeyBeginResponse(
+  @SerialName("auth_session") val authSession: String,
+  val options: JsonElement,
+)
+
+@Serializable private class PasskeyOptionsResponse(val options: JsonElement)
+
 @Serializable private class CodeResponse(@SerialName("authorization_code") val authorizationCode: String)
 
 @Serializable private class TokenResponse(
@@ -346,8 +526,12 @@ private fun newVerifier(): String = base64Url.encode(Uuid.random().toByteArray()
 )
 
 @Serializable private class ErrorResponse(
-  val error: String,
+  // The direct auth API's fields.
+  val error: String? = null,
   @SerialName("error_description") val description: String? = null,
   @SerialName("auth_session") val authSession: String? = null,
   val next: String? = null,
+  // The Account API's (Huma's).
+  val title: String? = null,
+  val detail: String? = null,
 )

@@ -37,6 +37,9 @@ kotlin {
     }
     androidMain.dependencies {
       implementation("io.ktor:ktor-client-okhttp:3.6.0")
+      // The system Passkey sheet.
+      implementation("androidx.credentials:credentials:1.5.0")
+      implementation("androidx.credentials:credentials-play-services-auth:1.5.0")
     }
     iosMain.dependencies {
       implementation("io.ktor:ktor-client-darwin:3.6.0")
