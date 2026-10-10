@@ -40,8 +40,10 @@ Open it and set the owner's username and password; the page then closes for
 good. The owner signs in to the admin console at `/console`.
 
 The Management API lives under `/v1/management`; its OpenAPI document is at
-`/v1/management/openapi.json`. Apps sign in without a browser through the
-direct auth API at `/v1/auth/challenge`, documented at `/v1/auth/openapi.json`
+`/v1/management/openapi.json`. A backend service calls it as an M2M
+Application, see [docs/management-api.md](docs/management-api.md). Apps sign in
+without a browser through the direct auth API at `/v1/auth/challenge`,
+documented at `/v1/auth/openapi.json`
 (account deletion for Apps included); iOS and Android Apps use the KMP SDK in
 `sdk/kmp`. Users manage their account at `/account`,
 which calls the Account API (`/v1/account/openapi.json`).
