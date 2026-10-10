@@ -64,6 +64,24 @@ func (q *Queries) AddPasskey(ctx context.Context, arg AddPasskeyParams) (AddPass
 	return i, err
 }
 
+const auditPasskeyCounter = `-- name: AuditPasskeyCounter :exec
+INSERT INTO audit_log (event, sub, detail)
+VALUES ('passkey.counter_regressed', $1::text, jsonb_build_object('name', $2::text, 'count', $3::int8))
+`
+
+type AuditPasskeyCounterParams struct {
+	Sub   string
+	Name  string
+	Count int64
+}
+
+// A login refused because the counter went backwards: the Passkey may have
+// been cloned. Audited as passkey.counter_regressed.
+func (q *Queries) AuditPasskeyCounter(ctx context.Context, arg AuditPasskeyCounterParams) error {
+	_, err := q.db.Exec(ctx, auditPasskeyCounter, arg.Sub, arg.Name, arg.Count)
+	return err
+}
+
 const deleteExpiredPasskeyChallenges = `-- name: DeleteExpiredPasskeyChallenges :exec
 DELETE FROM passkey_challenges WHERE expires_at < now()
 `
@@ -94,6 +112,36 @@ func (q *Queries) DeletePasskey(ctx context.Context, arg DeletePasskeyParams) (i
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const passkeyByCredentialID = `-- name: PasskeyByCredentialID :one
+SELECT user_id, name, public_key, sign_count, backup_eligible, backup_state
+FROM passkeys WHERE credential_id = $1
+`
+
+type PasskeyByCredentialIDRow struct {
+	UserID         string
+	Name           string
+	PublicKey      []byte
+	SignCount      int64
+	BackupEligible bool
+	BackupState    bool
+}
+
+// The Passkey a login assertion names: its owner and the key to check the
+// signature with.
+func (q *Queries) PasskeyByCredentialID(ctx context.Context, credentialID []byte) (PasskeyByCredentialIDRow, error) {
+	row := q.db.QueryRow(ctx, passkeyByCredentialID, credentialID)
+	var i PasskeyByCredentialIDRow
+	err := row.Scan(
+		&i.UserID,
+		&i.Name,
+		&i.PublicKey,
+		&i.SignCount,
+		&i.BackupEligible,
+		&i.BackupState,
+	)
+	return i, err
 }
 
 const passkeyExclusions = `-- name: PasskeyExclusions :many
@@ -180,6 +228,21 @@ func (q *Queries) RenamePasskey(ctx context.Context, arg RenamePasskeyParams) (i
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const signInPasskey = `-- name: SignInPasskey :exec
+UPDATE passkeys SET last_used_at = now(), sign_count = $2
+WHERE credential_id = $1
+`
+
+type SignInPasskeyParams struct {
+	CredentialID []byte
+	SignCount    int64
+}
+
+func (q *Queries) SignInPasskey(ctx context.Context, arg SignInPasskeyParams) error {
+	_, err := q.db.Exec(ctx, signInPasskey, arg.CredentialID, arg.SignCount)
+	return err
 }
 
 const takePasskeyChallenge = `-- name: TakePasskeyChallenge :one

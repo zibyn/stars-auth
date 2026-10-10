@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -72,12 +73,20 @@ func start(t *testing.T) *env {
 	ts := httptest.NewUnstartedServer(nil)
 	ts.StartTLS()
 	t.Cleanup(ts.Close)
-	auth, err := login.New(ctx, pool, keyring, ts.URL)
+	// A Passkey's RP ID is the issuer's hostname, which may not be an IP
+	// address; localhost is both a hostname and this server's address, which
+	// the generated certificate does not cover.
+	issuer := strings.Replace(ts.URL, "127.0.0.1", "localhost", 1)
+	client := ts.Client()
+	transport := client.Transport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // test server, not production
+	client.Transport = transport
+	auth, err := login.New(ctx, pool, keyring, issuer)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ts.Config.Handler = server.New(pool.Ping, http.NotFoundHandler(), nil, auth.Register)
-	e := &env{t: t, issuer: ts.URL, client: ts.Client(), ids: identity.New(pool, keyring), pool: pool, inbox: &inbox{codes: map[string]string{}}}
+	e := &env{t: t, issuer: issuer, client: client, ids: identity.New(pool, keyring), pool: pool, inbox: &inbox{codes: map[string]string{}}}
 	e.newBrowser()
 	hook := httptest.NewServer(e.inbox)
 	t.Cleanup(hook.Close)
@@ -261,7 +270,8 @@ func TestSetupThenPasswordLogin(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("authorize: %d %s", resp.StatusCode, page)
 	}
-	for _, want := range []string{`autocomplete="username"`, `method="post"`} {
+	// The identifier field also offers Passkeys in its autofill now.
+	for _, want := range []string{`autocomplete="username webauthn"`, `method="post"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("login page lacks %s", want)
 		}

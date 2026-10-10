@@ -48,6 +48,9 @@ altcha-widget { --altcha-border-radius: 8px; --altcha-color-border: var(--line);
 /* Provider buttons: secondary to the form above; the generic types are
    text-only. */
 form.providers { margin-top: 12px; gap: 8px; }
+/* The Passkey button sits between the code form and the Provider buttons. */
+button#passkey-login { margin-top: 12px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); }
+button#passkey-login:hover { background: var(--canvas); }
 form.providers button { background: var(--panel); color: var(--ink); border: 1px solid var(--line); }
 form.providers button:hover { background: var(--canvas); }
 /* The named Providers' own buttons, each as its brand guidelines ask: the
@@ -167,7 +170,7 @@ form.providers button.github svg { fill: #181717; }
   <input type="hidden" name="op" value="password">
   <input type="hidden" name="mode" value="password">
   <label>用户名、手机号或邮箱
-    <input name="username" autocomplete="username" autocapitalize="none" required autofocus value="{{.Username}}">
+    <input name="username" autocomplete="username{{if .Passkey}} webauthn{{end}}" autocapitalize="none" required autofocus value="{{.Username}}">
   </label>
   <label>密码
     <input name="password" type="password" autocomplete="current-password" required>
@@ -180,7 +183,7 @@ form.providers button.github svg { fill: #181717; }
 <form method="post" action="{{.Action}}">
   <input type="hidden" name="op" value="send">
   <label>{{.IdentifierLabel}}
-    <input name="identifier" {{if or .Bind (and (not .PasswordOn) (eq .CodeKinds "手机号"))}}type="tel" autocomplete="tel"{{else if and (not .PasswordOn) (eq .CodeKinds "邮箱")}}type="email" autocomplete="email"{{else}}autocomplete="username"{{end}} autocapitalize="none" required autofocus value="{{.Identifier}}">
+    <input name="identifier" {{if or .Bind (and (not .PasswordOn) (eq .CodeKinds "手机号"))}}type="tel" autocomplete="tel{{if .Passkey}} webauthn{{end}}"{{else if and (not .PasswordOn) (eq .CodeKinds "邮箱")}}type="email" autocomplete="email{{if .Passkey}} webauthn{{end}}"{{else}}autocomplete="username{{if .Passkey}} webauthn{{end}}"{{end}} autocapitalize="none" required autofocus value="{{.Identifier}}">
   </label>
   {{if not .Bind}}{{template "agree" .Terms}}{{end}}
   <altcha-widget challenge="/altcha/challenge" name="altcha" auto="onsubmit" language="zh-cn"></altcha-widget>
@@ -196,6 +199,57 @@ addEventListener("submit", e => {
   if (!/@|^[\d\s+-]+$/.test(e.target.identifier.value.trim())) e.stopPropagation();
 }, true);
 </script>{{end}}
+{{end}}
+{{with .Passkey}}
+<button type="button" id="passkey-login" hidden>使用 Passkey 登录</button>
+<form method="post" action="{{$.Action}}" id="passkey-form" hidden>
+  <input type="hidden" name="op" value="passkey">
+  <input type="hidden" name="passkey">
+</form>
+<script type="application/json" id="passkey-options">{{.}}</script>
+<script src="/login/passkey.js" defer></script>
+<script>
+// The Passkey ceremony the embedded options drive: the identifier field's
+// autofill above (conditional), and a modal one from the button, which on a
+// computer without a Passkey of its own offers a phone's by QR code. Runs at
+// parse time but touches stars only once /login/passkey.js (deferred, so
+// loaded before DOMContentLoaded) and a ceremony have both arrived.
+const options = JSON.parse(document.getElementById("passkey-options").textContent).publicKey;
+const get = mediation => navigator.credentials.get({
+  mediation,
+  publicKey: {
+    rpId: options.rpId,
+    challenge: stars.b64url.decode(options.challenge),
+    userVerification: options.userVerification,
+    timeout: options.timeout,
+  },
+});
+const post = cred => {
+  const form = document.getElementById("passkey-form");
+  form.passkey.value = JSON.stringify({
+    id: cred.id,
+    rawId: stars.b64url.encode(cred.rawId),
+    type: cred.type,
+    response: {
+      clientDataJSON: stars.b64url.encode(cred.response.clientDataJSON),
+      authenticatorData: stars.b64url.encode(cred.response.authenticatorData),
+      signature: stars.b64url.encode(cred.response.signature),
+      userHandle: cred.response.userHandle ? stars.b64url.encode(cred.response.userHandle) : undefined,
+    },
+  });
+  form.submit();
+};
+addEventListener("DOMContentLoaded", () => {
+  const button = document.getElementById("passkey-login");
+  if (window.PublicKeyCredential) { // the button only where a ceremony can run
+    button.hidden = false;
+    button.onclick = () => get("optional").then(post, () => {});
+  }
+  try { // browsers without conditional UI just never resolve it
+    get("conditional").then(post, () => {});
+  } catch {}
+});
+</script>
 {{end}}
 {{if and .Providers (not .CodeSent) (not (and .Username (not .PasswordForm)))}}<form method="post" action="{{.Action}}" class="providers">
   <input type="hidden" name="op" value="provider">

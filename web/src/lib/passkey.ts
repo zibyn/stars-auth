@@ -1,6 +1,19 @@
 // Passkeys: adding one goes through the browser's WebAuthn API and the
-// Account API, with base64url coded here rather than a library
+// Account API. base64url lives in /login/passkey.js, which the Go server
+// serves and the hosted login page's own Passkey flow shares; loadB64url
+// waits for it rather than a library
 // (docs/spec/consoles.md#账号中心单页长滚动).
+
+declare global {
+	interface Window {
+		stars: {
+			b64url: {
+				encode(buf: ArrayBuffer | Uint8Array): string;
+				decode(s: string): Uint8Array<ArrayBuffer>;
+			};
+		};
+	}
+}
 
 export type Passkey = {
 	id: string;
@@ -38,46 +51,49 @@ export type RegistrationResponse = {
 // passkeySupported is whether this browser can make one at all.
 export const passkeySupported = typeof PublicKeyCredential !== "undefined";
 
-const b64url = (buf: ArrayBuffer | Uint8Array): string => {
-	const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
-	let s = "";
-	for (const b of bytes) s += String.fromCharCode(b);
-	return btoa(s).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
-};
+let b64urlModule: Promise<Window["stars"]["b64url"]> | null = null;
 
-const fromB64url = (s: string): Uint8Array<ArrayBuffer> => {
-	const bin = atob(s.replaceAll("-", "+").replaceAll("_", "/"));
-	const bytes = new Uint8Array(bin.length);
-	for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-	return bytes;
-};
+function loadB64url(): Promise<Window["stars"]["b64url"]> {
+	b64urlModule ??= new Promise((resolve, reject) => {
+		const s = document.createElement("script");
+		s.src = "/login/passkey.js";
+		s.onload = () => resolve(window.stars.b64url);
+		s.onerror = () => {
+			b64urlModule = null; // a retry gets another chance
+			reject(new Error("base64url 模块加载失败"));
+		};
+		document.head.append(s);
+	});
+	return b64urlModule;
+}
 
 // createPasskey walks the browser through adding a Passkey: the system
 // dialog, then the registration response the API takes.
 export async function createPasskey(
 	options: CreationOptions,
 ): Promise<RegistrationResponse> {
+	const b64url = await loadB64url();
 	const cred = (await navigator.credentials.create({
 		publicKey: {
 			...options.publicKey,
-			challenge: fromB64url(options.publicKey.challenge),
+			challenge: b64url.decode(options.publicKey.challenge),
 			user: {
 				...options.publicKey.user,
-				id: fromB64url(options.publicKey.user.id),
+				id: b64url.decode(options.publicKey.user.id),
 			},
 			excludeCredentials: (options.publicKey.excludeCredentials ?? []).map(
-				(c) => ({ ...c, id: fromB64url(c.id) }),
+				(c) => ({ ...c, id: b64url.decode(c.id) }),
 			),
 		},
 	})) as PublicKeyCredential;
 	const response = cred.response as AuthenticatorAttestationResponse;
 	return {
 		id: cred.id,
-		rawId: b64url(cred.rawId),
+		rawId: b64url.encode(cred.rawId),
 		type: cred.type,
 		response: {
-			clientDataJSON: b64url(response.clientDataJSON),
-			attestationObject: b64url(response.attestationObject),
+			clientDataJSON: b64url.encode(response.clientDataJSON),
+			attestationObject: b64url.encode(response.attestationObject),
 			transports: response.getTransports?.() ?? ["internal"],
 		},
 	};

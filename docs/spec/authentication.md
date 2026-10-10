@@ -29,7 +29,9 @@
 ## Passkey(二期)
 
 - **RP ID**:固定为 Stars Auth 的域名;使用可发现凭证;User 可以添加多把。
-- **托管页**:用 conditional UI(`autocomplete="username webauthn"`)。
+- **托管页**:渲染第一步时生成 challenge 存进 AuthnSession store(每次渲染换新的,重放即失效),断言选项内嵌在页面里;不引入前端 WebAuthn 库,base64url 由服务端在 `/login/passkey.js` 提供,账号中心共用同一份。标识输入框的 `autocomplete` 在现有取值后追加 `webauthn`,页面加载后发起 `mediation: "conditional"` 的自动填充;「使用 Passkey 登录」按钮只在支持 `PublicKeyCredential` 的浏览器上显示,电脑上可用手机扫码。断言以隐藏表单 `op=passkey` 提交,之后照常走绑手机号、同意协议。
+- **断言校验**(passkey 模块,托管页与直连 API 共用):不认识的凭证、签名错误、缺 UV、challenge 重放都拒绝,并且不建 User;计数器非零且回退时拒绝,并记审计 `passkey.counter_regressed`;成功后更新 `last_used_at` 和计数器。
+- **两步验证**:Passkey 每次都要求生物识别或 PIN,本身已满足两步验证,所以 `amr` 直接为 `["swk", "mfa"]`(凭证可跨设备同步,BE=1)或 `["hwk", "mfa"]`(仅本机,BE=0),开了两步验证的 User 不再进入 TOTP 步骤。
 - **直连 API**:增加 WebAuthn challenge;KMP SDK 只调用系统凭证 API(Credential Manager / ASAuthorization),界面由系统弹出。
 - **大陆 Android**:先探测能力,有才展示。
 - **小程序**:不提供。

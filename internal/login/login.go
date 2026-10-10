@@ -32,12 +32,13 @@ import (
 	oidcop "github.com/zibyn/stars-auth/internal/oidc/provider"
 	"github.com/zibyn/stars-auth/internal/oidcstore"
 	"github.com/zibyn/stars-auth/internal/otp"
+	"github.com/zibyn/stars-auth/internal/passkey"
 	"github.com/zibyn/stars-auth/internal/pow"
 	"github.com/zibyn/stars-auth/internal/provider"
 	"github.com/zibyn/stars-auth/internal/twofactor"
 )
 
-//go:embed pages.html altcha challenge.openapi.json
+//go:embed pages.html altcha challenge.openapi.json passkey.js
 var pagesFS embed.FS
 
 var pages = template.Must(template.ParseFS(pagesFS, "pages.html"))
@@ -55,6 +56,9 @@ const (
 	// Set, to the mistakes so far, while the pending login waits for a TOTP
 	// code or a 恢复码.
 	storeTOTPFailures = "totp_failures"
+	// The challenge of the login's Passkey options, renewed each time the
+	// first step renders; what a replayed assertion fails against.
+	storePasskeyChallenge = "passkey_challenge"
 	// Set, to the User a Provider just signed in, by the Provider's
 	// callback before it sends the browser back to the login.
 	storeFederated = "federated_sub"
@@ -82,6 +86,7 @@ type Service struct {
 	op        *oidcop.Provider
 	store     *oidcstore.Store
 	providers *provider.Store
+	passkeys  *passkey.Store
 	origin    *http.CrossOriginProtection
 }
 
@@ -107,6 +112,10 @@ func New(ctx context.Context, pool *pgxpool.Pool, keyring *crypt.Keyring, issuer
 	if err != nil {
 		return nil, err
 	}
+	passkeys, err := passkey.New(pool, issuer)
+	if err != nil {
+		return nil, err
+	}
 	s := &Service{
 		issuer:    issuer,
 		q:         sqlc.New(pool),
@@ -115,6 +124,7 @@ func New(ctx context.Context, pool *pgxpool.Pool, keyring *crypt.Keyring, issuer
 		codes:     otp.New(pool, channel.NewStore(pool, keyring)),
 		pow:       work,
 		providers: provider.NewStore(pool, keyring),
+		passkeys:  passkeys,
 		origin:    http.NewCrossOriginProtection(),
 	}
 	store := oidcstore.New(pool, keyring)
@@ -186,6 +196,10 @@ func (s *Service) Register(mux *http.ServeMux) {
 		w.Header().Set("Cache-Control", "public, max-age=86400")
 		http.ServeFileFS(w, r, pagesFS, "altcha/altcha.js")
 	})
+	mux.HandleFunc("GET /login/passkey.js", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		http.ServeFileFS(w, r, pagesFS, "passkey.js")
+	})
 	mux.HandleFunc("POST "+ChallengePath, s.challenge)
 	mux.HandleFunc("GET /v1/auth/terms", s.terms)
 	mux.HandleFunc("GET /v1/auth/openapi.json", func(w http.ResponseWriter, r *http.Request) {
@@ -243,7 +257,7 @@ func (s *Service) authenticate(w http.ResponseWriter, r *http.Request, as *goidc
 		return s.submit(w, r, as, c)
 	}
 	if sub, ok := as.Store[storeFederated].(string); ok && sameBinder(r, as.Store[storeBinder]) {
-		return s.login(w, r, as, c, sub, amrFed, "")
+		return s.login(w, r, as, c, sub, []string{amrFed}, "")
 	}
 	prompts := strings.Fields(string(as.Prompt))
 	none := slices.Contains(prompts, string(goidc.PromptTypeNone))
@@ -407,7 +421,7 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		if err != nil {
 			return fail(err)
 		}
-		return s.login(w, r, as, c, sub, codeAMR(kind), terms.TermsVersion)
+		return s.login(w, r, as, c, sub, []string{string(codeAMR(kind))}, terms.TermsVersion)
 
 	case "password":
 		if pending != "" {
@@ -424,7 +438,26 @@ func (s *Service) submit(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 		}); err != nil {
 			return fail(err)
 		}
-		return s.login(w, r, as, c, sub, goidc.AMRPassword, terms.TermsVersion)
+		return s.login(w, r, as, c, sub, []string{string(goidc.AMRPassword)}, terms.TermsVersion)
+
+	case "passkey":
+		if pending != "" {
+			break
+		}
+		challenge, _ := as.Store[storePasskeyChallenge].(string)
+		in, err := s.passkeys.SignIn(ctx, challenge, []byte(r.PostFormValue("passkey")))
+		if err != nil {
+			return fail(err)
+		}
+		// A Passkey verified the User with the device itself: it is 两步验证
+		// already, so the amr claim says mfa and TOTP never comes up. The
+		// form is the page's own script that posts it — no box was ticked, so
+		// no version: the consent step comes after, as for a Provider.
+		key := string(goidc.AMRHardwareSecuredKey)
+		if in.BackupEligible { // synced through a password manager: software
+			key = string(goidc.AMRSoftwareSecuredKey)
+		}
+		return s.login(w, r, as, c, in.Sub, []string{key, amrMFA}, "")
 
 	case "provider":
 		if pending != "" {
@@ -494,15 +527,15 @@ func withMFA(amr []string) []string {
 	return append(amr, amrMFA)
 }
 
-// login goes on with a User who just passed the first factor, having agreed
-// to the terms of version (if any).
-func (s *Service) login(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession, c *goidc.Client, sub string, amr goidc.AMR, version string) (goidc.Status, error) {
+// login goes on with a User who just passed the first factor as amr says,
+// having agreed to the terms of version (if any).
+func (s *Service) login(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession, c *goidc.Client, sub string, amr []string, version string) (goidc.Status, error) {
 	if version != "" {
 		if err := s.q.RecordConsent(r.Context(), sqlc.RecordConsentParams{UserID: sub, Version: version, ClientID: c.ID}); err != nil {
 			return goidc.StatusFailure, err
 		}
 	}
-	return s.complete(w, r, as, c, "", sub, time.Now(), []string{string(amr)})
+	return s.complete(w, r, as, c, "", sub, time.Now(), amr)
 }
 
 // complete grants sub, unless sub has yet to pass 两步验证, to bind the
@@ -750,6 +783,10 @@ type loginPage struct {
 	CodeSent     bool
 	Username     string
 	PasswordForm bool
+	// Passkey, on the first step: the assertion options embedded in the
+	// page, which drive the identifier field's conditional UI, the
+	// 使用 Passkey 登录 button and the hidden form their response posts.
+	Passkey template.JS
 }
 
 func (s *Service) render(w http.ResponseWriter, r *http.Request, as *goidc.AuthnSession, c *goidc.Client, p loginPage) (goidc.Status, error) {
@@ -802,8 +839,30 @@ func (s *Service) render(w http.ResponseWriter, r *http.Request, as *goidc.Authn
 	if p.PasswordOn && !p.Bind {
 		p.IdentifierLabel = strings.Replace(p.CodeKinds, "或", "、", 1) + "或用户名"
 	}
+	// The first step carries Passkey assertion options, and a fresh challenge
+	// in the store: what makes an assertion for a page already left behind
+	// fail. Later steps (code, password, TOTP, consent, bind) carry none.
+	if p.firstStep() {
+		options, challenge, err := s.passkeys.LoginOptions()
+		if err != nil {
+			return goidc.StatusFailure, err
+		}
+		if as.Store == nil {
+			as.Store = map[string]any{}
+		}
+		as.Store[storePasskeyChallenge] = challenge
+		p.Passkey = template.JS(options)
+	}
 	page(w, http.StatusOK, "login", p)
 	return goidc.StatusPending, nil
+}
+
+// firstStep reports whether the page shows a form that starts a login: the
+// identifier one, or the username and password one an instance without
+// Channels offers. A Passkey can start a login from either.
+func (p loginPage) firstStep() bool {
+	return !p.TOTP && !p.Consent && !p.Bind && !p.CodeSent &&
+		!(p.Username != "" && !p.PasswordForm)
 }
 
 // renderError shows an authorization error that cannot go back to the

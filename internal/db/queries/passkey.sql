@@ -7,6 +7,22 @@ WHERE user_id = $1 ORDER BY created_at;
 -- Passkeys, so an authenticator holding one refuses to make another.
 SELECT credential_id, transports FROM passkeys WHERE user_id = $1;
 
+-- name: PasskeyByCredentialID :one
+-- The Passkey a login assertion names: its owner and the key to check the
+-- signature with.
+SELECT user_id, name, public_key, sign_count, backup_eligible, backup_state
+FROM passkeys WHERE credential_id = $1;
+
+-- name: SignInPasskey :exec
+UPDATE passkeys SET last_used_at = now(), sign_count = $2
+WHERE credential_id = $1;
+
+-- name: AuditPasskeyCounter :exec
+-- A login refused because the counter went backwards: the Passkey may have
+-- been cloned. Audited as passkey.counter_regressed.
+INSERT INTO audit_log (event, sub, detail)
+VALUES ('passkey.counter_regressed', @sub::text, jsonb_build_object('name', @name::text, 'count', @count::int8));
+
 -- name: AddPasskey :one
 -- Audited as passkey.added. No row when the credential already exists.
 WITH put AS (

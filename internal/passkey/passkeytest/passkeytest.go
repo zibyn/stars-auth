@@ -29,13 +29,20 @@ type Authenticator struct {
 	// UV, BE and BS are the authenticator data flags. UV is required to
 	// add a Passkey.
 	UV, BE, BS bool
-	// SignCount is the counter of the registration response.
+	// SignCount is the counter of the registration response, and of each
+	// assertion after it; bump it between sign-ins.
 	SignCount uint32
 	// Origin of clientDataJSON; the issuer being tested.
 	Origin string
+	// UserHandle is who an assertion names: the sub the credential belongs
+	// to, which is what the credential was enrolled as.
+	UserHandle []byte
 	// CredentialID enrols a fixed credential; a fresh random one each
-	// ceremony when nil.
+	// ceremony when nil, remembered for Assert.
 	CredentialID []byte
+
+	// enrolled is the credential ID of the last Enroll.
+	enrolled []byte
 }
 
 // New makes an authenticator that always verifies the User.
@@ -71,6 +78,7 @@ func (a *Authenticator) Enroll(options json.RawMessage) json.RawMessage {
 		id = make([]byte, 32)
 		_, _ = rand.Read(id)
 	}
+	a.enrolled = id
 	clientData, _ := json.Marshal(map[string]any{
 		"type": "webauthn.create", "challenge": opts.PublicKey.Challenge,
 		"origin": a.Origin, "crossOrigin": false,
@@ -89,6 +97,79 @@ func (a *Authenticator) Enroll(options json.RawMessage) json.RawMessage {
 		a.t.Fatal(err)
 	}
 	return json.RawMessage(response)
+}
+
+// Assert answers assertion options (the options member of the login page or
+// the direct API's response) with the AuthenticationResponseJSON to submit.
+func (a *Authenticator) Assert(options json.RawMessage) json.RawMessage {
+	a.t.Helper()
+	var opts struct {
+		PublicKey struct {
+			Challenge string `json:"challenge"`
+			RPID      string `json:"rpId"`
+		} `json:"publicKey"`
+	}
+	if err := json.Unmarshal(options, &opts); err != nil {
+		a.t.Fatalf("assertion options: %v", err)
+	}
+	if opts.PublicKey.RPID == "" || opts.PublicKey.Challenge == "" {
+		a.t.Fatalf("assertion options incomplete: %s", options)
+	}
+	clientData, _ := json.Marshal(map[string]any{
+		"type": "webauthn.get", "challenge": opts.PublicKey.Challenge,
+		"origin": a.Origin, "crossOrigin": false,
+	})
+	// The assertion signs the authenticator data, then the client data's
+	// own digest.
+	data := a.authData(opts.PublicKey.RPID)
+	sum := sha256.Sum256(clientData)
+	signed := append(append([]byte{}, data...), sum[:]...)
+	digest := sha256.Sum256(signed)
+	sig, err := ecdsa.SignASN1(rand.Reader, a.key, digest[:])
+	if err != nil {
+		a.t.Fatal(err)
+	}
+	id := a.credentialID()
+	response := map[string]any{
+		"id":    b64u.EncodeToString(id),
+		"rawId": b64u.EncodeToString(id),
+		"type":  "public-key",
+		"response": map[string]any{
+			"clientDataJSON":    b64u.EncodeToString(clientData),
+			"authenticatorData": b64u.EncodeToString(data),
+			"signature":         b64u.EncodeToString(sig),
+			"userHandle":        b64u.EncodeToString(a.UserHandle),
+		},
+	}
+	out, err := json.Marshal(response)
+	if err != nil {
+		a.t.Fatal(err)
+	}
+	return json.RawMessage(out)
+}
+
+// authData is an assertion's authenticator data: the RP ID's hash, the
+// flags, and the counter. No attested credential data: that is enrollment's.
+func (a *Authenticator) authData(rpID string) []byte {
+	hash := sha256.Sum256([]byte(rpID))
+	data := make([]byte, 0, 37)
+	data = append(data, hash[:]...)
+	data = append(data, 0x01|flags(a.UV, 0x04)|flags(a.BE, 0x08)|flags(a.BS, 0x10))
+	return binary.BigEndian.AppendUint32(data, a.SignCount)
+}
+
+func (a *Authenticator) credentialID() []byte {
+	if a.CredentialID != nil {
+		return a.CredentialID
+	}
+	if a.enrolled != nil {
+		return a.enrolled
+	}
+	// No credential to assert with: one that was never enrolled still makes
+	// a well-formed response the server will refuse.
+	id := make([]byte, 32)
+	_, _ = rand.Read(id)
+	return id
 }
 
 // attestation is the attestationObject: format none, over authenticator

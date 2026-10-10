@@ -4,6 +4,7 @@
 package passkey
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,8 +14,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/go-webauthn/webauthn/protocol"
+	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -31,6 +32,12 @@ const (
 	ErrNoUV       identity.Invalid = "设备未验证用户身份,不能添加为 Passkey"
 	ErrVerifyFail identity.Invalid = "Passkey 注册未通过验证,请重试"
 	ErrName       identity.Invalid = "名称须为 1–64 个字符"
+
+	ErrNoPasskey identity.Invalid = "没有找到这把 Passkey,请改用其他方式登录"
+	ErrLoginFail identity.Invalid = "Passkey 登录未通过验证,请重试"
+	// ErrCloned is a counter that went backwards: the Passkey may be a
+	// clone's. Audited before it is returned.
+	ErrCloned identity.Invalid = "这把 Passkey 的计数器异常,已拒绝登录"
 )
 
 // ErrGone is a Passkey of the User's that is not; the Account API answers
@@ -58,16 +65,17 @@ func New(pool *pgxpool.Pool, issuer string) (*Store, error) {
 	// ponytail: origins are just the issuer until native App fingerprints
 	// land; then they are fetched per ceremony, uncached.
 	wa, err := webauthn.New(&webauthn.Config{
-		RPID:             u.Hostname(),
-		RPDisplayName:    "Stars Auth",
-		RPOrigins:        []string{issuer},
+		RPID:                  u.Hostname(),
+		RPDisplayName:         "Stars Auth",
+		RPOrigins:             []string{issuer},
 		AttestationPreference: protocol.PreferNoAttestation,
 		AuthenticatorSelection: protocol.AuthenticatorSelection{
-			ResidentKey:     protocol.ResidentKeyRequirementRequired,
+			ResidentKey:      protocol.ResidentKeyRequirementRequired,
 			UserVerification: protocol.VerificationRequired,
 		},
 		Timeouts: webauthn.TimeoutsConfig{
 			Registration: webauthn.TimeoutConfig{Timeout: challengeTTL, Enforce: true},
+			Login:        webauthn.TimeoutConfig{Timeout: challengeTTL},
 		},
 	})
 	if err != nil {
@@ -79,10 +87,10 @@ func New(pool *pgxpool.Pool, issuer string) (*Store, error) {
 // user is a User as go-webauthn sees one: their handle is their sub.
 type user struct{ sub, name string }
 
-func (u user) WebAuthnID() []byte                              { return []byte(u.sub) }
-func (u user) WebAuthnName() string                            { return u.name }
-func (u user) WebAuthnDisplayName() string                     { return u.name }
-func (u user) WebAuthnCredentials() []webauthn.Credential      { return nil }
+func (u user) WebAuthnID() []byte                         { return []byte(u.sub) }
+func (u user) WebAuthnName() string                       { return u.name }
+func (u user) WebAuthnDisplayName() string                { return u.name }
+func (u user) WebAuthnCredentials() []webauthn.Credential { return nil }
 
 // Passkey is one of a User's Passkeys as the Account API shows it.
 type Passkey struct {
@@ -198,6 +206,110 @@ func (s *Store) Finish(ctx context.Context, sub, session string, response []byte
 		return Passkey{}, err
 	}
 	return Passkey{ID: row.ID, Name: row.Name, CreatedAt: row.CreatedAt.Time}, nil
+}
+
+// LoginOptions are the options for signing in with a Passkey: a discoverable
+// ceremony, so the page or App knows no User yet. The challenge comes back
+// for the caller to keep until the response arrives (the AuthnSession store
+// on the hosted page, an auth_session in the direct API); rendering the first
+// step again asks for a new one, which is what makes a replayed assertion
+// fail.
+func (s *Store) LoginOptions() (options json.RawMessage, challenge string, err error) {
+	assertion, sd, err := s.wa.BeginDiscoverableLogin()
+	if err != nil {
+		return nil, "", err
+	}
+	if options, err = json.Marshal(assertion); err != nil {
+		return nil, "", err
+	}
+	return options, sd.Challenge, nil
+}
+
+// SignIn is one of a User's Passkeys signing them in: the assertion response
+// checked against the challenge LoginOptions issued. BackupEligible says
+// which key the amr claim names the login by: a synced Passkey is a software
+// key, one that never leaves its device a hardware one. Nothing here creates
+// a User; a Passkey only ever signs in the User it was added to.
+func (s *Store) SignIn(ctx context.Context, challenge string, response []byte) (SignIn, error) {
+	parsed, err := protocol.ParseCredentialRequestResponseBytes(response)
+	if err != nil {
+		return SignIn{}, ErrLoginFail
+	}
+	var owner *sqlc.PasskeyByCredentialIDRow
+	var lookupErr error // go-webauthn wraps the handler's error; ours is the clearer
+	handler := func(rawID, userHandle []byte) (webauthn.User, error) {
+		row, err := s.q.PasskeyByCredentialID(ctx, rawID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			lookupErr = ErrNoPasskey
+			return nil, ErrNoPasskey
+		} else if err != nil {
+			lookupErr = err
+			return nil, err
+		}
+		// The credential belongs to the User its handle names, or to nobody.
+		if !bytes.Equal(userHandle, []byte(row.UserID)) {
+			lookupErr = ErrNoPasskey
+			return nil, ErrNoPasskey
+		}
+		owner = &row
+		return loginuser{sub: row.UserID, credential: webauthn.Credential{
+			ID: rawID, PublicKey: row.PublicKey,
+			Authenticator: webauthn.Authenticator{SignCount: uint32(row.SignCount)},
+			Flags:         webauthn.CredentialFlags{BackupEligible: row.BackupEligible, BackupState: row.BackupState},
+		}}, nil
+	}
+	// ponytail: no deadline of its own; the challenge's holder (AuthnSession,
+	// auth_session) is what expires it.
+	sd := webauthn.SessionData{
+		Challenge: challenge, RelyingPartyID: s.rpID(),
+		UserVerification: protocol.VerificationRequired,
+	}
+	_, cred, err := s.wa.ValidatePasskeyLogin(handler, sd, parsed)
+	if lookupErr != nil {
+		return SignIn{}, lookupErr
+	}
+	if owner != nil && cred != nil && cred.Authenticator.CloneWarning {
+		if err := s.q.AuditPasskeyCounter(ctx, sqlc.AuditPasskeyCounterParams{
+			Sub: owner.UserID, Name: owner.Name, Count: int64(parsed.Response.AuthenticatorData.Counter),
+		}); err != nil {
+			return SignIn{}, err
+		}
+		return SignIn{}, ErrCloned
+	}
+	if err != nil {
+		var invalid identity.Invalid
+		if errors.As(err, &invalid) {
+			return SignIn{}, invalid
+		}
+		return SignIn{}, ErrLoginFail
+	}
+	if err := s.q.SignInPasskey(ctx, sqlc.SignInPasskeyParams{
+		CredentialID: parsed.RawID, SignCount: int64(cred.Authenticator.SignCount),
+	}); err != nil {
+		return SignIn{}, err
+	}
+	return SignIn{Sub: owner.UserID, BackupEligible: cred.Flags.BackupEligible}, nil
+}
+
+// SignIn is what a passing assertion says: who signed in, and with what kind
+// of Passkey.
+type SignIn struct {
+	Sub            string
+	BackupEligible bool
+}
+
+// loginuser is a User as a login ceremony sees one: one credential of
+// theirs, the one the assertion names.
+type loginuser struct {
+	sub        string
+	credential webauthn.Credential
+}
+
+func (u loginuser) WebAuthnID() []byte          { return []byte(u.sub) }
+func (u loginuser) WebAuthnName() string        { return u.sub }
+func (u loginuser) WebAuthnDisplayName() string { return u.sub }
+func (u loginuser) WebAuthnCredentials() []webauthn.Credential {
+	return []webauthn.Credential{u.credential}
 }
 
 // Rename gives one of the User's Passkeys a name they know it by.
